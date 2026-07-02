@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Tenant ───────────────────────────────
+model Clinica {
+  id         String     @id @default(uuid())
+  nome       String
+  slug       String     @unique
+  criadoEm   DateTime   @default(now())
+
+  usuarios   Usuario[]
+  pacientes  Paciente[]
+  logs       LogAuditoria[]
+}
+
+model Usuario {
+  id         String   @id @default(uuid())
+  clinicaId  String
+  nome       String
+  email      String   @unique
+  senhaHash  String
+  papel      Papel    @default(OPERADOR)
+  criadoEm   DateTime @default(now())
+
+  clinica    Clinica  @relation(fields: [clinicaId], references: [id])
+  logs       LogAuditoria[]
+}
+
+model Paciente {
+  id            String        @id @default(uuid())
+  clinicaId     String
+  nome          String
+  telefone      String?
+  email         String?
+  diaPreferido  DiaSemana
+  horarioFixo   String        // "HH:MM"
+  tipoSessao    TipoSessao
+  statusGeral   StatusCliente @default(ATIVO)
+  criadoEm      DateTime      @default(now())
+
+  clinica       Clinica       @relation(fields: [clinicaId], references: [id])
+  pacotes       Pacote[]
+  agendamentos  Agendamento[]
+
+  @@index([clinicaId])
+}
+
+model Pacote {
+  id            String        @id @default(uuid())
+  pacienteId    String
+  tipo          TipoPacote
+  totalSessoes  Int
+  dataInicial   DateTime
+  status        StatusPacote  @default(ATIVO)
+  criadoEm      DateTime      @default(now())
+
+  paciente      Paciente      @relation(fields: [pacienteId], references: [id])
+  agendamentos  Agendamento[]
+
+  @@index([pacienteId])
+}
+
+model Agendamento {
+  id                String         @id @default(uuid())
+  pacoteId          String
+  pacienteId        String
+  numeroSessao      Int
+  totalPacote       Int
+  inicio            DateTime
+  duracaoMin        Int            @default(45)
+  status            StatusSessao   @default(AGENDADA)
+  googleEventId     String?
+  googleCalendarId  String?
+  linkMeet          String?
+  criadoEm          DateTime       @default(now())
+
+  pacote            Pacote         @relation(fields: [pacoteId], references: [id])
+  paciente          Paciente       @relation(fields: [pacienteId], references: [id])
+
+  @@index([pacienteId])
+  @@index([inicio])
+}
+
+model LogAuditoria {
+  id         String    @id @default(uuid())
+  clinicaId  String
+  usuarioId  String?
+  acao       String
+  detalhe    String?
+  criadoEm   DateTime  @default(now())
+
+  clinica    Clinica   @relation(fields: [clinicaId], references: [id])
+  usuario    Usuario?  @relation(fields: [usuarioId], references: [id])
+
+  @@index([clinicaId])
+}
+
+// ─── Enums ────────────────────────────────
+enum Papel {
+  ADMIN
+  PROFISSIONAL
+  OPERADOR
+}
+
+enum DiaSemana {
+  SEGUNDA
+  TERCA
+  QUARTA
+  QUINTA
+  SEXTA
+  SABADO
+  DOMINGO
+}
+
+enum TipoSessao {
+  ONLINE
+  PRESENCIAL
+  AVAL_ONLINE
+  AVAL_PRESENCIAL
+}
+
+enum StatusCliente {
+  ATIVO
+  CANCELADO
+  FINALIZADO
+}
+
+enum TipoPacote {
+  AVULSA
+  MENSAL
+  BIMESTRAL
+  TRIMESTRAL
+  PERSONALIZADO
+}
+
+enum StatusPacote {
+  ATIVO
+  CANCELADO
+  FINALIZADO
+}
+
+enum StatusSessao {
+  AGENDADA
+  REAGENDADA
+  REALIZADA
+  NAO_REALIZADA
+  CANCELADA
+}
