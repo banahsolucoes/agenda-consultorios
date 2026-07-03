@@ -32,22 +32,45 @@ model Usuario {
 }
 
 model Paciente {
-  id            String        @id @default(uuid())
-  clinicaId     String
-  nome          String
-  telefone      String?
-  email         String?
-  diaPreferido  DiaSemana
-  horarioFixo   String        // "HH:MM"
-  tipoSessao    TipoSessao
-  statusGeral   StatusCliente @default(ATIVO)
-  criadoEm      DateTime      @default(now())
+  id              String          @id @default(uuid())
+  clinicaId       String
+  nome            String
+  telefone        String?
+  email           String?
+  cpf             String?
+  logradouro      String?
+  numero          String?
+  complemento     String?
+  bairro          String?
+  cidade          String?
+  estado          String?
+  cep             String?
+  quemIndicou     String?
+  origemCadastro  OrigemCadastro  @default(MANUAL)
+  diaPreferido    DiaSemana
+  horarioFixo     String          // "HH:MM"
+  tipoSessao      TipoSessao
+  statusGeral     StatusCliente   @default(ATIVO)
+  criadoEm        DateTime        @default(now())
 
-  clinica       Clinica       @relation(fields: [clinicaId], references: [id])
-  pacotes       Pacote[]
-  agendamentos  Agendamento[]
+  clinica         Clinica         @relation(fields: [clinicaId], references: [id])
+  pacotes         Pacote[]
+  agendamentos    Agendamento[]
+  consentimentos  Consentimento[]
 
   @@index([clinicaId])
+}
+
+model Consentimento {
+  id           String    @id @default(uuid())
+  pacienteId   String
+  versaoTermo  String
+  finalidade   String
+  aceitoEm     DateTime  @default(now())
+
+  paciente     Paciente  @relation(fields: [pacienteId], references: [id])
+
+  @@index([pacienteId])
 }
 
 model Pacote {
@@ -128,6 +151,11 @@ enum StatusCliente {
   ATIVO
   CANCELADO
   FINALIZADO
+}
+
+enum OrigemCadastro {
+  MANUAL
+  FORMS
 }
 
 enum TipoPacote {
