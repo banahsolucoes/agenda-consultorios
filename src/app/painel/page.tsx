@@ -38,8 +38,9 @@ const STATUS_SESSAO_OPCOES = [
   "NAO_REALIZADA",
 ] as const;
 
-// Sessões consumidas não podem ter dia/horário editados (a API também bloqueia)
-const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
+// Sessões nesses status viram registro somente-leitura na tela: nenhum
+// controle (menu de status, editar, copiar, seleção para adiar) fica clicável
+const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 
 interface Paciente {
   id: string;
@@ -653,7 +654,8 @@ export default function PainelPage() {
 
   // Adiar sessões a partir de uma sessão de corte escolhida
   function abrirModalAdiar() {
-    setSessaoCorteId(sessoes[0]?.id ?? "");
+    const primeiraDisponivel = sessoes.find((s) => !STATUS_TRAVADOS.includes(s.status));
+    setSessaoCorteId(primeiraDisponivel?.id ?? "");
     setErroAdiar("");
     setModalAdiar(true);
   }
@@ -1114,11 +1116,11 @@ export default function PainelPage() {
             ) : (
               <ul className="space-y-3">
                 {sessoes.map((s) => {
-                  const consumida = STATUS_CONSUMIDOS.includes(s.status);
+                  const travada = STATUS_TRAVADOS.includes(s.status);
                   return (
                   <li
                     key={s.id}
-                    className="rounded-lg border border-border p-3"
+                    className={`rounded-lg border border-border p-3 ${travada ? "opacity-70" : ""}`}
                   >
                     <div className="flex items-start justify-between">
                       <div>
@@ -1139,13 +1141,13 @@ export default function PainelPage() {
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <MenuStatus
                         status={s.status}
-                        disabled={statusSalvandoId === s.id}
+                        disabled={statusSalvandoId === s.id || travada}
                         onEscolher={(novoStatus) => handleMudarStatus(s.id, novoStatus)}
                       />
                       <button
                         onClick={() => abrirModalEditar(s)}
-                        disabled={consumida}
-                        title={consumida ? "Sessão consumida não pode ser editada" : "Editar dia e horário"}
+                        disabled={travada}
+                        title={travada ? "Sessão consumida — somente leitura" : "Editar dia e horário"}
                         className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-sm text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <IconLapis className="h-3.5 w-3.5" />
@@ -1157,13 +1159,17 @@ export default function PainelPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => copiar(montarMensagemConfirmacao(s), `${s.id}-conf`)}
-                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10"
+                        disabled={travada}
+                        title={travada ? "Sessão consumida — somente leitura" : undefined}
+                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
                       >
                         {copiadoId === `${s.id}-conf` ? "Copiado!" : "Copiar confirmação"}
                       </button>
                       <button
                         onClick={() => copiar(montarMensagemMeet(s), `${s.id}-meet`)}
-                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10"
+                        disabled={travada}
+                        title={travada ? "Sessão consumida — somente leitura" : undefined}
+                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
                       >
                         {copiadoId === `${s.id}-meet` ? "Copiado!" : "Copiar link Meet"}
                       </button>
@@ -1462,8 +1468,9 @@ export default function PainelPage() {
                   className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 >
                   {sessoes.map((s) => (
-                    <option key={s.id} value={s.id}>
+                    <option key={s.id} value={s.id} disabled={STATUS_TRAVADOS.includes(s.status)}>
                       Sessão {s.numeroSessao}/{s.totalPacote} — {formatarDataHora(s.inicio)}
+                      {STATUS_TRAVADOS.includes(s.status) ? ` (${statusLabel(s.status)})` : ""}
                     </option>
                   ))}
                 </select>
