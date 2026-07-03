@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
@@ -8,13 +9,20 @@ const DIA_NUM: Record<string, number> = {
 };
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const usuario = await getUsuarioLogado();
+  if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+
   const { id } = await ctx.params;
+  const sessao = await prisma.agendamento.findUnique({
+    where: { id },
+    include: { paciente: true },
+  });
+  if (!sessao || sessao.paciente.clinicaId !== usuario.clinicaId) {
+    return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
+  }
+
   const body = await req.json();
 
-  const sessao = await prisma.agendamento.findUnique({ where: { id } });
-  if (!sessao) return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
-
-  // --- mudar status ---
   if (body.status) {
     const validos = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA", "CANCELADA"];
     if (!validos.includes(body.status)) {
@@ -23,14 +31,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const atualizada = await prisma.agendamento.update({
       where: { id }, data: { status: body.status },
     });
-
-    // verifica finalização do pacote
     const finalizou = await verificarFinalizacao(sessao.pacoteId);
-
     return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
 
-  // --- editar dia/horário (trava: mesma semana seg-dom) ---
   if (body.novoDia && body.novoHorario) {
     if (STATUS_CONSUMIDOS.includes(sessao.status)) {
       return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });

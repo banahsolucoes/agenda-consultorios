@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getUsuarioLogado } from "@/lib/auth";
 
-// POST /api/pacientes/[id]/adiar  body: { sessaoCorteId: string }
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const usuario = await getUsuarioLogado();
+  if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+
   const { id: pacienteId } = await ctx.params;
+  const paciente = await prisma.paciente.findUnique({ where: { id: pacienteId } });
+  if (!paciente || paciente.clinicaId !== usuario.clinicaId) {
+    return NextResponse.json({ erro: "paciente não encontrado" }, { status: 404 });
+  }
+
   const body = await req.json();
   const { sessaoCorteId } = body;
-
   if (!sessaoCorteId) {
     return NextResponse.json({ erro: "sessaoCorteId é obrigatório" }, { status: 400 });
   }
@@ -21,7 +28,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ erro: "sessão de corte não encontrada" }, { status: 404 });
   }
 
-  // corte + todas as seguintes (por número) voltam 7 dias
   let adiadas = 0;
   for (const s of sessoes) {
     if (s.numeroSessao < corte.numeroSessao) continue;
