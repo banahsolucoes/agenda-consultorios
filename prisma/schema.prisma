@@ -9,14 +9,53 @@ datasource db {
 
 // ─── Tenant ───────────────────────────────
 model Clinica {
-  id         String     @id @default(uuid())
-  nome       String
-  slug       String     @unique
-  criadoEm   DateTime   @default(now())
+  id                        String            @id @default(uuid())
+  nome                      String
+  slug                      String            @unique
+  logo                      String?
+  corPrimaria               String?
+  corSecundaria             String?
+  duracaoPadraoMin          Int               @default(45)
+  nomeAssistente            String            @default("Assistente")
+  horarioLimiteConfirmacao  String            @default("17:00")
+  criadoEm                  DateTime          @default(now())
 
-  usuarios   Usuario[]
-  pacientes  Paciente[]
-  logs       LogAuditoria[]
+  usuarios                  Usuario[]
+  pacientes                 Paciente[]
+  logs                      LogAuditoria[]
+  horariosTrabalho          HorarioTrabalho[]
+  tiposSessao               TipoSessao[]
+}
+
+// Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
+model TipoSessao {
+  id                String        @id @default(uuid())
+  clinicaId         String
+  nome              String
+  cor               String?
+  duracaoPadraoMin  Int           @default(45)
+  ehOnline          Boolean       @default(false)
+  valor             Decimal?
+  criadoEm          DateTime      @default(now())
+
+  clinica           Clinica       @relation(fields: [clinicaId], references: [id])
+  pacientes         Paciente[]
+  agendamentos      Agendamento[]
+
+  @@index([clinicaId])
+}
+
+model HorarioTrabalho {
+  id          String     @id @default(uuid())
+  clinicaId   String
+  diaSemana   DiaSemana
+  horaInicio  String     // "HH:MM"
+  horaFim     String     // "HH:MM"
+  criadoEm    DateTime   @default(now())
+
+  clinica     Clinica    @relation(fields: [clinicaId], references: [id])
+
+  @@index([clinicaId])
 }
 
 model Usuario {
@@ -49,16 +88,23 @@ model Paciente {
   origemCadastro  OrigemCadastro  @default(MANUAL)
   diaPreferido    DiaSemana
   horarioFixo     String          // "HH:MM"
-  tipoSessao      TipoSessao
+  tipoSessaoId    String?
+  // Legado temporário: cópia em texto do valor do antigo enum TipoSessao (ex.: "ONLINE"),
+  // gravada pela migration antes de dropar a coluna/enum originais. Serve só para o script
+  // de seed ler e popular tipoSessaoId; remover esta coluna depois que o seed rodar.
+  tipoSessaoLegado String?
   statusGeral     StatusCliente   @default(ATIVO)
+  finalizadoEm    DateTime?
   criadoEm        DateTime        @default(now())
 
   clinica         Clinica         @relation(fields: [clinicaId], references: [id])
+  tipoSessao      TipoSessao?     @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
   pacotes         Pacote[]
   agendamentos    Agendamento[]
   consentimentos  Consentimento[]
 
   @@index([clinicaId])
+  @@index([tipoSessaoId])
 }
 
 model Consentimento {
@@ -100,13 +146,16 @@ model Agendamento {
   googleEventId     String?
   googleCalendarId  String?
   linkMeet          String?
+  tipoSessaoId      String?
   criadoEm          DateTime       @default(now())
 
   pacote            Pacote         @relation(fields: [pacoteId], references: [id])
   paciente          Paciente       @relation(fields: [pacienteId], references: [id])
+  tipoSessao        TipoSessao?    @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
 
   @@index([pacienteId])
   @@index([inicio])
+  @@index([tipoSessaoId])
 }
 
 model LogAuditoria {
@@ -138,13 +187,6 @@ enum DiaSemana {
   SEXTA
   SABADO
   DOMINGO
-}
-
-enum TipoSessao {
-  ONLINE
-  PRESENCIAL
-  AVAL_ONLINE
-  AVAL_PRESENCIAL
 }
 
 enum StatusCliente {

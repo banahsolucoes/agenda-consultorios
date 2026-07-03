@@ -27,6 +27,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: error?.message ?? "falha ao criar" }, { status: 400 });
   }
 
+  // Quando o e-mail já pertence a uma conta confirmada, o Supabase retorna um
+  // usuário obfuscado (para não revelar que o e-mail existe) com "identities"
+  // vazio em vez de um erro. Criar o Usuario com esse id quebraria o login,
+  // pois ele nunca bate com o id real em auth.users.
+  if (data.user.identities && data.user.identities.length === 0) {
+    return NextResponse.json({ erro: "e-mail já cadastrado" }, { status: 409 });
+  }
+
   // cria o registro de negócio, usando o MESMO id do Auth
   const usuario = await prisma.usuario.create({
     data: {

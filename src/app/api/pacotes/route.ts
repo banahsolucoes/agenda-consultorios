@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
     data: { pacienteId, tipo, totalSessoes: total, dataInicial: primeira },
   });
 
+  // Renovação: um pacote novo reativa o paciente, saindo de Finalizado/Cancelado
+  if (paciente.statusGeral !== "ATIVO") {
+    await prisma.paciente.update({
+      where: { id: pacienteId },
+      data: { statusGeral: "ATIVO", finalizadoEm: null },
+    });
+  }
+
   const sessoes = [];
   for (let i = 0; i < total; i++) {
     const inicio = new Date(primeira);
@@ -51,6 +59,7 @@ export async function POST(req: NextRequest) {
       pacoteId: pacote.id, pacienteId,
       numeroSessao: i + 1, totalPacote: total,
       inicio, duracaoMin: 45,
+      tipoSessaoId: paciente.tipoSessaoId,
     });
   }
   await prisma.agendamento.createMany({ data: sessoes });

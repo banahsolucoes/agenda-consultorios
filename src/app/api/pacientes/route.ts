@@ -21,11 +21,20 @@ export async function POST(req: NextRequest) {
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
 
   const body = await req.json();
-  const obrigatorios = ["nome", "diaPreferido", "horarioFixo", "tipoSessao"];
+  const obrigatorios = ["nome", "diaPreferido", "horarioFixo", "tipoSessaoId"];
   for (const campo of obrigatorios) {
     if (!body[campo]) {
       return NextResponse.json({ erro: `${campo} é obrigatório` }, { status: 400 });
     }
+  }
+
+  const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
+  if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
+    return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
+  }
+
+  if (body.origemCadastro && !["MANUAL", "FORMS"].includes(body.origemCadastro)) {
+    return NextResponse.json({ erro: "origemCadastro inválida" }, { status: 400 });
   }
 
   const paciente = await prisma.paciente.create({
@@ -43,9 +52,10 @@ export async function POST(req: NextRequest) {
       estado: body.estado ?? null,
       cep: body.cep ?? null,
       quemIndicou: body.quemIndicou ?? null,
+      origemCadastro: body.origemCadastro ?? "MANUAL",
       diaPreferido: body.diaPreferido,
       horarioFixo: body.horarioFixo,
-      tipoSessao: body.tipoSessao,
+      tipoSessaoId: body.tipoSessaoId,
     },
   });
 

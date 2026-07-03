@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  diaSemanaLabel,
+  tipoPacoteLabel,
+  statusLabel,
+  origemCadastroLabel,
+} from "@/lib/labels";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -14,19 +20,86 @@ const DIAS_SEMANA = [
   "DOMINGO",
 ] as const;
 
-const TIPOS_SESSAO = [
-  "ONLINE",
-  "PRESENCIAL",
-  "AVAL_ONLINE",
-  "AVAL_PRESENCIAL",
+const TIPOS_PACOTE = [
+  "AVULSA",
+  "MENSAL",
+  "BIMESTRAL",
+  "TRIMESTRAL",
+  "PERSONALIZADO",
 ] as const;
+
+const ORIGEM_CADASTRO_OPCOES = ["MANUAL", "FORMS"] as const;
+
+// Status disponíveis para o operador escolher manualmente numa sessão
+const STATUS_SESSAO_OPCOES = [
+  "AGENDADA",
+  "REAGENDADA",
+  "REALIZADA",
+  "NAO_REALIZADA",
+] as const;
+
+// Sessões consumidas não podem ter dia/horário editados (a API também bloqueia)
+const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 
 interface Paciente {
   id: string;
   nome: string;
   telefone: string | null;
   email: string | null;
+  cpf: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  cep: string | null;
+  quemIndicou: string | null;
+  origemCadastro: string;
+  diaPreferido: string;
+  horarioFixo: string;
+  tipoSessaoId: string | null;
   statusGeral: "ATIVO" | "CANCELADO" | "FINALIZADO";
+}
+
+// Pendências mostradas no sino de notificações
+interface NotificacaoSessao {
+  id: string;
+  numeroSessao: number;
+  totalPacote: number;
+  inicio: string;
+  paciente: { id: string; nome: string };
+}
+interface NotificacaoPaciente {
+  id: string;
+  nome: string;
+  finalizadoEm: string;
+}
+interface Notificacoes {
+  reagendadas: NotificacaoSessao[];
+  finalizados: NotificacaoPaciente[];
+}
+
+interface Sessao {
+  id: string;
+  pacoteId: string;
+  pacienteId: string;
+  numeroSessao: number;
+  totalPacote: number;
+  inicio: string;
+  duracaoMin: number;
+  status: string;
+  linkMeet: string | null;
+}
+
+interface Clinica {
+  nomeAssistente: string;
+  horarioLimiteConfirmacao: string;
+}
+
+interface TipoSessao {
+  id: string;
+  nome: string;
 }
 
 // Estado inicial do formulário de novo paciente
@@ -43,10 +116,17 @@ const FORM_VAZIO = {
   cidade: "",
   estado: "",
   quemIndicou: "",
+  origemCadastro: "MANUAL" as string,
   diaPreferido: DIAS_SEMANA[0] as string,
   horarioFixo: "",
-  tipoSessao: TIPOS_SESSAO[0] as string,
+  tipoSessaoId: "",
 };
+
+// Aplica máscara 00000-000 ao CEP conforme o usuário digita
+function mascararCep(valor: string) {
+  const digitos = valor.replace(/\D/g, "").slice(0, 8);
+  return digitos.length > 5 ? `${digitos.slice(0, 5)}-${digitos.slice(5)}` : digitos;
+}
 
 // Remove acentos e normaliza para minúsculas, usado no filtro de busca
 function normalizar(texto: string) {
@@ -56,6 +136,144 @@ function normalizar(texto: string) {
     .toLowerCase();
 }
 
+// Formata a data/hora da sessão no padrão pt-BR
+function formatarDataHora(iso: string) {
+  return new Date(iso).toLocaleString("pt-BR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// Data curta dd/mm e horário HH:MM, usados nas mensagens de copiar-colar
+function formatarDataCurta(iso: string) {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+function formatarHorario(iso: string) {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Cor da badge de status (sessão ou paciente/pacote)
+function corStatus(status: string) {
+  switch (status) {
+    case "AGENDADA":
+      return "bg-blue/10 text-blue";
+    case "REAGENDADA":
+      return "bg-orange/10 text-orange";
+    case "REALIZADA":
+    case "ATIVO":
+      return "bg-green/10 text-green";
+    case "NAO_REALIZADA":
+    case "CANCELADO":
+      return "bg-red/10 text-red";
+    case "CANCELADA":
+    case "FINALIZADO":
+      return "bg-muted/10 text-muted";
+    default:
+      return "bg-muted/10 text-muted";
+  }
+}
+
+// Cor sólida usada no ponto do menu de status (mesma paleta de corStatus)
+function corPontoStatus(status: string) {
+  switch (status) {
+    case "AGENDADA":
+      return "bg-blue";
+    case "REAGENDADA":
+      return "bg-orange";
+    case "REALIZADA":
+      return "bg-green";
+    case "NAO_REALIZADA":
+      return "bg-red";
+    default:
+      return "bg-muted";
+  }
+}
+
+// Ícone de lápis (botão Editar)
+function IconLapis({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M14.7 2.3a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4L7 15.9l-3.5.6.6-3.5L14.7 2.3Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Ícone de sino (notificações)
+function IconSino({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M10 2a4 4 0 0 0-4 4v2.2c0 .6-.2 1.2-.6 1.7L4 12h12l-1.4-2.1a2.8 2.8 0 0 1-.6-1.7V6a4 4 0 0 0-4-4Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M8 15a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Menu de status de uma sessão: botão com ponto colorido + opções com ícone/cor
+function MenuStatus({
+  status,
+  disabled,
+  onEscolher,
+}: {
+  status: string;
+  disabled?: boolean;
+  onEscolher: (novoStatus: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+
+  return (
+    <div
+      className="relative"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setAberto(false);
+      }}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setAberto((a) => !a)}
+        className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-sm text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className={`h-2 w-2 rounded-full ${corPontoStatus(status)}`} />
+        {statusLabel(status)}
+        <span className="text-muted">▾</span>
+      </button>
+      {aberto && (
+        <div className="absolute left-0 z-10 mt-1 w-40 rounded-lg border border-border bg-surface p-1 shadow-lg">
+          {STATUS_SESSAO_OPCOES.map((st) => (
+            <button
+              key={st}
+              type="button"
+              onClick={() => {
+                onEscolher(st);
+                setAberto(false);
+              }}
+              className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-bg ${
+                st === status ? "text-gold" : "text-fg"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${corPontoStatus(st)}`} />
+              {statusLabel(st)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PainelPage() {
   const router = useRouter();
 
@@ -63,11 +281,50 @@ export default function PainelPage() {
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [busca, setBusca] = useState("");
   const [saindo, setSaindo] = useState(false);
+  const [clinica, setClinica] = useState<Clinica | null>(null);
+  const [tiposSessao, setTiposSessao] = useState<TipoSessao[]>([]);
+
+  // Sino de notificações (sessões reagendadas + pacientes finalizados)
+  const [notificacoes, setNotificacoes] = useState<Notificacoes>({ reagendadas: [], finalizados: [] });
+  const [sinoAberto, setSinoAberto] = useState(false);
 
   const [modalAberto, setModalAberto] = useState(false);
+  const [pacienteEditando, setPacienteEditando] = useState<Paciente | null>(null);
   const [form, setForm] = useState(FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState("");
+
+  // Paciente selecionado (abre o painel lateral de sessões) e suas sessões
+  const [pacienteSelecionado, setPacienteSelecionado] = useState<Paciente | null>(null);
+  const [sessoes, setSessoes] = useState<Sessao[]>([]);
+  const [carregandoSessoes, setCarregandoSessoes] = useState(false);
+  const [statusSalvandoId, setStatusSalvandoId] = useState<string | null>(null);
+  const [copiadoId, setCopiadoId] = useState<string | null>(null);
+
+  // Modal: criar pacote
+  const [modalPacote, setModalPacote] = useState(false);
+  const [tipoPacote, setTipoPacote] = useState<string>(TIPOS_PACOTE[0]);
+  const [totalPacote, setTotalPacote] = useState("");
+  const [salvandoPacote, setSalvandoPacote] = useState(false);
+  const [erroPacote, setErroPacote] = useState("");
+
+  // Modal: editar sessão pontual (novo dia + novo horário)
+  const [sessaoEditando, setSessaoEditando] = useState<Sessao | null>(null);
+  const [formEditar, setFormEditar] = useState({ novoDia: DIAS_SEMANA[0] as string, novoHorario: "" });
+  const [salvandoEditar, setSalvandoEditar] = useState(false);
+  const [erroEditar, setErroEditar] = useState("");
+
+  // Modal: empurrar sessões futuras em N semanas
+  const [modalEmpurrar, setModalEmpurrar] = useState(false);
+  const [semanasEmpurrar, setSemanasEmpurrar] = useState("1");
+  const [salvandoEmpurrar, setSalvandoEmpurrar] = useState(false);
+  const [erroEmpurrar, setErroEmpurrar] = useState("");
+
+  // Modal: adiar sessões a partir de uma sessão de corte
+  const [modalAdiar, setModalAdiar] = useState(false);
+  const [sessaoCorteId, setSessaoCorteId] = useState("");
+  const [salvandoAdiar, setSalvandoAdiar] = useState(false);
+  const [erroAdiar, setErroAdiar] = useState("");
 
   // Busca a lista de pacientes da clínica logada
   async function carregarPacientes() {
@@ -82,8 +339,37 @@ export default function PainelPage() {
     }
   }
 
+  // Recarrega a lista de pacientes e sincroniza o paciente aberto no painel lateral
+  // (o statusGeral dele pode mudar sozinho: pacote finalizado, renovação, etc.)
+  async function recarregarPacienteSelecionado() {
+    const res = await fetch("/api/pacientes");
+    if (!res.ok) return;
+    const lista: Paciente[] = await res.json();
+    setPacientes(lista);
+    setPacienteSelecionado((atual) => (atual ? lista.find((p) => p.id === atual.id) ?? atual : atual));
+  }
+
+  async function carregarClinica() {
+    const res = await fetch("/api/clinica");
+    if (res.ok) setClinica(await res.json());
+  }
+
+  async function carregarTiposSessao() {
+    const res = await fetch("/api/clinica/tipos-sessao");
+    if (res.ok) setTiposSessao(await res.json());
+  }
+
+  // Busca as pendências do sino (chamada de novo após qualquer operação que possa mudar status)
+  async function carregarNotificacoes() {
+    const res = await fetch("/api/notificacoes");
+    if (res.ok) setNotificacoes(await res.json());
+  }
+
   useEffect(() => {
     carregarPacientes();
+    carregarClinica();
+    carregarTiposSessao();
+    carregarNotificacoes();
   }, []);
 
   // Lista filtrada por nome, ignorando maiúsculas/minúsculas e acentos
@@ -93,8 +379,36 @@ export default function PainelPage() {
     return pacientes.filter((p) => normalizar(p.nome).includes(termo));
   }, [pacientes, busca]);
 
+  const totalPendencias = notificacoes.reagendadas.length + notificacoes.finalizados.length;
+
   function abrirModal() {
-    setForm(FORM_VAZIO);
+    setPacienteEditando(null);
+    setForm({ ...FORM_VAZIO, tipoSessaoId: tiposSessao[0]?.id ?? "" });
+    setErroForm("");
+    setModalAberto(true);
+  }
+
+  // Abre o mesmo modal preenchido com os dados do paciente, para edição de cadastro
+  function abrirModalEdicao(p: Paciente) {
+    setPacienteEditando(p);
+    setForm({
+      nome: p.nome,
+      cpf: p.cpf ?? "",
+      telefone: p.telefone ?? "",
+      email: p.email ?? "",
+      cep: p.cep ?? "",
+      logradouro: p.logradouro ?? "",
+      numero: p.numero ?? "",
+      complemento: p.complemento ?? "",
+      bairro: p.bairro ?? "",
+      cidade: p.cidade ?? "",
+      estado: p.estado ?? "",
+      quemIndicou: p.quemIndicou ?? "",
+      origemCadastro: p.origemCadastro,
+      diaPreferido: p.diaPreferido,
+      horarioFixo: p.horarioFixo,
+      tipoSessaoId: p.tipoSessaoId ?? "",
+    });
     setErroForm("");
     setModalAberto(true);
   }
@@ -108,7 +422,8 @@ export default function PainelPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
+    const valorFinal = name === "cep" ? mascararCep(value) : value;
+    setForm((f) => ({ ...f, [name]: valorFinal }));
   }
 
   async function handleSalvar(e: React.FormEvent) {
@@ -117,8 +432,10 @@ export default function PainelPage() {
     setSalvando(true);
 
     try {
-      const res = await fetch("/api/pacientes", {
-        method: "POST",
+      const url = pacienteEditando ? `/api/pacientes/${pacienteEditando.id}` : "/api/pacientes";
+      const method = pacienteEditando ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
@@ -130,7 +447,7 @@ export default function PainelPage() {
       }
 
       setModalAberto(false);
-      await carregarPacientes();
+      await recarregarPacienteSelecionado();
     } catch {
       setErroForm("não foi possível salvar o paciente");
     } finally {
@@ -147,21 +464,337 @@ export default function PainelPage() {
     }
   }
 
+  // Busca as sessões do paciente selecionado
+  async function carregarSessoes(pacienteId: string) {
+    setCarregandoSessoes(true);
+    try {
+      const res = await fetch(`/api/agendamentos?pacienteId=${pacienteId}`);
+      if (res.ok) {
+        setSessoes(await res.json());
+      }
+    } finally {
+      setCarregandoSessoes(false);
+    }
+  }
+
+  function abrirPainelPaciente(p: Paciente) {
+    setPacienteSelecionado(p);
+    setSessoes([]);
+    carregarSessoes(p.id);
+  }
+
+  function fecharPainelPaciente() {
+    setPacienteSelecionado(null);
+    setSessoes([]);
+  }
+
+  // Ao clicar numa pendência do sino, fecha o dropdown e abre o painel do paciente
+  function abrirNotificacaoPaciente(pacienteId: string) {
+    setSinoAberto(false);
+    const p = pacientes.find((pac) => pac.id === pacienteId);
+    if (p) abrirPainelPaciente(p);
+  }
+
+  // Criação de pacote (só aparece quando o paciente ainda não tem sessões)
+  function abrirModalPacote() {
+    setTipoPacote(TIPOS_PACOTE[0]);
+    setTotalPacote("");
+    setErroPacote("");
+    setModalPacote(true);
+  }
+
+  async function handleCriarPacote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pacienteSelecionado) return;
+    setErroPacote("");
+    setSalvandoPacote(true);
+
+    try {
+      const body: Record<string, unknown> = {
+        pacienteId: pacienteSelecionado.id,
+        tipo: tipoPacote,
+      };
+      if (tipoPacote === "PERSONALIZADO") {
+        body.totalSessoes = Number(totalPacote);
+      }
+
+      const res = await fetch("/api/pacotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroPacote(data?.erro ?? "não foi possível criar o pacote");
+        return;
+      }
+
+      setModalPacote(false);
+      await carregarSessoes(pacienteSelecionado.id);
+      await recarregarPacienteSelecionado();
+      await carregarNotificacoes();
+    } catch {
+      setErroPacote("não foi possível criar o pacote");
+    } finally {
+      setSalvandoPacote(false);
+    }
+  }
+
+  // Troca de status de uma sessão via dropdown
+  async function handleMudarStatus(sessaoId: string, novoStatus: string) {
+    if (!pacienteSelecionado) return;
+    setStatusSalvandoId(sessaoId);
+    try {
+      const res = await fetch(`/api/sessoes/${sessaoId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: novoStatus }),
+      });
+      if (res.ok) {
+        await carregarSessoes(pacienteSelecionado.id);
+        await recarregarPacienteSelecionado();
+        await carregarNotificacoes();
+      }
+    } finally {
+      setStatusSalvandoId(null);
+    }
+  }
+
+  // Edição pontual de dia/horário de uma sessão
+  function abrirModalEditar(s: Sessao) {
+    setSessaoEditando(s);
+    setFormEditar({ novoDia: DIAS_SEMANA[0], novoHorario: "" });
+    setErroEditar("");
+  }
+
+  async function handleSalvarEdicao(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sessaoEditando || !pacienteSelecionado) return;
+    setErroEditar("");
+    setSalvandoEditar(true);
+
+    try {
+      const res = await fetch(`/api/sessoes/${sessaoEditando.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formEditar),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroEditar(data?.erro ?? "não foi possível editar a sessão");
+        return;
+      }
+
+      setSessaoEditando(null);
+      await carregarSessoes(pacienteSelecionado.id);
+      await carregarNotificacoes();
+    } catch {
+      setErroEditar("não foi possível editar a sessão");
+    } finally {
+      setSalvandoEditar(false);
+    }
+  }
+
+  // Empurrar todas as sessões futuras em N semanas
+  function abrirModalEmpurrar() {
+    setSemanasEmpurrar("1");
+    setErroEmpurrar("");
+    setModalEmpurrar(true);
+  }
+
+  async function handleSalvarEmpurrar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pacienteSelecionado) return;
+    setErroEmpurrar("");
+    setSalvandoEmpurrar(true);
+
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}/empurrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ semanas: Number(semanasEmpurrar) }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroEmpurrar(data?.erro ?? "não foi possível empurrar as sessões");
+        return;
+      }
+
+      setModalEmpurrar(false);
+      await carregarSessoes(pacienteSelecionado.id);
+      await carregarNotificacoes();
+    } catch {
+      setErroEmpurrar("não foi possível empurrar as sessões");
+    } finally {
+      setSalvandoEmpurrar(false);
+    }
+  }
+
+  // Adiar sessões a partir de uma sessão de corte escolhida
+  function abrirModalAdiar() {
+    setSessaoCorteId(sessoes[0]?.id ?? "");
+    setErroAdiar("");
+    setModalAdiar(true);
+  }
+
+  async function handleSalvarAdiar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pacienteSelecionado || !sessaoCorteId) return;
+    setErroAdiar("");
+    setSalvandoAdiar(true);
+
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}/adiar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessaoCorteId }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroAdiar(data?.erro ?? "não foi possível adiar as sessões");
+        return;
+      }
+
+      setModalAdiar(false);
+      await carregarSessoes(pacienteSelecionado.id);
+      await carregarNotificacoes();
+    } catch {
+      setErroAdiar("não foi possível adiar as sessões");
+    } finally {
+      setSalvandoAdiar(false);
+    }
+  }
+
+  // Monta a mensagem de confirmação de sessão, pronta para copiar e colar
+  function montarMensagemConfirmacao(s: Sessao) {
+    if (!pacienteSelecionado || !clinica) return "";
+    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
+    return (
+      `Olá, ${primeiroNome}! Passando para confirmar sua sessão no dia ${formatarDataCurta(s.inicio)} às ${formatarHorario(s.inicio)}. ` +
+      `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}. Até lá!\n— ${clinica.nomeAssistente}`
+    );
+  }
+
+  // Monta a mensagem com o link do Meet, pronta para copiar e colar
+  function montarMensagemMeet(s: Sessao) {
+    if (!pacienteSelecionado || !clinica) return "";
+    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
+    const link = s.linkMeet ?? "(link ainda não gerado)";
+    return (
+      `Olá, ${primeiroNome}! Sua sessão é no dia ${formatarDataCurta(s.inicio)} às ${formatarHorario(s.inicio)}. ` +
+      `Link de acesso: ${link}\n` +
+      `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}.\n— ${clinica.nomeAssistente}`
+    );
+  }
+
+  async function copiar(texto: string, chave: string) {
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiadoId(chave);
+      setTimeout(() => setCopiadoId((atual) => (atual === chave ? null : atual)), 2000);
+    } catch {
+      // clipboard indisponível (ex.: contexto não seguro) — falha silenciosa
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-bg">
       {/* Cabeçalho */}
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <h1 className="text-lg font-semibold text-slate-800">
+      <header className="sticky top-0 z-30 h-16 border-b border-border bg-surface">
+        <div className="mx-auto flex h-full max-w-5xl items-center justify-between px-6">
+          <h1 className="font-serif text-lg font-semibold text-fg">
             Agenda Consultórios
           </h1>
-          <button
-            onClick={handleSair}
-            disabled={saindo}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saindo ? "Saindo..." : "Sair"}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Sino de notificações: sessões reagendadas + pacientes finalizados */}
+            <div
+              className="relative"
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setSinoAberto(false);
+              }}
+            >
+              <button
+                onClick={() => setSinoAberto((a) => !a)}
+                className="relative rounded-lg border border-border p-2 text-fg hover:bg-bg"
+                aria-label="Notificações"
+              >
+                <IconSino className="h-5 w-5" />
+                {totalPendencias > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-semibold text-white">
+                    {totalPendencias}
+                  </span>
+                )}
+              </button>
+              {sinoAberto && (
+                <div className="absolute right-0 z-50 mt-2 w-80 max-w-[90vw] rounded-xl border border-border bg-surface p-3 shadow-lg">
+                  <p className="mb-2 text-sm font-semibold text-fg">Pendências</p>
+                  {totalPendencias === 0 ? (
+                    <p className="text-sm text-muted">Nenhuma pendência no momento.</p>
+                  ) : (
+                    <div className="max-h-80 space-y-3 overflow-y-auto">
+                      {notificacoes.reagendadas.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+                            Sessões reagendadas
+                          </p>
+                          <ul className="space-y-1">
+                            {notificacoes.reagendadas.map((n) => (
+                              <li key={n.id}>
+                                <button
+                                  onClick={() => abrirNotificacaoPaciente(n.paciente.id)}
+                                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-bg"
+                                >
+                                  <span className="font-medium">{n.paciente.nome}</span> — sessão{" "}
+                                  {n.numeroSessao}/{n.totalPacote} em {formatarDataHora(n.inicio)}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {notificacoes.finalizados.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+                            Renovação pendente
+                          </p>
+                          <ul className="space-y-1">
+                            {notificacoes.finalizados.map((p) => (
+                              <li key={p.id}>
+                                <button
+                                  onClick={() => abrirNotificacaoPaciente(p.id)}
+                                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-bg"
+                                >
+                                  <span className="font-medium">{p.nome}</span> — finalizado em{" "}
+                                  {formatarDataCurta(p.finalizadoEm)}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => router.push("/painel/configuracoes")}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+            >
+              Configurações
+            </button>
+            <button
+              onClick={handleSair}
+              disabled={saindo}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saindo ? "Saindo..." : "Sair"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -173,11 +806,11 @@ export default function PainelPage() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar paciente por nome..."
-            className="w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            className="w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
           />
           <button
             onClick={abrirModal}
-            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
+            className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110"
           >
             + Novo paciente
           </button>
@@ -185,34 +818,27 @@ export default function PainelPage() {
 
         {/* Lista de pacientes */}
         {carregandoLista ? (
-          <p className="text-sm text-slate-500">Carregando pacientes...</p>
+          <p className="text-sm text-muted">Carregando pacientes...</p>
         ) : pacientesFiltrados.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted">
             Nenhum paciente encontrado.
           </p>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pacientesFiltrados.map((p) => (
-              <div
+              <button
                 key={p.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                onClick={() => abrirPainelPaciente(p)}
+                className="rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40"
               >
-                <p className="font-medium text-slate-800">{p.nome}</p>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="font-medium text-fg">{p.nome}</p>
+                <p className="mt-1 text-sm text-muted">
                   {p.telefone ?? "sem telefone"}
                 </p>
-                <span
-                  className={`mt-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                    p.statusGeral === "ATIVO"
-                      ? "bg-teal-50 text-teal-700"
-                      : p.statusGeral === "FINALIZADO"
-                        ? "bg-slate-100 text-slate-600"
-                        : "bg-red-50 text-red-600"
-                  }`}
-                >
-                  {p.statusGeral}
+                <span className={`mt-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(p.statusGeral)}`}>
+                  {statusLabel(p.statusGeral)}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -220,105 +846,566 @@ export default function PainelPage() {
 
       {/* Modal de cadastro de paciente */}
       {modalAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-800">
-                Novo paciente
+              <h2 className="font-serif text-lg font-semibold text-fg">
+                {pacienteEditando ? "Editar paciente" : "Novo paciente"}
               </h2>
               <button
                 onClick={fecharModal}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-muted hover:text-fg"
                 aria-label="Fechar"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSalvar} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Campo label="Nome" name="nome" value={form.nome} onChange={handleChange} required className="sm:col-span-2" />
-              <Campo label="CPF" name="cpf" value={form.cpf} onChange={handleChange} />
-              <Campo label="Telefone" name="telefone" value={form.telefone} onChange={handleChange} />
-              <Campo label="E-mail" name="email" value={form.email} onChange={handleChange} type="email" className="sm:col-span-2" />
-
-              <Campo label="CEP" name="cep" value={form.cep} onChange={handleChange} />
-              <Campo label="Logradouro" name="logradouro" value={form.logradouro} onChange={handleChange} />
-              <Campo label="Número" name="numero" value={form.numero} onChange={handleChange} />
-              <Campo label="Complemento" name="complemento" value={form.complemento} onChange={handleChange} />
-              <Campo label="Bairro" name="bairro" value={form.bairro} onChange={handleChange} />
-              <Campo label="Cidade" name="cidade" value={form.cidade} onChange={handleChange} />
-              <Campo label="Estado" name="estado" value={form.estado} onChange={handleChange} />
-              <Campo label="Quem indicou" name="quemIndicou" value={form.quemIndicou} onChange={handleChange} />
-
-              {/* Dia preferido */}
+            <form onSubmit={handleSalvar} className="space-y-6">
+              {/* Dados pessoais */}
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Dia preferido
-                </label>
-                <select
-                  name="diaPreferido"
-                  value={form.diaPreferido}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                >
-                  {DIAS_SEMANA.map((dia) => (
-                    <option key={dia} value={dia}>
-                      {dia}
-                    </option>
-                  ))}
-                </select>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gold">
+                  Dados pessoais
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Campo label="Nome" name="nome" value={form.nome} onChange={handleChange} required className="sm:col-span-2" />
+                  <Campo label="CPF" name="cpf" value={form.cpf} onChange={handleChange} />
+                  <Campo label="Telefone" name="telefone" value={form.telefone} onChange={handleChange} />
+                  <Campo label="E-mail" name="email" value={form.email} onChange={handleChange} type="email" className="sm:col-span-2" />
+                  <Campo label="Quem indicou" name="quemIndicou" value={form.quemIndicou} onChange={handleChange} />
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">
+                      Origem do cadastro
+                    </label>
+                    <select
+                      name="origemCadastro"
+                      value={form.origemCadastro}
+                      onChange={handleChange}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    >
+                      {ORIGEM_CADASTRO_OPCOES.map((origem) => (
+                        <option key={origem} value={origem}>
+                          {origemCadastroLabel(origem)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <Campo
-                label="Horário fixo (HH:MM)"
-                name="horarioFixo"
-                value={form.horarioFixo}
-                onChange={handleChange}
-                required
-                placeholder="14:00"
-                pattern="^([01]\d|2[0-3]):[0-5]\d$"
-              />
+              {/* Endereço */}
+              <div>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gold">
+                  Endereço
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Campo label="CEP" name="cep" value={form.cep} onChange={handleChange} placeholder="00000-000" />
+                  <Campo label="Logradouro" name="logradouro" value={form.logradouro} onChange={handleChange} />
+                  <Campo label="Número" name="numero" value={form.numero} onChange={handleChange} />
+                  <Campo label="Complemento" name="complemento" value={form.complemento} onChange={handleChange} />
+                  <Campo label="Bairro" name="bairro" value={form.bairro} onChange={handleChange} />
+                  <Campo label="Cidade" name="cidade" value={form.cidade} onChange={handleChange} />
+                  <Campo label="Estado" name="estado" value={form.estado} onChange={handleChange} />
+                </div>
+              </div>
 
-              {/* Tipo de sessão */}
-              <div className="sm:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Tipo de sessão
-                </label>
-                <select
-                  name="tipoSessao"
-                  value={form.tipoSessao}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                >
-                  {TIPOS_SESSAO.map((tipo) => (
-                    <option key={tipo} value={tipo}>
-                      {tipo}
-                    </option>
-                  ))}
-                </select>
+              {/* Atendimento */}
+              <div>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gold">
+                  Atendimento
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">
+                      Dia preferido
+                    </label>
+                    <select
+                      name="diaPreferido"
+                      value={form.diaPreferido}
+                      onChange={handleChange}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    >
+                      {DIAS_SEMANA.map((dia) => (
+                        <option key={dia} value={dia}>
+                          {diaSemanaLabel(dia)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <Campo
+                    label="Horário fixo (HH:MM)"
+                    name="horarioFixo"
+                    value={form.horarioFixo}
+                    onChange={handleChange}
+                    required
+                    placeholder="14:00"
+                    pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                  />
+
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-sm font-medium text-fg">
+                      Tipo de sessão
+                    </label>
+                    {tiposSessao.length === 0 ? (
+                      <p className="text-sm text-muted">
+                        Nenhum tipo de sessão cadastrado. Configure em Configurações → Tipos de sessão.
+                      </p>
+                    ) : (
+                      <select
+                        name="tipoSessaoId"
+                        value={form.tipoSessaoId}
+                        onChange={handleChange}
+                        required
+                        className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      >
+                        {tiposSessao.map((tipo) => (
+                          <option key={tipo.id} value={tipo.id}>
+                            {tipo.nome}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {erroForm && (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 sm:col-span-2">
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
                   {erroForm}
                 </p>
               )}
 
-              <div className="flex justify-end gap-3 sm:col-span-2">
+              <div className="flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={fecharModal}
                   disabled={salvando}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={salvando}
-                  className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={salvando || tiposSessao.length === 0}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvando ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Painel lateral de sessões do paciente selecionado */}
+      {pacienteSelecionado && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-40 flex justify-end bg-black/60">
+          <div
+            className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="font-serif text-lg font-semibold text-fg">
+                  {pacienteSelecionado.nome}
+                </h2>
+                <p className="text-sm text-muted">
+                  {pacienteSelecionado.telefone ?? "sem telefone"}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {tiposSessao.find((t) => t.id === pacienteSelecionado.tipoSessaoId) && (
+                    <span className="rounded-full bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold">
+                      {tiposSessao.find((t) => t.id === pacienteSelecionado.tipoSessaoId)?.nome}
+                    </span>
+                  )}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(pacienteSelecionado.statusGeral)}`}
+                  >
+                    {statusLabel(pacienteSelecionado.statusGeral)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => abrirModalEdicao(pacienteSelecionado)}
+                  className="text-muted hover:text-fg"
+                  aria-label="Editar cadastro"
+                  title="Editar cadastro"
+                >
+                  <IconLapis className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={fecharPainelPaciente}
+                  className="text-muted hover:text-fg"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Ações gerais do paciente */}
+            {sessoes.length > 0 && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  onClick={abrirModalEmpurrar}
+                  className="rounded-lg border border-blue px-3 py-1.5 text-sm font-medium text-blue hover:bg-blue/10"
+                >
+                  Empurrar
+                </button>
+                <button
+                  onClick={abrirModalAdiar}
+                  className="rounded-lg border border-orange px-3 py-1.5 text-sm font-medium text-orange hover:bg-orange/10"
+                >
+                  Adiar
+                </button>
+              </div>
+            )}
+
+            {/* Pacote finalizado: histórico continua visível, mas cabe renovar */}
+            {sessoes.length > 0 && pacienteSelecionado.statusGeral === "FINALIZADO" && (
+              <div className="mb-6 rounded-lg border border-dashed border-gold/40 bg-gold/5 p-3">
+                <p className="mb-2 text-sm text-fg">
+                  O pacote deste paciente foi finalizado. Renovar cria um pacote novo.
+                </p>
+                <button
+                  onClick={abrirModalPacote}
+                  className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-bg hover:brightness-110"
+                >
+                  Renovar pacote
+                </button>
+              </div>
+            )}
+
+            {/* Lista de sessões ou criação de pacote */}
+            {carregandoSessoes ? (
+              <p className="text-sm text-muted">Carregando sessões...</p>
+            ) : sessoes.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-4 text-center">
+                <p className="mb-3 text-sm text-muted">
+                  Este paciente ainda não tem sessões.
+                </p>
+                <button
+                  onClick={abrirModalPacote}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+                >
+                  Criar pacote
+                </button>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {sessoes.map((s) => {
+                  const consumida = STATUS_CONSUMIDOS.includes(s.status);
+                  return (
+                  <li
+                    key={s.id}
+                    className="rounded-lg border border-border p-3"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-fg">
+                          Sessão {s.numeroSessao}/{s.totalPacote}
+                        </p>
+                        <p className="text-sm text-muted">
+                          {formatarDataHora(s.inicio)}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(s.status)}`}
+                      >
+                        {statusLabel(s.status)}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <MenuStatus
+                        status={s.status}
+                        disabled={statusSalvandoId === s.id}
+                        onEscolher={(novoStatus) => handleMudarStatus(s.id, novoStatus)}
+                      />
+                      <button
+                        onClick={() => abrirModalEditar(s)}
+                        disabled={consumida}
+                        title={consumida ? "Sessão consumida não pode ser editada" : "Editar dia e horário"}
+                        className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-sm text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <IconLapis className="h-3.5 w-3.5" />
+                        Editar
+                      </button>
+                    </div>
+
+                    {/* Mensagens de copiar-colar */}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => copiar(montarMensagemConfirmacao(s), `${s.id}-conf`)}
+                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10"
+                      >
+                        {copiadoId === `${s.id}-conf` ? "Copiado!" : "Copiar confirmação"}
+                      </button>
+                      <button
+                        onClick={() => copiar(montarMensagemMeet(s), `${s.id}-meet`)}
+                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10"
+                      >
+                        {copiadoId === `${s.id}-meet` ? "Copiado!" : "Copiar link Meet"}
+                      </button>
+                    </div>
+                  </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: criar pacote */}
+      {modalPacote && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Criar pacote
+            </h2>
+            <form onSubmit={handleCriarPacote} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Tipo de pacote
+                </label>
+                <select
+                  value={tipoPacote}
+                  onChange={(e) => setTipoPacote(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  {TIPOS_PACOTE.map((t) => (
+                    <option key={t} value={t}>
+                      {tipoPacoteLabel(t)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {tipoPacote === "PERSONALIZADO" && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">
+                    Total de sessões
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={totalPacote}
+                    onChange={(e) => setTotalPacote(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+              )}
+
+              {erroPacote && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroPacote}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalPacote(false)}
+                  disabled={salvandoPacote}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoPacote}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoPacote ? "Criando..." : "Criar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: editar sessão pontual */}
+      {sessaoEditando && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Editar sessão {sessaoEditando.numeroSessao}
+            </h2>
+            <form onSubmit={handleSalvarEdicao} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Novo dia (mesma semana)
+                </label>
+                <select
+                  value={formEditar.novoDia}
+                  onChange={(e) => setFormEditar((f) => ({ ...f, novoDia: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  {DIAS_SEMANA.map((dia) => (
+                    <option key={dia} value={dia}>
+                      {diaSemanaLabel(dia)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Novo horário (HH:MM)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="14:00"
+                  pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                  value={formEditar.novoHorario}
+                  onChange={(e) => setFormEditar((f) => ({ ...f, novoHorario: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              {erroEditar && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroEditar}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSessaoEditando(null)}
+                  disabled={salvandoEditar}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoEditar}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoEditar ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: empurrar sessões futuras */}
+      {modalEmpurrar && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Empurrar sessões
+            </h2>
+            <form onSubmit={handleSalvarEmpurrar} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Número de semanas (0-10)
+                </label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSemanasEmpurrar((s) => String(Math.max(0, Number(s) - 1)))}
+                    disabled={Number(semanasEmpurrar) <= 0}
+                    aria-label="Diminuir"
+                    className="h-9 w-9 rounded-lg border border-border text-lg text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    −
+                  </button>
+                  <span className="w-8 text-center text-lg font-medium text-fg">
+                    {semanasEmpurrar}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSemanasEmpurrar((s) => String(Math.min(10, Number(s) + 1)))}
+                    disabled={Number(semanasEmpurrar) >= 10}
+                    aria-label="Aumentar"
+                    className="h-9 w-9 rounded-lg border border-border text-lg text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {erroEmpurrar && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroEmpurrar}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalEmpurrar(false)}
+                  disabled={salvandoEmpurrar}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoEmpurrar}
+                  className="rounded-lg bg-green px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoEmpurrar ? "Confirmando..." : "Confirmar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: adiar sessões a partir de uma sessão de corte */}
+      {modalAdiar && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Adiar sessões
+            </h2>
+            <form onSubmit={handleSalvarAdiar} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  A partir da sessão
+                </label>
+                <select
+                  value={sessaoCorteId}
+                  onChange={(e) => setSessaoCorteId(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  {sessoes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Sessão {s.numeroSessao}/{s.totalPacote} — {formatarDataHora(s.inicio)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {erroAdiar && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroAdiar}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalAdiar(false)}
+                  disabled={salvandoAdiar}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoAdiar}
+                  className="rounded-lg bg-orange px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoAdiar ? "Adiando..." : "Adiar"}
                 </button>
               </div>
             </form>
@@ -353,7 +1440,7 @@ function Campo({
 }) {
   return (
     <div className={className}>
-      <label className="mb-1 block text-sm font-medium text-slate-700">
+      <label className="mb-1 block text-sm font-medium text-fg">
         {label}
       </label>
       <input
@@ -364,7 +1451,7 @@ function Campo({
         required={required}
         placeholder={placeholder}
         pattern={pattern}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+        className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
       />
     </div>
   );

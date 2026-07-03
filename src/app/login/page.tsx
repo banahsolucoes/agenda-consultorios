@@ -39,25 +39,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold text-slate-800">
+          <h1 className="font-serif text-2xl font-semibold text-fg">
             Agenda Consultórios
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted">
             Acesse sua conta para continuar
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
+          className="rounded-xl border border-border bg-surface p-8 shadow-sm"
         >
           <div className="mb-4">
             <label
               htmlFor="email"
-              className="mb-1 block text-sm font-medium text-slate-700"
+              className="mb-1 block text-sm font-medium text-fg"
             >
               E-mail
             </label>
@@ -68,7 +68,7 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
               placeholder="voce@clinica.com"
             />
           </div>
@@ -76,7 +76,7 @@ export default function LoginPage() {
           <div className="mb-6">
             <label
               htmlFor="senha"
-              className="mb-1 block text-sm font-medium text-slate-700"
+              className="mb-1 block text-sm font-medium text-fg"
             >
               Senha
             </label>
@@ -87,13 +87,13 @@ export default function LoginPage() {
               required
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
               placeholder="••••••••"
             />
           </div>
 
           {erro && (
-            <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
               {erro}
             </p>
           )}
@@ -101,7 +101,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={carregando}
-            className="w-full rounded-lg bg-teal-600 px-4 py-2 font-medium text-white transition-colors hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg bg-gold px-4 py-2 font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {carregando ? "Entrando..." : "Entrar"}
           </button>

@@ -21,7 +21,7 @@ export async function verificarFinalizacao(pacoteId: string): Promise<boolean> {
 
   await prisma.paciente.update({
     where: { id: pacote.pacienteId },
-    data: { statusGeral: "FINALIZADO" },
+    data: { statusGeral: "FINALIZADO", finalizadoEm: new Date() },
   });
 
   return true;
