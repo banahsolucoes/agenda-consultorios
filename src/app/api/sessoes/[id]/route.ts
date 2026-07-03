@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { verificarFinalizacao } from "@/lib/finalizacao";
 
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 const DIA_NUM: Record<string, number> = {
   DOMINGO: 0, SEGUNDA: 1, TERCA: 2, QUARTA: 3, QUINTA: 4, SEXTA: 5, SABADO: 6,
 };
 
-// PATCH /api/sessoes/[id]  body: { novoDia?, novoHorario?, status? }
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const body = await req.json();
@@ -23,7 +23,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const atualizada = await prisma.agendamento.update({
       where: { id }, data: { status: body.status },
     });
-    return NextResponse.json(atualizada);
+
+    // verifica finalização do pacote
+    const finalizou = await verificarFinalizacao(sessao.pacoteId);
+
+    return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
 
   // --- editar dia/horário (trava: mesma semana seg-dom) ---
@@ -39,7 +43,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ erro: "horário fora da agenda (08:00–19:30)" }, { status: 400 });
     }
 
-    // início da semana (segunda) da sessão atual
     const d = new Date(sessao.inicio);
     const diaSem = d.getDay();
     const distSeg = diaSem === 0 ? 6 : diaSem - 1;
