@@ -24,7 +24,6 @@ model Usuario {
   clinicaId  String
   nome       String
   email      String   @unique
-  senhaHash  String
   papel      Papel    @default(OPERADOR)
   criadoEm   DateTime @default(now())
 
