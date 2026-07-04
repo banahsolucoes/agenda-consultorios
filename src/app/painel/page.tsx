@@ -308,10 +308,12 @@ export default function PainelPage() {
   const [statusSalvandoId, setStatusSalvandoId] = useState<string | null>(null);
   const [copiadoId, setCopiadoId] = useState<string | null>(null);
 
-  // Modal: criar pacote
+  // Modal: criar atendimento
   const [modalPacote, setModalPacote] = useState(false);
   const [tipoPacote, setTipoPacote] = useState<string>(TIPOS_PACOTE[0]);
   const [totalPacote, setTotalPacote] = useState("");
+  const [dataInicialPacote, setDataInicialPacote] = useState("");
+  const [horarioPacote, setHorarioPacote] = useState("");
   const [salvandoPacote, setSalvandoPacote] = useState(false);
   const [erroPacote, setErroPacote] = useState("");
 
@@ -505,10 +507,12 @@ export default function PainelPage() {
     if (p) abrirPainelPaciente(p);
   }
 
-  // Criação de pacote (só aparece quando o paciente ainda não tem sessões)
+  // Criação de atendimento (só aparece quando o paciente ainda não tem sessões)
   function abrirModalPacote() {
     setTipoPacote(TIPOS_PACOTE[0]);
     setTotalPacote("");
+    setDataInicialPacote("");
+    setHorarioPacote("");
     setErroPacote("");
     setModalPacote(true);
   }
@@ -527,6 +531,8 @@ export default function PainelPage() {
       if (tipoPacote === "PERSONALIZADO") {
         body.totalSessoes = Number(totalPacote);
       }
+      if (dataInicialPacote) body.dataInicial = dataInicialPacote;
+      if (horarioPacote) body.horario = horarioPacote;
 
       const res = await fetch("/api/pacotes", {
         method: "POST",
@@ -536,7 +542,7 @@ export default function PainelPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setErroPacote(data?.erro ?? "não foi possível criar o pacote");
+        setErroPacote(data?.erro ?? "não foi possível criar o atendimento");
         return;
       }
 
@@ -545,7 +551,7 @@ export default function PainelPage() {
       await recarregarPacienteSelecionado();
       await carregarNotificacoes();
     } catch {
-      setErroPacote("não foi possível criar o pacote");
+      setErroPacote("não foi possível criar o atendimento");
     } finally {
       setSalvandoPacote(false);
     }
@@ -1083,22 +1089,22 @@ export default function PainelPage() {
               </div>
             )}
 
-            {/* Pacote finalizado: histórico continua visível, mas cabe renovar */}
+            {/* Atendimento finalizado: histórico continua visível, mas cabe renovar */}
             {sessoes.length > 0 && pacienteSelecionado.statusGeral === "FINALIZADO" && (
               <div className="mb-6 rounded-lg border border-dashed border-gold/40 bg-gold/5 p-3">
                 <p className="mb-2 text-sm text-fg">
-                  O pacote deste paciente foi finalizado. Renovar cria um pacote novo.
+                  O atendimento deste paciente foi finalizado. Renovar cria um atendimento novo.
                 </p>
                 <button
                   onClick={abrirModalPacote}
                   className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-bg hover:brightness-110"
                 >
-                  Renovar pacote
+                  Renovar atendimento
                 </button>
               </div>
             )}
 
-            {/* Lista de sessões ou criação de pacote */}
+            {/* Lista de sessões ou criação de atendimento */}
             {carregandoSessoes ? (
               <p className="text-sm text-muted">Carregando sessões...</p>
             ) : sessoes.length === 0 ? (
@@ -1110,7 +1116,7 @@ export default function PainelPage() {
                   onClick={abrirModalPacote}
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
                 >
-                  Criar pacote
+                  Criar atendimento
                 </button>
               </div>
             ) : (
@@ -1183,17 +1189,17 @@ export default function PainelPage() {
         </div>
       )}
 
-      {/* Modal: criar pacote */}
+      {/* Modal: criar atendimento */}
       {modalPacote && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              Criar pacote
+              Criar atendimento
             </h2>
             <form onSubmit={handleCriarPacote} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
-                  Tipo de pacote
+                  Tipo de atendimento
                 </label>
                 <select
                   value={tipoPacote}
@@ -1223,6 +1229,36 @@ export default function PainelPage() {
                   />
                 </div>
               )}
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">
+                    Dia da 1ª sessão (opcional)
+                  </label>
+                  <input
+                    type="date"
+                    value={dataInicialPacote}
+                    onChange={(e) => setDataInicialPacote(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">
+                    Horário (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="14:00"
+                    pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                    value={horarioPacote}
+                    onChange={(e) => setHorarioPacote(mascararHorario(e.target.value))}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted">
+                Deixe em branco para usar o dia preferido e o horário fixo cadastrados no paciente.
+              </p>
 
               {erroPacote && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">

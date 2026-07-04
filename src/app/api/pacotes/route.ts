@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterCalendarDaClinica } from "@/lib/google";
+import { primeiroUltimoNome } from "@/lib/nomes";
 import type { calendar_v3 } from "googleapis";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
@@ -10,6 +11,18 @@ const TOTAL_POR_TIPO: Record<string, number> = {
 const DIA_NUM: Record<string, number> = {
   DOMINGO: 0, SEGUNDA: 1, TERCA: 2, QUARTA: 3, QUINTA: 4, SEXTA: 5, SABADO: 6,
 };
+const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATA_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+// Constrói uma Date a partir de "YYYY-MM-DD" usando componentes locais, para
+// não sofrer o deslocamento de fuso que "new Date('YYYY-MM-DD')" (UTC) causa
+// dependendo do timezone do servidor.
+function parseDataLocal(dataStr: string): Date | null {
+  const m = DATA_REGEX.exec(dataStr);
+  if (!m) return null;
+  const [, ano, mes, dia] = m;
+  return new Date(Number(ano), Number(mes) - 1, Number(dia));
+}
 
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
@@ -34,14 +47,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "totalSessoes inválido" }, { status: 400 });
   }
 
-  const dataInicial = body.dataInicial ? new Date(body.dataInicial) : new Date();
-  const [h, m] = paciente.horarioFixo.split(":").map(Number);
-  const diaAlvo = DIA_NUM[paciente.diaPreferido];
+  if (body.horario && !HORA_REGEX.test(body.horario)) {
+    return NextResponse.json({ erro: "horario deve estar no formato HH:MM" }, { status: 400 });
+  }
+  const dataEscolhida = body.dataInicial ? parseDataLocal(body.dataInicial) : null;
+  if (body.dataInicial && !dataEscolhida) {
+    return NextResponse.json({ erro: "dataInicial deve estar no formato YYYY-MM-DD" }, { status: 400 });
+  }
 
-  const primeira = new Date(dataInicial);
-  primeira.setHours(h, m, 0, 0);
-  while (primeira.getDay() !== diaAlvo) {
-    primeira.setDate(primeira.getDate() + 1);
+  const [hPadrao, mPadrao] = paciente.horarioFixo.split(":").map(Number);
+  const [h, m] = body.horario ? body.horario.split(":").map(Number) : [hPadrao, mPadrao];
+
+  let primeira: Date;
+  if (dataEscolhida) {
+    // Dia escolhido explicitamente na criação do atendimento: a primeira
+    // sessão cai exatamente nessa data, sem procurar o dia preferido do
+    // paciente (o usuário está decidindo o dia de propósito).
+    primeira = dataEscolhida;
+    primeira.setHours(h, m, 0, 0);
+  } else {
+    // Sem data escolhida: mantém o comportamento padrão — parte de hoje e
+    // avança até o próximo dia da semana preferido do paciente.
+    const diaAlvo = DIA_NUM[paciente.diaPreferido];
+    primeira = new Date();
+    primeira.setHours(h, m, 0, 0);
+    while (primeira.getDay() !== diaAlvo) {
+      primeira.setDate(primeira.getDate() + 1);
+    }
   }
 
   const pacote = await prisma.pacote.create({
@@ -80,7 +112,7 @@ export async function POST(req: NextRequest) {
   if (calendar && clinica) {
     for (const sessao of sessoes) {
       const dadosGoogle = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
-        titulo: `${paciente.nome} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
+        titulo: `${primeiroUltimoNome(paciente.nome)} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
         inicio: sessao.inicio,
         duracaoMin: sessao.duracaoMin,
       });
