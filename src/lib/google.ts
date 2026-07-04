@@ -5,8 +5,30 @@
 import { google, calendar_v3 } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import type { Clinica } from "@/generated/prisma";
+import type { NextRequest } from "next/server";
 
 const ESCOPOS_GOOGLE = ["https://www.googleapis.com/auth/calendar.events"];
+
+// Reconstrói a origem pública da requisição para montar redirects internos
+// (ex.: de volta pra /painel/configuracoes após o callback OAuth). Usar
+// req.url/req.nextUrl.origin direto quebra atrás de proxy: no Codespaces, por
+// exemplo, o Host encaminhado ao processo Next.js pode chegar como
+// "<nome>-3000.app.github.dev:3000" — a porta interna colada num domínio
+// público que já serve em 443, gerando um ":3000" a mais na URL final. Damos
+// prioridade aos headers x-forwarded-* (é para isso que existem) e, quando o
+// protocolo é https, descartamos qualquer porta pendurada no host — domínio
+// público https não usa porta explícita. Em http (dev local) a porta é
+// mantida normalmente.
+export function resolverOrigemPublica(req: NextRequest): string {
+  const proto = req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "");
+  let host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? req.nextUrl.host;
+
+  if (proto === "https" && host.includes(":")) {
+    host = host.split(":")[0];
+  }
+
+  return `${proto}://${host}`;
+}
 
 function criarOAuthClient() {
   return new google.auth.OAuth2(

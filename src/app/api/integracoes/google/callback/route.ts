@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { trocarCodePorTokensGoogle } from "@/lib/google";
+import { trocarCodePorTokensGoogle, resolverOrigemPublica } from "@/lib/google";
 
 // GET /api/integracoes/google/callback — recebe o "code" do Google, troca
 // pelos tokens e salva na clínica do usuário logado.
 export async function GET(req: NextRequest) {
-  const destino = new URL("/painel/configuracoes", req.url);
+  const origem = resolverOrigemPublica(req);
+  const destino = new URL("/painel/configuracoes", origem);
 
   const usuario = await getUsuarioLogado();
-  if (!usuario) return NextResponse.redirect(new URL("/login", req.url));
+  if (!usuario) return NextResponse.redirect(new URL("/login", origem));
 
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
