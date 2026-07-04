@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
+import { obterCalendarDaClinica } from "@/lib/google";
 
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 const DIA_NUM: Record<string, number> = {
@@ -28,6 +29,36 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!validos.includes(body.status)) {
       return NextResponse.json({ erro: "status inválido" }, { status: 400 });
     }
+
+    if (body.status === "CANCELADA") {
+      const motivo = typeof body.motivoCancelamento === "string" ? body.motivoCancelamento.trim() : "";
+      if (!motivo) {
+        return NextResponse.json({ erro: "motivo do cancelamento é obrigatório" }, { status: 400 });
+      }
+
+      // Remove o evento do Google Calendar da clínica, se houver um vinculado
+      // a esta sessão. Falha na integração nunca deve impedir o cancelamento
+      // local — o Google fica "melhor esforço".
+      if (sessao.googleEventId) {
+        const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
+        const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
+        if (calendar) {
+          await calendar.events
+            .delete({
+              calendarId: sessao.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
+              eventId: sessao.googleEventId,
+            })
+            .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));
+        }
+      }
+
+      const atualizada = await prisma.agendamento.update({
+        where: { id }, data: { status: "CANCELADA", motivoCancelamento: motivo },
+      });
+      const finalizou = await verificarFinalizacao(sessao.pacoteId);
+      return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
+    }
+
     const atualizada = await prisma.agendamento.update({
       where: { id }, data: { status: body.status },
     });

@@ -91,6 +91,7 @@ interface Sessao {
   duracaoMin: number;
   status: string;
   linkMeet: string | null;
+  motivoCancelamento: string | null;
 }
 
 interface Clinica {
@@ -337,6 +338,12 @@ export default function PainelPage() {
   const [sessaoCorteId, setSessaoCorteId] = useState("");
   const [salvandoAdiar, setSalvandoAdiar] = useState(false);
   const [erroAdiar, setErroAdiar] = useState("");
+
+  // Modal: cancelar sessão com motivo obrigatório
+  const [sessaoCancelando, setSessaoCancelando] = useState<Sessao | null>(null);
+  const [motivoCancelamento, setMotivoCancelamento] = useState("");
+  const [salvandoCancelar, setSalvandoCancelar] = useState(false);
+  const [erroCancelar, setErroCancelar] = useState("");
 
   // Busca a lista de pacientes da clínica logada
   async function carregarPacientes() {
@@ -692,6 +699,48 @@ export default function PainelPage() {
       setErroAdiar("não foi possível adiar as sessões");
     } finally {
       setSalvandoAdiar(false);
+    }
+  }
+
+  // Cancelamento de sessão com motivo obrigatório
+  function abrirModalCancelar(s: Sessao) {
+    setSessaoCancelando(s);
+    setMotivoCancelamento("");
+    setErroCancelar("");
+  }
+
+  async function handleConfirmarCancelamento(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sessaoCancelando || !pacienteSelecionado) return;
+    const motivo = motivoCancelamento.trim();
+    if (!motivo) {
+      setErroCancelar("informe o motivo do cancelamento");
+      return;
+    }
+    setErroCancelar("");
+    setSalvandoCancelar(true);
+
+    try {
+      const res = await fetch(`/api/sessoes/${sessaoCancelando.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivo }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroCancelar(data?.erro ?? "não foi possível cancelar a sessão");
+        return;
+      }
+
+      setSessaoCancelando(null);
+      await carregarSessoes(pacienteSelecionado.id);
+      await recarregarPacienteSelecionado();
+      await carregarNotificacoes();
+    } catch {
+      setErroCancelar("não foi possível cancelar a sessão");
+    } finally {
+      setSalvandoCancelar(false);
     }
   }
 
@@ -1071,23 +1120,33 @@ export default function PainelPage() {
               </div>
             </div>
 
-            {/* Ações gerais do paciente */}
-            {sessoes.length > 0 && (
-              <div className="mb-4 flex flex-wrap gap-2">
-                <button
-                  onClick={abrirModalEmpurrar}
-                  className="rounded-lg border border-blue px-3 py-1.5 text-sm font-medium text-blue hover:bg-blue/10"
-                >
-                  Empurrar
-                </button>
-                <button
-                  onClick={abrirModalAdiar}
-                  className="rounded-lg border border-orange px-3 py-1.5 text-sm font-medium text-orange hover:bg-orange/10"
-                >
-                  Adiar
-                </button>
-              </div>
-            )}
+            {/* Ações gerais do paciente — Criar atendimento fica sempre visível,
+                mesmo com sessões já geradas, para permitir novos atendimentos
+                a qualquer momento */}
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                onClick={abrirModalPacote}
+                className="rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-bg hover:brightness-110"
+              >
+                Criar atendimento
+              </button>
+              {sessoes.length > 0 && (
+                <>
+                  <button
+                    onClick={abrirModalEmpurrar}
+                    className="rounded-lg border border-blue px-3 py-1.5 text-sm font-medium text-blue hover:bg-blue/10"
+                  >
+                    Empurrar
+                  </button>
+                  <button
+                    onClick={abrirModalAdiar}
+                    className="rounded-lg border border-orange px-3 py-1.5 text-sm font-medium text-orange hover:bg-orange/10"
+                  >
+                    Adiar
+                  </button>
+                </>
+              )}
+            </div>
 
             {/* Atendimento finalizado: histórico continua visível, mas cabe renovar */}
             {sessoes.length > 0 && pacienteSelecionado.statusGeral === "FINALIZADO" && (
@@ -1109,15 +1168,9 @@ export default function PainelPage() {
               <p className="text-sm text-muted">Carregando sessões...</p>
             ) : sessoes.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border p-4 text-center">
-                <p className="mb-3 text-sm text-muted">
+                <p className="text-sm text-muted">
                   Este paciente ainda não tem sessões.
                 </p>
-                <button
-                  onClick={abrirModalPacote}
-                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
-                >
-                  Criar atendimento
-                </button>
               </div>
             ) : (
               <ul className="space-y-3">
@@ -1144,6 +1197,15 @@ export default function PainelPage() {
                       </span>
                     </div>
 
+                    {s.status === "CANCELADA" && s.motivoCancelamento && (
+                      <p
+                        className="mt-1 text-xs italic text-muted"
+                        title={s.motivoCancelamento}
+                      >
+                        Motivo: {s.motivoCancelamento}
+                      </p>
+                    )}
+
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <MenuStatus
                         status={s.status}
@@ -1159,6 +1221,14 @@ export default function PainelPage() {
                         <IconLapis className="h-3.5 w-3.5" />
                         Editar
                       </button>
+                      {!travada && (
+                        <button
+                          onClick={() => abrirModalCancelar(s)}
+                          className="rounded-lg border border-red px-2 py-1 text-sm text-red hover:bg-red/10"
+                        >
+                          Cancelar
+                        </button>
+                      )}
                     </div>
 
                     {/* Mensagens de copiar-colar */}
@@ -1348,6 +1418,56 @@ export default function PainelPage() {
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoEditar ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: cancelar sessão com motivo obrigatório */}
+      {sessaoCancelando && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Cancelar sessão {sessaoCancelando.numeroSessao}
+            </h2>
+            <form onSubmit={handleConfirmarCancelamento} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Motivo do cancelamento
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={motivoCancelamento}
+                  onChange={(e) => setMotivoCancelamento(e.target.value)}
+                  placeholder="Descreva o motivo do cancelamento..."
+                  className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              {erroCancelar && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroCancelar}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSessaoCancelando(null)}
+                  disabled={salvandoCancelar}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoCancelar || !motivoCancelamento.trim()}
+                  className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoCancelar ? "Cancelando..." : "Confirmar cancelamento"}
                 </button>
               </div>
             </form>

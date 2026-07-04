@@ -154,6 +154,7 @@ model Agendamento {
   googleCalendarId  String?
   linkMeet          String?
   tipoSessaoId      String?
+  motivoCancelamento String?
   criadoEm          DateTime       @default(now())
 
   pacote            Pacote         @relation(fields: [pacoteId], references: [id])
