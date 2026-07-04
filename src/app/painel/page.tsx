@@ -8,6 +8,7 @@ import {
   statusLabel,
   origemCadastroLabel,
 } from "@/lib/labels";
+import AgendaCalendario from "./AgendaCalendario";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -284,6 +285,8 @@ function MenuStatus({
 
 export default function PainelPage() {
   const router = useRouter();
+
+  const [abaAtiva, setAbaAtiva] = useState<"pacientes" | "agenda">("pacientes");
 
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
@@ -874,48 +877,74 @@ export default function PainelPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-8">
-        {/* Barra de busca + ação de novo paciente */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <input
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar paciente por nome..."
-            className="w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
-          />
+        {/* Abas: lista de pacientes ou calendário da agenda */}
+        <div className="mb-6 flex gap-2">
           <button
-            onClick={abrirModal}
-            className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110"
+            onClick={() => setAbaAtiva("pacientes")}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+              abaAtiva === "pacientes" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+            }`}
           >
-            + Novo paciente
+            Pacientes
+          </button>
+          <button
+            onClick={() => setAbaAtiva("agenda")}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+              abaAtiva === "agenda" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+            }`}
+          >
+            Agenda
           </button>
         </div>
 
-        {/* Lista de pacientes */}
-        {carregandoLista ? (
-          <p className="text-sm text-muted">Carregando pacientes...</p>
-        ) : pacientesFiltrados.length === 0 ? (
-          <p className="text-sm text-muted">
-            Nenhum paciente encontrado.
-          </p>
+        {abaAtiva === "agenda" ? (
+          <AgendaCalendario />
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {pacientesFiltrados.map((p) => (
+          <>
+            {/* Barra de busca + ação de novo paciente */}
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <input
+                type="text"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar paciente por nome..."
+                className="w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
               <button
-                key={p.id}
-                onClick={() => abrirPainelPaciente(p)}
-                className="rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40"
+                onClick={abrirModal}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110"
               >
-                <p className="font-medium text-fg">{p.nome}</p>
-                <p className="mt-1 text-sm text-muted">
-                  {p.telefone ?? "sem telefone"}
-                </p>
-                <span className={`mt-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(p.statusGeral)}`}>
-                  {statusLabel(p.statusGeral)}
-                </span>
+                + Novo paciente
               </button>
-            ))}
-          </div>
+            </div>
+
+            {/* Lista de pacientes */}
+            {carregandoLista ? (
+              <p className="text-sm text-muted">Carregando pacientes...</p>
+            ) : pacientesFiltrados.length === 0 ? (
+              <p className="text-sm text-muted">
+                Nenhum paciente encontrado.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {pacientesFiltrados.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => abrirPainelPaciente(p)}
+                    className="rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40"
+                  >
+                    <p className="font-medium text-fg">{p.nome}</p>
+                    <p className="mt-1 text-sm text-muted">
+                      {p.telefone ?? "sem telefone"}
+                    </p>
+                    <span className={`mt-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(p.statusGeral)}`}>
+                      {statusLabel(p.statusGeral)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 
