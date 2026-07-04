@@ -44,6 +44,11 @@ interface HorarioTrabalho {
   horaFim: string;
 }
 
+interface ClinicaAgenda {
+  nomeAssistente: string;
+  horarioLimiteConfirmacao: string;
+}
+
 function horaParaMinutos(hora: string) {
   const [h, m] = hora.split(":").map(Number);
   return h * 60 + m;
@@ -86,6 +91,33 @@ function formatarHorario(d: Date) {
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Copia texto pro clipboard; retorna se deu certo (contexto não seguro falha silenciosamente)
+async function copiarParaClipboard(texto: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Mesma mensagem de confirmação já usada no painel do paciente
+function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
+  const primeiroNome = sessao.paciente.nome.split(" ")[0];
+  const inicio = new Date(sessao.inicio);
+  return (
+    `Olá, ${primeiroNome}! Passando para confirmar sua sessão no dia ${formatarDiaMes(inicio)} às ${formatarHorario(inicio)}. ` +
+    `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}. Até lá!\n— ${clinica.nomeAssistente}`
+  );
+}
+
+// Texto do link do Meet específico do calendário (Tarefa 17)
+function montarMensagemMeetCalendario(sessao: SessaoAgenda) {
+  const primeiroNome = sessao.paciente.nome.split(" ")[0];
+  const inicio = new Date(sessao.inicio);
+  return `Olá ${primeiroNome}, segue o link da sua sessão de hoje, às ${formatarHorario(inicio)}: ${sessao.linkMeet}`;
+}
+
 // Cor sólida usada no ponto do menu de status (mesma paleta do painel principal)
 function corPontoStatus(status: string) {
   switch (status) {
@@ -108,6 +140,7 @@ export default function AgendaCalendario() {
   const [sessoes, setSessoes] = useState<SessaoAgenda[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [horarios, setHorarios] = useState<HorarioTrabalho[]>([]);
+  const [clinica, setClinica] = useState<ClinicaAgenda | null>(null);
   const [aviso, setAviso] = useState("");
   const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
 
@@ -118,15 +151,25 @@ export default function AgendaCalendario() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
+  // Dias da semana em que a clínica atende, conforme o HorarioTrabalho —
+  // null enquanto nenhuma faixa está configurada (aí mostra a semana toda).
+  const diasTrabalhoSet = useMemo(() => {
+    if (horarios.length === 0) return null;
+    return new Set(horarios.map((h) => h.diaSemana));
+  }, [horarios]);
+
   const dias = useMemo(() => {
     if (modo === "dia") return [refData];
     const seg = segundaDaSemana(refData);
-    return Array.from({ length: 7 }, (_, i) => {
+    const semanaCompleta = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(seg);
       d.setDate(seg.getDate() + i);
       return d;
     });
-  }, [refData, modo]);
+    if (!diasTrabalhoSet) return semanaCompleta;
+    const diasComAtendimento = semanaCompleta.filter((d) => diasTrabalhoSet.has(diaSemanaDeData(d)));
+    return diasComAtendimento.length > 0 ? diasComAtendimento : semanaCompleta;
+  }, [refData, modo, diasTrabalhoSet]);
 
   const intervalo = useMemo(() => {
     const inicio = new Date(dias[0]);
@@ -154,6 +197,9 @@ export default function AgendaCalendario() {
     fetch("/api/clinica/horarios")
       .then((r) => (r.ok ? r.json() : []))
       .then(setHorarios);
+    fetch("/api/clinica")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => c && setClinica({ nomeAssistente: c.nomeAssistente, horarioLimiteConfirmacao: c.horarioLimiteConfirmacao }));
   }, []);
 
   useEffect(() => {
@@ -187,18 +233,41 @@ export default function AgendaCalendario() {
     avisoTimeout.current = setTimeout(() => setAviso(""), 4000);
   }
 
+  // No modo "dia", pula direto para o próximo dia em que a clínica atende
+  // (sem parar num fim de semana ou dia fechado, por exemplo).
+  function proximoDiaComAtendimento(d: Date, direcao: 1 | -1) {
+    const n = new Date(d);
+    if (!diasTrabalhoSet) {
+      n.setDate(n.getDate() + direcao);
+      return n;
+    }
+    for (let i = 0; i < 7; i++) {
+      n.setDate(n.getDate() + direcao);
+      if (diasTrabalhoSet.has(diaSemanaDeData(n))) return n;
+    }
+    const fallback = new Date(d);
+    fallback.setDate(d.getDate() + direcao);
+    return fallback;
+  }
+
   function irAnterior() {
     setRefData((d) => {
-      const n = new Date(d);
-      n.setDate(d.getDate() - (modo === "semana" ? 7 : 1));
-      return n;
+      if (modo === "semana") {
+        const n = new Date(d);
+        n.setDate(d.getDate() - 7);
+        return n;
+      }
+      return proximoDiaComAtendimento(d, -1);
     });
   }
   function irProximo() {
     setRefData((d) => {
-      const n = new Date(d);
-      n.setDate(d.getDate() + (modo === "semana" ? 7 : 1));
-      return n;
+      if (modo === "semana") {
+        const n = new Date(d);
+        n.setDate(d.getDate() + 7);
+        return n;
+      }
+      return proximoDiaComAtendimento(d, 1);
     });
   }
   function irHoje() {
@@ -284,7 +353,7 @@ export default function AgendaCalendario() {
 
   const titulo =
     modo === "semana"
-      ? `${formatarDiaMes(dias[0])} – ${formatarDiaMes(dias[6])}`
+      ? `${formatarDiaMes(dias[0])} – ${formatarDiaMes(dias[dias.length - 1])}`
       : dias[0].toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit" });
 
   return (
@@ -370,6 +439,7 @@ export default function AgendaCalendario() {
                     colRefs.current[idx] = node;
                   }}
                   onAbrirDetalhe={setSessaoDetalhe}
+                  clinica={clinica}
                 />
               ))}
             </div>
@@ -400,6 +470,7 @@ function DiaColuna({
   gridHeightPx,
   colRefCallback,
   onAbrirDetalhe,
+  clinica,
 }: {
   index: number;
   dia: Date;
@@ -409,6 +480,7 @@ function DiaColuna({
   gridHeightPx: number;
   colRefCallback: (index: number, node: HTMLDivElement | null) => void;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
+  clinica: ClinicaAgenda | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
   const hoje = mesmoDia(dia, new Date());
@@ -439,7 +511,7 @@ function DiaColuna({
           />
         ))}
         {sessoesDoDia.map((s) => (
-          <BlocoSessao key={s.id} sessao={s} janela={janela} onAbrirDetalhe={onAbrirDetalhe} />
+          <BlocoSessao key={s.id} sessao={s} janela={janela} onAbrirDetalhe={onAbrirDetalhe} clinica={clinica} />
         ))}
       </div>
     </div>
@@ -450,10 +522,12 @@ function BlocoSessao({
   sessao,
   janela,
   onAbrirDetalhe,
+  clinica,
 }: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
   onAbrirDetalhe: (s: SessaoAgenda) => void;
+  clinica: ClinicaAgenda | null;
 }) {
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -461,10 +535,15 @@ function BlocoSessao({
     disabled: travada,
   });
 
+  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const inicio = new Date(sessao.inicio);
+  const fim = new Date(inicio.getTime() + sessao.duracaoMin * 60000);
   const minutos = inicio.getHours() * 60 + inicio.getMinutes();
   const top = ((minutos - janela.inicioMin) / ROW_MIN) * ROW_PX;
-  const altura = Math.max(22, (sessao.duracaoMin / ROW_MIN) * ROW_PX - 2);
+  // Altura mínima maior que antes pra caber as duas linhas do bloco (nome/nº e horário/ícones)
+  const altura = Math.max(36, (sessao.duracaoMin / ROW_MIN) * ROW_PX - 2);
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
 
   const style: React.CSSProperties = {
@@ -477,19 +556,100 @@ function BlocoSessao({
     cursor: travada ? "default" : "grab",
   };
 
+  function mostrarCopiado(tipo: "conf" | "meet") {
+    setCopiado(tipo);
+    if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
+    copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
+  }
+
+  async function handleCopiarConfirmacao(e: React.SyntheticEvent) {
+    e.stopPropagation();
+    if (!clinica) return;
+    if (await copiarParaClipboard(montarMensagemConfirmacao(sessao, clinica))) mostrarCopiado("conf");
+  }
+
+  async function handleCopiarMeet(e: React.SyntheticEvent) {
+    e.stopPropagation();
+    if (!sessao.linkMeet) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao))) mostrarCopiado("meet");
+  }
+
   return (
-    <button
+    <div
       ref={setNodeRef}
       {...(travada ? {} : listeners)}
       {...(travada ? {} : attributes)}
+      role="button"
+      tabIndex={0}
       onClick={() => onAbrirDetalhe(sessao)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onAbrirDetalhe(sessao);
+        }
+      }}
       style={style}
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
-      className="absolute left-1 right-1 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] text-white shadow-sm"
+      className="absolute left-1 right-1 flex flex-col justify-between overflow-hidden rounded-md px-1.5 py-1 text-left text-[11px] text-white shadow-sm"
     >
-      <p className="truncate font-medium">{sessao.paciente.nome.split(" ")[0]}</p>
-      <p className="truncate text-[10px] opacity-90">{formatarHorario(inicio)}</p>
-    </button>
+      <p className="truncate font-medium">
+        {sessao.paciente.nome.split(" ")[0]} {sessao.numeroSessao}/{sessao.totalPacote}
+      </p>
+      <div className="flex items-center justify-between gap-1">
+        {copiado ? (
+          <span className="truncate text-[10px] font-medium">Copiado!</span>
+        ) : (
+          <>
+            <span className="truncate text-[10px] opacity-90">
+              {formatarHorario(inicio)}–{formatarHorario(fim)}
+            </span>
+            <span className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleCopiarConfirmacao}
+                title="Copiar mensagem de confirmação"
+                aria-label="Copiar mensagem de confirmação"
+                className="rounded p-0.5 hover:bg-white/20"
+              >
+                <IconCopiar className="h-2.5 w-2.5" />
+              </button>
+              <button
+                type="button"
+                disabled={!sessao.linkMeet}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleCopiarMeet}
+                title="Copiar texto do link do Meet"
+                aria-label="Copiar texto do link do Meet"
+                className="rounded p-0.5 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <IconMeet className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Ícone de copiar (clipboard), usado nos botões de copiar do bloco de sessão
+function IconCopiar({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <rect x="7" y="7" width="9" height="10" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4 13V4.5A1.5 1.5 0 0 1 5.5 3H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Ícone de vídeo (Meet), usado no botão de copiar o link da chamada
+function IconMeet({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="5.5" width="10" height="9" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M12.5 9.2 17 6.3v7.4l-4.5-2.9" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
   );
 }
 
