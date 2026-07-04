@@ -12,11 +12,15 @@ import {
 } from "@dnd-kit/core";
 import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 
-// Granularidade da grade: cada linha representa 30 minutos, com ROW_PX
-// pixels de altura — usado tanto para desenhar os blocos quanto para
-// converter a posição solta do arrasto de volta em horário.
+// Granularidade da grade: cada linha representa 30 minutos. A altura em
+// pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
+// vertical disponível na tela, para a agenda do dia inteiro caber sem
+// rolagem — ROW_PX_PADRAO é só o valor usado antes da primeira medição.
 const ROW_MIN = 30;
-const ROW_PX = 48;
+const ROW_PX_PADRAO = 32;
+const ROW_PX_MIN = 20;
+const ROW_PX_MAX = 48;
+const ALTURA_CABECALHO_DIA = 40; // h-10
 
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 const STATUS_SESSAO_OPCOES = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA"] as const;
@@ -42,6 +46,13 @@ interface HorarioTrabalho {
   diaSemana: string;
   horaInicio: string;
   horaFim: string;
+}
+
+interface TipoSessaoOpcao {
+  id: string;
+  nome: string;
+  cor: string | null;
+  ehOnline: boolean;
 }
 
 interface ClinicaAgenda {
@@ -141,11 +152,14 @@ export default function AgendaCalendario() {
   const [carregando, setCarregando] = useState(true);
   const [horarios, setHorarios] = useState<HorarioTrabalho[]>([]);
   const [clinica, setClinica] = useState<ClinicaAgenda | null>(null);
+  const [tiposSessao, setTiposSessao] = useState<TipoSessaoOpcao[]>([]);
   const [aviso, setAviso] = useState("");
   const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [rowPx, setRowPx] = useState(ROW_PX_PADRAO);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -200,6 +214,9 @@ export default function AgendaCalendario() {
     fetch("/api/clinica")
       .then((r) => (r.ok ? r.json() : null))
       .then((c) => c && setClinica({ nomeAssistente: c.nomeAssistente, horarioLimiteConfirmacao: c.horarioLimiteConfirmacao }));
+    fetch("/api/clinica/tipos-sessao")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setTiposSessao);
   }, []);
 
   useEffect(() => {
@@ -213,7 +230,27 @@ export default function AgendaCalendario() {
     return { inicioMin: Math.min(...inicios), fimMin: Math.max(...fins) };
   }, [horarios]);
 
-  const gridHeightPx = ((janela.fimMin - janela.inicioMin) / ROW_MIN) * ROW_PX;
+  // Recalcula a altura de cada linha (rowPx) a partir do espaço vertical
+  // realmente disponível abaixo do topo da grade, para o dia inteiro (do
+  // horário de abertura ao de fechamento configurados) caber na tela sem
+  // exigir rolagem — independente da resolução da tela do usuário.
+  const recalcularRowPx = useCallback(() => {
+    const el = boxRef.current;
+    const totalMin = janela.fimMin - janela.inicioMin;
+    if (!el || totalMin <= 0) return;
+    const margemInferior = 40;
+    const disponivel = window.innerHeight - el.getBoundingClientRect().top - ALTURA_CABECALHO_DIA - margemInferior;
+    const px = (disponivel / totalMin) * ROW_MIN;
+    setRowPx(Math.min(ROW_PX_MAX, Math.max(ROW_PX_MIN, Math.floor(px))));
+  }, [janela]);
+
+  useEffect(() => {
+    recalcularRowPx();
+    window.addEventListener("resize", recalcularRowPx);
+    return () => window.removeEventListener("resize", recalcularRowPx);
+  }, [recalcularRowPx, carregando]);
+
+  const gridHeightPx = ((janela.fimMin - janela.inicioMin) / ROW_MIN) * rowPx;
 
   const marcadores = useMemo(() => {
     const lista: number[] = [];
@@ -314,7 +351,7 @@ export default function AgendaCalendario() {
 
     const rectCol = colEl.getBoundingClientRect();
     const offsetTopPx = rectAtivo.top - rectCol.top;
-    const minutosRel = (offsetTopPx / ROW_PX) * ROW_MIN;
+    const minutosRel = (offsetTopPx / rowPx) * ROW_MIN;
     const minutosSnap = Math.max(0, Math.round(minutosRel / 15) * 15);
     const novoMinutoAbsoluto = janela.inicioMin + minutosSnap;
     const novoHorario = minutosParaHora(novoMinutoAbsoluto);
@@ -408,17 +445,17 @@ export default function AgendaCalendario() {
         <p className="text-sm text-muted">Carregando agenda...</p>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+          <div ref={boxRef} className="overflow-x-auto rounded-xl border border-border bg-surface">
             <div className="flex" style={{ minWidth: modo === "semana" ? 880 : 280 }}>
               {/* Gutter de horários */}
               <div className="w-14 shrink-0 border-r border-border">
-                <div className="h-14 border-b border-border" />
+                <div className="h-10 border-b border-border" />
                 <div className="relative" style={{ height: gridHeightPx }}>
                   {marcadores.map((min) => (
                     <span
                       key={min}
                       className="absolute right-1.5 -translate-y-1/2 text-[10px] text-muted"
-                      style={{ top: ((min - janela.inicioMin) / ROW_MIN) * ROW_PX }}
+                      style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
                     >
                       {minutosParaHora(min)}
                     </span>
@@ -435,6 +472,7 @@ export default function AgendaCalendario() {
                   janela={janela}
                   marcadores={marcadores}
                   gridHeightPx={gridHeightPx}
+                  rowPx={rowPx}
                   colRefCallback={(idx, node) => {
                     colRefs.current[idx] = node;
                   }}
@@ -450,11 +488,13 @@ export default function AgendaCalendario() {
       {sessaoDetalhe && (
         <SessaoDetalheModal
           sessao={sessaoDetalhe}
+          tiposSessao={tiposSessao}
           onFechar={() => setSessaoDetalhe(null)}
           onAtualizado={() => {
             carregarSessoes();
             setSessaoDetalhe(null);
           }}
+          onAviso={mostrarAviso}
         />
       )}
     </div>
@@ -468,6 +508,7 @@ function DiaColuna({
   janela,
   marcadores,
   gridHeightPx,
+  rowPx,
   colRefCallback,
   onAbrirDetalhe,
   clinica,
@@ -478,6 +519,7 @@ function DiaColuna({
   janela: { inicioMin: number; fimMin: number };
   marcadores: number[];
   gridHeightPx: number;
+  rowPx: number;
   colRefCallback: (index: number, node: HTMLDivElement | null) => void;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
@@ -488,7 +530,7 @@ function DiaColuna({
   return (
     <div className="min-w-[120px] flex-1 border-r border-border last:border-r-0">
       <div
-        className={`flex h-14 flex-col items-center justify-center border-b border-border text-xs ${
+        className={`flex h-10 flex-col items-center justify-center border-b border-border text-xs ${
           hoje ? "font-semibold text-gold" : "text-fg"
         }`}
       >
@@ -507,11 +549,11 @@ function DiaColuna({
           <div
             key={min}
             className="absolute inset-x-0 border-t border-border/60"
-            style={{ top: ((min - janela.inicioMin) / ROW_MIN) * ROW_PX }}
+            style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
           />
         ))}
         {sessoesDoDia.map((s) => (
-          <BlocoSessao key={s.id} sessao={s} janela={janela} onAbrirDetalhe={onAbrirDetalhe} clinica={clinica} />
+          <BlocoSessao key={s.id} sessao={s} janela={janela} rowPx={rowPx} onAbrirDetalhe={onAbrirDetalhe} clinica={clinica} />
         ))}
       </div>
     </div>
@@ -521,11 +563,13 @@ function DiaColuna({
 function BlocoSessao({
   sessao,
   janela,
+  rowPx,
   onAbrirDetalhe,
   clinica,
 }: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
+  rowPx: number;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
 }) {
@@ -541,9 +585,9 @@ function BlocoSessao({
   const inicio = new Date(sessao.inicio);
   const fim = new Date(inicio.getTime() + sessao.duracaoMin * 60000);
   const minutos = inicio.getHours() * 60 + inicio.getMinutes();
-  const top = ((minutos - janela.inicioMin) / ROW_MIN) * ROW_PX;
-  // Altura mínima maior que antes pra caber as duas linhas do bloco (nome/nº e horário/ícones)
-  const altura = Math.max(36, (sessao.duracaoMin / ROW_MIN) * ROW_PX - 2);
+  const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
+  // Altura mínima menor que a grade padrão, mas ainda cabendo as duas linhas do bloco (nome/nº e horário/ícones)
+  const altura = Math.max(30, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
 
   const style: React.CSSProperties = {
@@ -590,7 +634,7 @@ function BlocoSessao({
       }}
       style={style}
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
-      className="absolute left-1 right-1 flex flex-col justify-between overflow-hidden rounded-md px-1.5 py-1 text-left text-[11px] text-white shadow-sm"
+      className="absolute left-1 right-1 flex flex-col justify-between overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] text-white shadow-sm"
     >
       <p className="truncate font-medium">
         {sessao.paciente.nome.split(" ")[0]} {sessao.numeroSessao}/{sessao.totalPacote}
@@ -658,12 +702,16 @@ function IconMeet({ className }: { className?: string }) {
 // numa versão compacta para não sair do contexto da agenda.
 function SessaoDetalheModal({
   sessao,
+  tiposSessao,
   onFechar,
   onAtualizado,
+  onAviso,
 }: {
   sessao: SessaoAgenda;
+  tiposSessao: TipoSessaoOpcao[];
   onFechar: () => void;
   onAtualizado: () => void;
+  onAviso: (msg: string) => void;
 }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -672,6 +720,8 @@ function SessaoDetalheModal({
   const [novoHorario, setNovoHorario] = useState(formatarHorario(new Date(sessao.inicio)));
   const [cancelando, setCancelando] = useState(false);
   const [motivo, setMotivo] = useState("");
+  const [trocandoTipo, setTrocandoTipo] = useState(false);
+  const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
 
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const inicio = new Date(sessao.inicio);
@@ -743,6 +793,28 @@ function SessaoDetalheModal({
     }
   }
 
+  async function salvarTipo(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipoSessaoId: novoTipoId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErro(data?.erro ?? "não foi possível trocar o tipo de sessão");
+        return;
+      }
+      if (data?.avisoMeet) onAviso(data.avisoMeet);
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
@@ -775,7 +847,7 @@ function SessaoDetalheModal({
 
         {erro && <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
 
-        {!travada && !editando && !cancelando && (
+        {!travada && !editando && !cancelando && !trocandoTipo && (
           <div className="space-y-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Status</p>
@@ -798,12 +870,21 @@ function SessaoDetalheModal({
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setEditando(true)}
                 className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
               >
                 Editar dia/horário
+              </button>
+              <button
+                onClick={() => {
+                  setNovoTipoId(sessao.tipoSessaoId ?? "");
+                  setTrocandoTipo(true);
+                }}
+                className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Trocar tipo
               </button>
               <button
                 onClick={() => setCancelando(true)}
@@ -855,6 +936,46 @@ function SessaoDetalheModal({
               <button
                 type="submit"
                 disabled={salvando}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {trocandoTipo && (
+          <form onSubmit={salvarTipo} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Tipo de sessão</label>
+              <div className="flex flex-wrap gap-1.5">
+                {tiposSessao.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setNovoTipoId(t.id)}
+                    className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${
+                      t.id === novoTipoId ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                    }`}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.cor ?? "#c9a96e" }} />
+                    {t.nome}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setTrocandoTipo(false)}
+                disabled={salvando}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={salvando || !novoTipoId || novoTipoId === sessao.tipoSessaoId}
                 className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {salvando ? "Salvando..." : "Salvar"}

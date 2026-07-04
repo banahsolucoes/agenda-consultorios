@@ -108,3 +108,40 @@ export async function obterCalendarDaClinica(
   if (!auth) return null;
   return google.calendar({ version: "v3", auth });
 }
+
+// Cria o evento no Google Calendar com Meet automático. Retorna os campos
+// prontos para gravar no Agendamento — ou tudo null se a chamada falhar,
+// para nunca impedir a criação/edição da sessão local.
+export async function criarEventoGoogleMeet(
+  calendar: calendar_v3.Calendar,
+  googleCalendarId: string,
+  dados: { titulo: string; inicio: Date; duracaoMin: number }
+): Promise<{ googleEventId: string | null; googleCalendarId: string | null; linkMeet: string | null }> {
+  try {
+    const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
+    const { data: evento } = await calendar.events.insert({
+      calendarId: googleCalendarId,
+      conferenceDataVersion: 1,
+      requestBody: {
+        summary: dados.titulo,
+        start: { dateTime: dados.inicio.toISOString() },
+        end: { dateTime: fim.toISOString() },
+        conferenceData: {
+          createRequest: {
+            requestId: crypto.randomUUID(),
+            conferenceSolutionKey: { type: "hangoutsMeet" },
+          },
+        },
+      },
+    });
+
+    return {
+      googleEventId: evento.id ?? null,
+      googleCalendarId,
+      linkMeet: evento.hangoutLink ?? null,
+    };
+  } catch (err) {
+    console.error("Falha ao criar evento no Google Calendar:", err);
+    return { googleEventId: null, googleCalendarId: null, linkMeet: null };
+  }
+}

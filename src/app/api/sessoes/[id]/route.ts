@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterCalendarDaClinica } from "@/lib/google";
+import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
+import { primeiroUltimoNome } from "@/lib/nomes";
 
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 const DIA_NUM: Record<string, number> = {
@@ -16,7 +17,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const sessao = await prisma.agendamento.findUnique({
     where: { id },
-    include: { paciente: true },
+    include: { paciente: true, tipoSessao: true },
   });
   if (!sessao || sessao.paciente.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
@@ -142,6 +143,54 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
 
     return NextResponse.json(atualizada);
+  }
+
+  if (body.tipoSessaoId) {
+    if (STATUS_CONSUMIDOS.includes(sessao.status)) {
+      return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
+    }
+
+    const novoTipo = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
+    if (!novoTipo || novoTipo.clinicaId !== sessao.paciente.clinicaId) {
+      return NextResponse.json({ erro: "tipo de sessão inválido" }, { status: 400 });
+    }
+
+    // Regra de Meet ao trocar tipo, baseada no caráter (ehOnline) de cada
+    // lado: presencial -> online gera o Meet (reaproveitando um link já
+    // existente, se houver); online -> presencial mantém o que já estiver
+    // gravado; entre dois tipos de mesmo caráter não mexe em nada disso.
+    const eraOnline = sessao.tipoSessao?.ehOnline ?? false;
+    const ficaOnline = novoTipo.ehOnline;
+
+    let dadosGoogle: { googleEventId?: string | null; googleCalendarId?: string | null; linkMeet?: string | null } = {};
+    let avisoMeet: string | null = null;
+
+    if (!eraOnline && ficaOnline && !sessao.linkMeet) {
+      const clinica = await prisma.clinica.findUnique({ where: { id: sessao.paciente.clinicaId } });
+      const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
+      if (calendar && clinica) {
+        const resultado = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
+          titulo: `${primeiroUltimoNome(sessao.paciente.nome)} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
+          inicio: sessao.inicio,
+          duracaoMin: sessao.duracaoMin,
+        });
+        if (resultado.linkMeet) {
+          dadosGoogle = resultado;
+        } else {
+          avisoMeet = "não foi possível gerar o link do Meet";
+        }
+      } else {
+        avisoMeet = "Google não conectado — não foi possível gerar o Meet";
+      }
+    }
+
+    const atualizada = await prisma.agendamento.update({
+      where: { id },
+      data: { tipoSessaoId: novoTipo.id, ...dadosGoogle },
+      include: { tipoSessao: true },
+    });
+
+    return NextResponse.json({ ...atualizada, avisoMeet });
   }
 
   return NextResponse.json({ erro: "nada para atualizar" }, { status: 400 });

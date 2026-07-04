@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { obterCalendarDaClinica } from "@/lib/google";
+import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
-import type { calendar_v3 } from "googleapis";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
   AVULSA: 1, MENSAL: 4, BIMESTRAL: 8, TRIMESTRAL: 12,
@@ -123,41 +122,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ pacote, sessoesGeradas: total }, { status: 201 });
-}
-
-// Cria o evento no Google Calendar com Meet automático. Retorna os campos
-// prontos para gravar no Agendamento — ou tudo null se a chamada falhar,
-// para nunca impedir a criação da sessão local.
-async function criarEventoGoogleMeet(
-  calendar: calendar_v3.Calendar,
-  googleCalendarId: string,
-  dados: { titulo: string; inicio: Date; duracaoMin: number }
-) {
-  try {
-    const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
-    const { data: evento } = await calendar.events.insert({
-      calendarId: googleCalendarId,
-      conferenceDataVersion: 1,
-      requestBody: {
-        summary: dados.titulo,
-        start: { dateTime: dados.inicio.toISOString() },
-        end: { dateTime: fim.toISOString() },
-        conferenceData: {
-          createRequest: {
-            requestId: crypto.randomUUID(),
-            conferenceSolutionKey: { type: "hangoutsMeet" },
-          },
-        },
-      },
-    });
-
-    return {
-      googleEventId: evento.id ?? null,
-      googleCalendarId,
-      linkMeet: evento.hangoutLink ?? null,
-    };
-  } catch (err) {
-    console.error("Falha ao criar evento no Google Calendar:", err);
-    return { googleEventId: null, googleCalendarId: null, linkMeet: null };
-  }
 }
