@@ -41,6 +41,12 @@ interface TipoSessaoItem {
   valor: string | null;
 }
 
+interface GoogleStatus {
+  conectado: boolean;
+  email?: string | null;
+  calendarId?: string | null;
+}
+
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const FORM_TIPO_VAZIO = {
@@ -77,6 +83,12 @@ export default function ConfiguracoesPage() {
   const [salvandoTipo, setSalvandoTipo] = useState(false);
   const [erroTipo, setErroTipo] = useState("");
   const [removendoTipoId, setRemovendoTipoId] = useState<string | null>(null);
+
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [carregandoGoogle, setCarregandoGoogle] = useState(true);
+  const [erroCarregarGoogle, setErroCarregarGoogle] = useState(false);
+  const [desconectandoGoogle, setDesconectandoGoogle] = useState(false);
+  const [avisoGoogle, setAvisoGoogle] = useState<"conectado" | "erro" | null>(null);
 
   async function carregarClinica() {
     setCarregandoClinica(true);
@@ -129,11 +141,53 @@ export default function ConfiguracoesPage() {
     }
   }
 
+  async function carregarGoogleStatus() {
+    setCarregandoGoogle(true);
+    setErroCarregarGoogle(false);
+    try {
+      const res = await fetch("/api/integracoes/google/status");
+      if (res.ok) {
+        setGoogleStatus(await res.json());
+      } else {
+        setErroCarregarGoogle(true);
+      }
+    } catch {
+      setErroCarregarGoogle(true);
+    } finally {
+      setCarregandoGoogle(false);
+    }
+  }
+
   useEffect(() => {
     carregarClinica();
     carregarHorarios();
     carregarTiposSessao();
+    carregarGoogleStatus();
+
+    // O callback do OAuth redireciona de volta pra cá com ?google_conectado=1
+    // ou ?google_erro=1 — lê uma vez e limpa da URL pra não reaparecer num reload.
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("google_conectado")) setAvisoGoogle("conectado");
+    else if (params.has("google_erro")) setAvisoGoogle("erro");
+    if (params.has("google_conectado") || params.has("google_erro")) {
+      router.replace("/painel/configuracoes");
+    }
   }, []);
+
+  function handleConectarGoogle() {
+    window.location.href = "/api/integracoes/google/conectar";
+  }
+
+  async function handleDesconectarGoogle() {
+    setDesconectandoGoogle(true);
+    try {
+      await fetch("/api/integracoes/google/desconectar", { method: "POST" });
+      await carregarGoogleStatus();
+      setAvisoGoogle(null);
+    } finally {
+      setDesconectandoGoogle(false);
+    }
+  }
 
   function handleChangeClinica(
     e: React.ChangeEvent<HTMLInputElement>
@@ -399,6 +453,72 @@ export default function ConfiguracoesPage() {
                 </button>
               </div>
             </form>
+          )}
+        </section>
+
+        {/* Integração Google */}
+        <section className="rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
+            Integração Google
+          </h2>
+          <p className="mb-4 text-sm text-muted">
+            Conecte a conta Google da clínica para criar automaticamente o link do Meet nas sessões online.
+          </p>
+
+          {avisoGoogle === "conectado" && (
+            <p className="mb-4 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+              Google conectado com sucesso.
+            </p>
+          )}
+          {avisoGoogle === "erro" && (
+            <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Não foi possível concluir a conexão com o Google. Tente novamente.
+            </p>
+          )}
+
+          {carregandoGoogle ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : erroCarregarGoogle || !googleStatus ? (
+            <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Não foi possível carregar o status da integração.
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border p-4">
+              <div className="flex items-center gap-3">
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    googleStatus.conectado ? "bg-green" : "bg-muted"
+                  }`}
+                />
+                <div>
+                  <p className="text-sm font-medium text-fg">
+                    {googleStatus.conectado ? "Conectado" : "Desconectado"}
+                  </p>
+                  {googleStatus.conectado && (
+                    <p className="text-xs text-muted">
+                      {googleStatus.email ?? "conta conectada (e-mail indisponível no momento)"}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {googleStatus.conectado ? (
+                <button
+                  onClick={handleDesconectarGoogle}
+                  disabled={desconectandoGoogle}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {desconectandoGoogle ? "Desconectando..." : "Desconectar"}
+                </button>
+              ) : (
+                <button
+                  onClick={handleConectarGoogle}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110"
+                >
+                  Conectar Google
+                </button>
+              )}
+            </div>
           )}
         </section>
 

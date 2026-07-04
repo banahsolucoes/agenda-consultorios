@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { obterCalendarDaClinica } from "@/lib/google";
+import type { calendar_v3 } from "googleapis";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
   AVULSA: 1, MENSAL: 4, BIMESTRAL: 8, TRIMESTRAL: 12,
@@ -19,7 +21,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "pacienteId e tipo são obrigatórios" }, { status: 400 });
   }
 
-  const paciente = await prisma.paciente.findUnique({ where: { id: pacienteId } });
+  const paciente = await prisma.paciente.findUnique({
+    where: { id: pacienteId },
+    include: { tipoSessao: true },
+  });
   if (!paciente || paciente.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "paciente não encontrado" }, { status: 404 });
   }
@@ -62,7 +67,65 @@ export async function POST(req: NextRequest) {
       tipoSessaoId: paciente.tipoSessaoId,
     });
   }
-  await prisma.agendamento.createMany({ data: sessoes });
+
+  // Sessão online + clínica com Google conectado: cria um evento (com Meet)
+  // por sessão e grava o link/id junto do agendamento. Fora desse caso, segue
+  // o caminho local de sempre — a integração nunca pode travar a criação da
+  // sessão em si.
+  const clinica = paciente.tipoSessao?.ehOnline
+    ? await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } })
+    : null;
+  const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
+
+  if (calendar && clinica) {
+    for (const sessao of sessoes) {
+      const dadosGoogle = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
+        titulo: `${paciente.nome} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
+        inicio: sessao.inicio,
+        duracaoMin: sessao.duracaoMin,
+      });
+      await prisma.agendamento.create({ data: { ...sessao, ...dadosGoogle } });
+    }
+  } else {
+    await prisma.agendamento.createMany({ data: sessoes });
+  }
 
   return NextResponse.json({ pacote, sessoesGeradas: total }, { status: 201 });
+}
+
+// Cria o evento no Google Calendar com Meet automático. Retorna os campos
+// prontos para gravar no Agendamento — ou tudo null se a chamada falhar,
+// para nunca impedir a criação da sessão local.
+async function criarEventoGoogleMeet(
+  calendar: calendar_v3.Calendar,
+  googleCalendarId: string,
+  dados: { titulo: string; inicio: Date; duracaoMin: number }
+) {
+  try {
+    const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
+    const { data: evento } = await calendar.events.insert({
+      calendarId: googleCalendarId,
+      conferenceDataVersion: 1,
+      requestBody: {
+        summary: dados.titulo,
+        start: { dateTime: dados.inicio.toISOString() },
+        end: { dateTime: fim.toISOString() },
+        conferenceData: {
+          createRequest: {
+            requestId: crypto.randomUUID(),
+            conferenceSolutionKey: { type: "hangoutsMeet" },
+          },
+        },
+      },
+    });
+
+    return {
+      googleEventId: evento.id ?? null,
+      googleCalendarId,
+      linkMeet: evento.hangoutLink ?? null,
+    };
+  } catch (err) {
+    console.error("Falha ao criar evento no Google Calendar:", err);
+    return { googleEventId: null, googleCalendarId: null, linkMeet: null };
+  }
 }

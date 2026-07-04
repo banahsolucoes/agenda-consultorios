@@ -20,6 +20,13 @@ model Clinica {
   horarioLimiteConfirmacao  String            @default("17:00")
   criadoEm                  DateTime          @default(now())
 
+  // Integração Google Calendar/Meet (OAuth por clínica, Tarefa 13)
+  googleRefreshToken        String?
+  googleAccessToken         String?
+  googleTokenExpiry         DateTime?
+  googleConectado           Boolean           @default(false)
+  googleCalendarId          String?           @default("primary")
+
   usuarios                  Usuario[]
   pacientes                 Paciente[]
   logs                      LogAuditoria[]

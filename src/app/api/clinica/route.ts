@@ -14,11 +14,28 @@ const CAMPOS_EDITAVEIS = [
 ] as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado
+// (tokens do Google ficam de fora da resposta — não devem sair do servidor)
 export async function GET() {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
 
-  const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
+  const clinica = await prisma.clinica.findUnique({
+    where: { id: usuario.clinicaId },
+    select: {
+      id: true,
+      nome: true,
+      slug: true,
+      logo: true,
+      corPrimaria: true,
+      corSecundaria: true,
+      duracaoPadraoMin: true,
+      nomeAssistente: true,
+      horarioLimiteConfirmacao: true,
+      criadoEm: true,
+      googleConectado: true,
+      googleCalendarId: true,
+    },
+  });
   if (!clinica) return NextResponse.json({ erro: "clínica não encontrada" }, { status: 404 });
 
   return NextResponse.json(clinica);
@@ -42,6 +59,20 @@ export async function PATCH(req: NextRequest) {
   const clinica = await prisma.clinica.update({
     where: { id: usuario.clinicaId },
     data,
+    select: {
+      id: true,
+      nome: true,
+      slug: true,
+      logo: true,
+      corPrimaria: true,
+      corSecundaria: true,
+      duracaoPadraoMin: true,
+      nomeAssistente: true,
+      horarioLimiteConfirmacao: true,
+      criadoEm: true,
+      googleConectado: true,
+      googleCalendarId: true,
+    },
   });
 
   return NextResponse.json(clinica);
