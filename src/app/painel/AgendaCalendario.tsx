@@ -160,6 +160,13 @@ export default function AgendaCalendario() {
   const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [rowPx, setRowPx] = useState(ROW_PX_PADRAO);
+  // Relógio para esmaecer sessões cujo início já passou (recalcula sem precisar recarregar a página)
+  const [agora, setAgora] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setAgora(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -478,6 +485,7 @@ export default function AgendaCalendario() {
                   }}
                   onAbrirDetalhe={setSessaoDetalhe}
                   clinica={clinica}
+                  agora={agora}
                 />
               ))}
             </div>
@@ -512,6 +520,7 @@ function DiaColuna({
   colRefCallback,
   onAbrirDetalhe,
   clinica,
+  agora,
 }: {
   index: number;
   dia: Date;
@@ -523,6 +532,7 @@ function DiaColuna({
   colRefCallback: (index: number, node: HTMLDivElement | null) => void;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
+  agora: number;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
   const hoje = mesmoDia(dia, new Date());
@@ -553,7 +563,15 @@ function DiaColuna({
           />
         ))}
         {sessoesDoDia.map((s) => (
-          <BlocoSessao key={s.id} sessao={s} janela={janela} rowPx={rowPx} onAbrirDetalhe={onAbrirDetalhe} clinica={clinica} />
+          <BlocoSessao
+            key={s.id}
+            sessao={s}
+            janela={janela}
+            rowPx={rowPx}
+            onAbrirDetalhe={onAbrirDetalhe}
+            clinica={clinica}
+            agora={agora}
+          />
         ))}
       </div>
     </div>
@@ -566,12 +584,14 @@ function BlocoSessao({
   rowPx,
   onAbrirDetalhe,
   clinica,
+  agora,
 }: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
   rowPx: number;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
+  agora: number;
 }) {
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -586,15 +606,17 @@ function BlocoSessao({
   const fim = new Date(inicio.getTime() + sessao.duracaoMin * 60000);
   const minutos = inicio.getHours() * 60 + inicio.getMinutes();
   const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
-  // Altura mínima menor que a grade padrão, mas ainda cabendo as duas linhas do bloco (nome/nº e horário/ícones)
-  const altura = Math.max(30, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
+  // Altura mínima menor que a grade padrão, mas ainda cabendo as duas linhas do bloco (nome/nº e horário/ícones) sem encavalar
+  const altura = Math.max(34, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
+  // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
+  const jaComecou = inicio.getTime() < agora;
 
   const style: React.CSSProperties = {
     top,
     height: altura,
     backgroundColor: cor,
-    opacity: sessao.status === "CANCELADA" ? 0.5 : 1,
+    opacity: sessao.status === "CANCELADA" || jaComecou ? 0.5 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     zIndex: isDragging ? 20 : 1,
     cursor: travada ? "default" : "grab",
@@ -634,29 +656,29 @@ function BlocoSessao({
       }}
       style={style}
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
-      className="absolute left-1 right-1 flex flex-col justify-between overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] text-white shadow-sm"
+      className="absolute left-1 right-1 flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm"
     >
-      <p className="truncate font-medium">
+      <p className="truncate text-[11px] font-medium leading-[13px]">
         {sessao.paciente.nome.split(" ")[0]} {sessao.numeroSessao}/{sessao.totalPacote}
       </p>
-      <div className="flex items-center justify-between gap-1">
+      <div className="flex items-center justify-between gap-1 leading-none">
         {copiado ? (
-          <span className="truncate text-[10px] font-medium">Copiado!</span>
+          <span className="truncate text-[10px] font-medium leading-[12px]">Copiado!</span>
         ) : (
           <>
-            <span className="truncate text-[10px] opacity-90">
+            <span className="truncate text-[10px] leading-[12px] opacity-90">
               {formatarHorario(inicio)}–{formatarHorario(fim)}
             </span>
-            <span className="flex shrink-0 items-center gap-0.5">
+            <span className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={handleCopiarConfirmacao}
                 title="Copiar mensagem de confirmação"
                 aria-label="Copiar mensagem de confirmação"
-                className="rounded p-0.5 hover:bg-white/20"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40"
               >
-                <IconCopiar className="h-2.5 w-2.5" />
+                <IconCopiar className="h-3 w-3" />
               </button>
               <button
                 type="button"
@@ -665,9 +687,9 @@ function BlocoSessao({
                 onClick={handleCopiarMeet}
                 title="Copiar texto do link do Meet"
                 aria-label="Copiar texto do link do Meet"
-                className="rounded p-0.5 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
               >
-                <IconMeet className="h-2.5 w-2.5" />
+                <IconMeet className="h-3 w-3" />
               </button>
             </span>
           </>
