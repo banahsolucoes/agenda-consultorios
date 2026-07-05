@@ -38,6 +38,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.ehOnline !== undefined) {
     data.ehOnline = Boolean(body.ehOnline);
   }
+  if (body.ehAtendimentoUnico !== undefined) {
+    data.ehAtendimentoUnico = Boolean(body.ehAtendimentoUnico);
+  }
   if (body.valor !== undefined) {
     data.valor = body.valor !== null && body.valor !== "" ? String(body.valor) : null;
   }

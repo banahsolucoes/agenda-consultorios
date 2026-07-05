@@ -36,14 +36,15 @@ model Clinica {
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
 model TipoSessao {
-  id                String        @id @default(uuid())
-  clinicaId         String
-  nome              String
-  cor               String?
-  duracaoPadraoMin  Int           @default(45)
-  ehOnline          Boolean       @default(false)
-  valor             Decimal?
-  criadoEm          DateTime      @default(now())
+  id                 String        @id @default(uuid())
+  clinicaId          String
+  nome               String
+  cor                String?
+  duracaoPadraoMin   Int           @default(45)
+  ehOnline           Boolean       @default(false)
+  ehAtendimentoUnico Boolean       @default(false)
+  valor              Decimal?
+  criadoEm           DateTime      @default(now())
 
   clinica           Clinica       @relation(fields: [clinicaId], references: [id])
   pacientes         Paciente[]

@@ -105,6 +105,7 @@ interface Clinica {
 interface TipoSessao {
   id: string;
   nome: string;
+  ehAtendimentoUnico: boolean;
 }
 
 // Estado inicial do formulário de novo paciente
@@ -554,6 +555,16 @@ export default function PainelPage() {
     setErroPacote("");
     setModalPacote(true);
   }
+
+  // Tipo de sessão marcado como "atendimento único" (ex.: avaliação) só
+  // permite pacote Avulsa — ao trocar para um desses, colapsa na hora.
+  function handleTrocarTipoSessaoPacote(novoId: string) {
+    setTipoSessaoPacote(novoId);
+    const tipo = tiposSessao.find((t) => t.id === novoId);
+    if (tipo?.ehAtendimentoUnico) setTipoPacote(TIPOS_PACOTE[0]);
+  }
+
+  const tipoSessaoPacoteEhUnico = tiposSessao.find((t) => t.id === tipoSessaoPacote)?.ehAtendimentoUnico ?? false;
 
   async function handleCriarPacote(e: React.FormEvent) {
     e.preventDefault();
@@ -1374,23 +1385,6 @@ export default function PainelPage() {
             <form onSubmit={handleCriarPacote} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
-                  Tipo de atendimento
-                </label>
-                <select
-                  value={tipoPacote}
-                  onChange={(e) => setTipoPacote(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
-                  {TIPOS_PACOTE.map((t) => (
-                    <option key={t} value={t}>
-                      {tipoPacoteLabel(t)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">
                   Tipo de sessão
                 </label>
                 {tiposSessao.length === 0 ? (
@@ -1400,7 +1394,7 @@ export default function PainelPage() {
                 ) : (
                   <select
                     value={tipoSessaoPacote}
-                    onChange={(e) => setTipoSessaoPacote(e.target.value)}
+                    onChange={(e) => handleTrocarTipoSessaoPacote(e.target.value)}
                     className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                   >
                     {tiposSessao.map((tipo) => (
@@ -1409,6 +1403,29 @@ export default function PainelPage() {
                       </option>
                     ))}
                   </select>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Tipo de atendimento
+                </label>
+                <select
+                  value={tipoPacote}
+                  onChange={(e) => setTipoPacote(e.target.value)}
+                  disabled={tipoSessaoPacoteEhUnico}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {(tipoSessaoPacoteEhUnico ? [TIPOS_PACOTE[0]] : TIPOS_PACOTE).map((t) => (
+                    <option key={t} value={t}>
+                      {tipoPacoteLabel(t)}
+                    </option>
+                  ))}
+                </select>
+                {tipoSessaoPacoteEhUnico && (
+                  <p className="mt-1 text-xs text-muted">
+                    Este tipo de sessão é de atendimento único — permite apenas Avulsa.
+                  </p>
                 )}
               </div>
 

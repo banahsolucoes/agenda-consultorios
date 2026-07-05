@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
   // para um paciente cujo atendimento normal é presencial).
   let tipoSessaoId = paciente.tipoSessaoId;
   let tipoSessaoEhOnline = paciente.tipoSessao?.ehOnline ?? false;
+  let tipoSessaoEhAtendimentoUnico = paciente.tipoSessao?.ehAtendimentoUnico ?? false;
   if (body.tipoSessaoId !== undefined) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
@@ -74,6 +75,16 @@ export async function POST(req: NextRequest) {
     }
     tipoSessaoId = tipoSessao.id;
     tipoSessaoEhOnline = tipoSessao.ehOnline;
+    tipoSessaoEhAtendimentoUnico = tipoSessao.ehAtendimentoUnico;
+  }
+
+  // Tipo de sessão de atendimento único (ex.: avaliação) só pode ser usado
+  // num pacote Avulsa — nunca em pacotes recorrentes.
+  if (tipoSessaoEhAtendimentoUnico && tipo !== "AVULSA") {
+    return NextResponse.json(
+      { erro: "este tipo de sessão é de atendimento único — só permite pacote Avulsa" },
+      { status: 400 }
+    );
   }
 
   const pacote = await prisma.pacote.create({

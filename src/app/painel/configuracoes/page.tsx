@@ -38,6 +38,7 @@ interface TipoSessaoItem {
   cor: string | null;
   duracaoPadraoMin: number;
   ehOnline: boolean;
+  ehAtendimentoUnico: boolean;
   valor: string | null;
 }
 
@@ -54,6 +55,7 @@ const FORM_TIPO_VAZIO = {
   cor: "#c9a96e",
   duracaoPadraoMin: "45",
   ehOnline: false,
+  ehAtendimentoUnico: false,
   valor: "",
 };
 
@@ -309,6 +311,7 @@ export default function ConfiguracoesPage() {
       cor: tipo.cor ?? "#c9a96e",
       duracaoPadraoMin: String(tipo.duracaoPadraoMin),
       ehOnline: tipo.ehOnline,
+      ehAtendimentoUnico: tipo.ehAtendimentoUnico,
       valor: tipo.valor ?? "",
     });
     setErroTipo("");
@@ -330,6 +333,7 @@ export default function ConfiguracoesPage() {
             cor: formTipo.cor,
             duracaoPadraoMin: formTipo.duracaoPadraoMin,
             ehOnline: formTipo.ehOnline,
+            ehAtendimentoUnico: formTipo.ehAtendimentoUnico,
             valor: formTipo.valor || null,
           }),
         }
@@ -639,6 +643,7 @@ export default function ConfiguracoesPage() {
                           <p className="text-sm font-medium text-fg">{tipo.nome}</p>
                           <p className="text-xs text-muted">
                             {tipo.duracaoPadraoMin} min · {tipo.ehOnline ? "Online" : "Presencial"}
+                            {tipo.ehAtendimentoUnico ? " · Atendimento único" : ""}
                             {tipo.valor ? ` · R$ ${tipo.valor}` : ""}
                           </p>
                         </div>
@@ -726,6 +731,23 @@ export default function ConfiguracoesPage() {
                   />
                   É online
                 </label>
+
+                <div className="sm:col-span-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-fg">
+                    <input
+                      type="checkbox"
+                      name="ehAtendimentoUnico"
+                      checked={formTipo.ehAtendimentoUnico}
+                      onChange={handleChangeFormTipo}
+                      className="h-4 w-4 rounded border-border accent-gold"
+                    />
+                    Atendimento único (só avulsa)
+                  </label>
+                  <p className="mt-1 text-xs text-muted">
+                    Tipos marcados assim representam atendimentos de entrada que só acontecem uma
+                    vez (ex: avaliação, primeira consulta).
+                  </p>
+                </div>
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-fg">Valor (R$, opcional)</label>

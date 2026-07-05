@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
       cor: body.cor ?? null,
       duracaoPadraoMin,
       ehOnline: Boolean(body.ehOnline),
+      ehAtendimentoUnico: Boolean(body.ehAtendimentoUnico),
       valor: body.valor !== undefined && body.valor !== null && body.valor !== "" ? String(body.valor) : null,
     },
   });
