@@ -17,9 +17,9 @@ import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 // vertical disponível na tela, para a agenda do dia inteiro caber sem
 // rolagem — ROW_PX_PADRAO é só o valor usado antes da primeira medição.
 const ROW_MIN = 30;
-const ROW_PX_PADRAO = 32;
-const ROW_PX_MIN = 20;
-const ROW_PX_MAX = 48;
+const ROW_PX_PADRAO = 36;
+const ROW_PX_MIN = 34;
+const ROW_PX_MAX = 52;
 const ALTURA_CABECALHO_DIA = 40; // h-10
 
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
@@ -606,8 +606,8 @@ function BlocoSessao({
   const fim = new Date(inicio.getTime() + sessao.duracaoMin * 60000);
   const minutos = inicio.getHours() * 60 + inicio.getMinutes();
   const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
-  // Altura mínima menor que a grade padrão, mas ainda cabendo as duas linhas do bloco (nome/nº e horário/ícones) sem encavalar
-  const altura = Math.max(34, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
+  // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
+  const altura = Math.max(46, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
