@@ -27,6 +27,10 @@ model Clinica {
   googleConectado           Boolean           @default(false)
   googleCalendarId          String?           @default("primary")
 
+  // Pasta-mãe do Google Drive onde as pastas de cada paciente são criadas
+  // automaticamente no cadastro (Tarefa Drive Parte 3).
+  pastaRaizDriveId          String?
+
   usuarios                  Usuario[]
   pacientes                 Paciente[]
   logs                      LogAuditoria[]

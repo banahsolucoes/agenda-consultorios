@@ -8,3 +8,32 @@ export function pareceUrl(valor: string): boolean {
     return false;
   }
 }
+
+// Extrai o ID de uma pasta do Google Drive a partir do que o usuário colar:
+// um link no formato "?id=XXXX" (compartilhamento "Copiar link"), um link
+// "/drive/folders/XXXX" (abrir a pasta pelo navegador), ou já o próprio ID
+// da pasta (sem link nenhum).
+export function extrairIdPastaDrive(valor: string): string {
+  const texto = valor.trim();
+  if (!texto) return "";
+
+  try {
+    const url = new URL(texto);
+
+    const idQuery = url.searchParams.get("id");
+    if (idQuery) return idQuery;
+
+    const partes = url.pathname.split("/").filter(Boolean);
+    const indiceFolders = partes.indexOf("folders");
+    if (indiceFolders !== -1 && partes[indiceFolders + 1]) {
+      return partes[indiceFolders + 1];
+    }
+
+    // URL do Drive num formato não reconhecido — devolve como veio, para o
+    // operador perceber e corrigir manualmente em vez de perder o valor.
+    return texto;
+  } catch {
+    // Não é uma URL — assume que já é o próprio ID da pasta.
+    return texto;
+  }
+}

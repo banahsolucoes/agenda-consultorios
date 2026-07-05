@@ -23,6 +23,7 @@ interface Clinica {
   duracaoPadraoMin: number;
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
+  pastaRaizDriveId: string | null;
 }
 
 interface FaixaHorario {
@@ -95,13 +96,20 @@ export default function ConfiguracoesPage() {
   const [desconectandoGoogle, setDesconectandoGoogle] = useState(false);
   const [avisoGoogle, setAvisoGoogle] = useState<"conectado" | "erro" | null>(null);
 
+  const [pastaRaizInput, setPastaRaizInput] = useState("");
+  const [salvandoPastaRaiz, setSalvandoPastaRaiz] = useState(false);
+  const [erroPastaRaiz, setErroPastaRaiz] = useState("");
+  const [sucessoPastaRaiz, setSucessoPastaRaiz] = useState(false);
+
   async function carregarClinica() {
     setCarregandoClinica(true);
     setErroCarregarClinica(false);
     try {
       const res = await fetch("/api/clinica");
       if (res.ok) {
-        setClinica(await res.json());
+        const dados = await res.json();
+        setClinica(dados);
+        setPastaRaizInput(dados.pastaRaizDriveId ?? "");
       } else {
         setErroCarregarClinica(true);
       }
@@ -236,6 +244,36 @@ export default function ConfiguracoesPage() {
       setErroClinica("não foi possível salvar");
     } finally {
       setSalvandoClinica(false);
+    }
+  }
+
+  async function handleSalvarPastaRaiz(e: React.FormEvent) {
+    e.preventDefault();
+    setErroPastaRaiz("");
+    setSucessoPastaRaiz(false);
+    setSalvandoPastaRaiz(true);
+
+    try {
+      const res = await fetch("/api/clinica", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pastaRaizDriveId: pastaRaizInput || null }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroPastaRaiz(data?.erro ?? "não foi possível salvar");
+        return;
+      }
+
+      const atualizada = await res.json();
+      setClinica(atualizada);
+      setPastaRaizInput(atualizada.pastaRaizDriveId ?? "");
+      setSucessoPastaRaiz(true);
+    } catch {
+      setErroPastaRaiz("não foi possível salvar");
+    } finally {
+      setSalvandoPastaRaiz(false);
     }
   }
 
@@ -541,6 +579,43 @@ export default function ConfiguracoesPage() {
               )}
             </div>
           )}
+
+          <form onSubmit={handleSalvarPastaRaiz} className="mt-4">
+            <label className="mb-1 block text-sm font-medium text-fg">
+              Pasta-mãe do Drive (link ou ID)
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={pastaRaizInput}
+                onChange={(e) => {
+                  setPastaRaizInput(e.target.value);
+                  setSucessoPastaRaiz(false);
+                }}
+                placeholder="https://drive.google.com/drive/folders/..."
+                className="min-w-[240px] flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+              <button
+                type="submit"
+                disabled={salvandoPastaRaiz}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvandoPastaRaiz ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Cole o link da pasta (ou já o ID) — as pastas dos pacientes novos são criadas
+              automaticamente aqui dentro, quando o Google estiver conectado.
+            </p>
+            {erroPastaRaiz && (
+              <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroPastaRaiz}</p>
+            )}
+            {sucessoPastaRaiz && (
+              <p className="mt-2 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                Pasta-mãe salva.
+              </p>
+            )}
+          </form>
         </section>
 
         {/* Horário de trabalho */}

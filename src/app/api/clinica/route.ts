@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { extrairIdPastaDrive } from "@/lib/validacao";
 
 // Campos que podem ser alterados pela tela de Configurações
 const CAMPOS_EDITAVEIS = [
@@ -11,7 +12,24 @@ const CAMPOS_EDITAVEIS = [
   "duracaoPadraoMin",
   "nomeAssistente",
   "horarioLimiteConfirmacao",
+  "pastaRaizDriveId",
 ] as const;
+
+const SELECT_CLINICA = {
+  id: true,
+  nome: true,
+  slug: true,
+  logo: true,
+  corPrimaria: true,
+  corSecundaria: true,
+  duracaoPadraoMin: true,
+  nomeAssistente: true,
+  horarioLimiteConfirmacao: true,
+  criadoEm: true,
+  googleConectado: true,
+  googleCalendarId: true,
+  pastaRaizDriveId: true,
+} as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado
 // (tokens do Google ficam de fora da resposta — não devem sair do servidor)
@@ -21,20 +39,7 @@ export async function GET() {
 
   const clinica = await prisma.clinica.findUnique({
     where: { id: usuario.clinicaId },
-    select: {
-      id: true,
-      nome: true,
-      slug: true,
-      logo: true,
-      corPrimaria: true,
-      corSecundaria: true,
-      duracaoPadraoMin: true,
-      nomeAssistente: true,
-      horarioLimiteConfirmacao: true,
-      criadoEm: true,
-      googleConectado: true,
-      googleCalendarId: true,
-    },
+    select: SELECT_CLINICA,
   });
   if (!clinica) return NextResponse.json({ erro: "clínica não encontrada" }, { status: 404 });
 
@@ -56,23 +61,16 @@ export async function PATCH(req: NextRequest) {
     data.duracaoPadraoMin = Number(data.duracaoPadraoMin);
   }
 
+  // Aceita o operador colar tanto um link do Drive quanto já o próprio ID da
+  // pasta-mãe — sempre normaliza e guarda só o ID.
+  if (typeof data.pastaRaizDriveId === "string") {
+    data.pastaRaizDriveId = data.pastaRaizDriveId ? extrairIdPastaDrive(data.pastaRaizDriveId) : null;
+  }
+
   const clinica = await prisma.clinica.update({
     where: { id: usuario.clinicaId },
     data,
-    select: {
-      id: true,
-      nome: true,
-      slug: true,
-      logo: true,
-      corPrimaria: true,
-      corSecundaria: true,
-      duracaoPadraoMin: true,
-      nomeAssistente: true,
-      horarioLimiteConfirmacao: true,
-      criadoEm: true,
-      googleConectado: true,
-      googleCalendarId: true,
-    },
+    select: SELECT_CLINICA,
   });
 
   return NextResponse.json(clinica);

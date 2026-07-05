@@ -2,7 +2,7 @@
 // Cada clínica conecta a própria conta Google; as credenciais do app (client
 // id/secret/redirect) são únicas e ficam no .env.
 
-import { google, calendar_v3 } from "googleapis";
+import { google, calendar_v3, drive_v3 } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import type { Clinica } from "@/generated/prisma";
 import type { NextRequest } from "next/server";
@@ -12,9 +12,12 @@ import { TIMEZONE } from "@/lib/timezone";
 // para exibir o e-mail da conta conectada na tela de Configurações — sem
 // esse escopo, oauth2.userinfo.get() responde 401 (a busca do e-mail já é
 // tolerante a essa falha, mas o escopo certo evita o erro na origem).
+// drive.file é o escopo mínimo do Drive: só enxerga/edita arquivos e pastas
+// criados pelo próprio app — nunca os demais arquivos do Drive da clínica.
 const ESCOPOS_GOOGLE = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/drive.file",
 ];
 
 // Reconstrói a origem pública da requisição para montar redirects internos
@@ -115,6 +118,40 @@ export async function obterCalendarDaClinica(
   const auth = await obterClienteGoogleDaClinica(clinica);
   if (!auth) return null;
   return google.calendar({ version: "v3", auth });
+}
+
+// Cliente pronto do Google Drive para a clínica, ou null se ela não tiver a
+// integração conectada — mesmo padrão do obterCalendarDaClinica.
+export async function obterDriveDaClinica(clinica: Clinica): Promise<drive_v3.Drive | null> {
+  const auth = await obterClienteGoogleDaClinica(clinica);
+  if (!auth) return null;
+  return google.drive({ version: "v3", auth });
+}
+
+// Cria a pasta de um paciente dentro da pasta-mãe configurada pela clínica.
+// Tolerante a falha: qualquer erro (pasta-mãe inválida, permissão, rede)
+// devolve tudo null — o cadastro do paciente nunca deve travar por causa
+// disso, a pasta pode ser criada/vinculada manualmente depois.
+export async function criarPastaPacienteDrive(
+  drive: drive_v3.Drive,
+  pastaRaizDriveId: string,
+  nomePaciente: string
+): Promise<{ pastaDriveId: string | null; pastaDriveUrl: string | null }> {
+  try {
+    const { data } = await drive.files.create({
+      requestBody: {
+        name: nomePaciente,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [pastaRaizDriveId],
+      },
+      fields: "id, webViewLink",
+    });
+
+    return { pastaDriveId: data.id ?? null, pastaDriveUrl: data.webViewLink ?? null };
+  } catch (err) {
+    console.error("Falha ao criar pasta do paciente no Google Drive:", err);
+    return { pastaDriveId: null, pastaDriveUrl: null };
+  }
 }
 
 // Cria o evento no Google Calendar com Meet automático. Retorna os campos

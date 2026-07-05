@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
 import { pareceUrl } from "@/lib/validacao";
+import { obterDriveDaClinica, criarPastaPacienteDrive } from "@/lib/google";
 
 // GET /api/pacientes — lista pacientes da clínica do usuário logado
 export async function GET() {
@@ -66,6 +67,32 @@ export async function POST(req: NextRequest) {
   });
 
   await registrarLog(usuario.clinicaId, usuario.id, "CRIAR_PACIENTE", `Cadastrou o paciente ${paciente.nome}`);
+
+  // Cria a pasta do paciente no Drive da clínica, melhor esforço: só quando
+  // não veio uma URL manual no cadastro, o Google está conectado e a
+  // clínica já configurou a pasta-mãe. Qualquer falha aqui (Google
+  // desconectado, pasta-mãe inválida, erro de rede) nunca deve derrubar o
+  // cadastro do paciente, que já foi concluído com sucesso.
+  if (!paciente.pastaDriveUrl) {
+    try {
+      const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
+      if (clinica?.googleConectado && clinica.pastaRaizDriveId) {
+        const drive = await obterDriveDaClinica(clinica);
+        if (drive) {
+          const pasta = await criarPastaPacienteDrive(drive, clinica.pastaRaizDriveId, paciente.nome);
+          if (pasta.pastaDriveUrl) {
+            await prisma.paciente.update({
+              where: { id: paciente.id },
+              data: { pastaDriveUrl: pasta.pastaDriveUrl },
+            });
+            paciente.pastaDriveUrl = pasta.pastaDriveUrl;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Falha ao criar pasta do paciente no Drive:", err);
+    }
+  }
 
   return NextResponse.json(paciente, { status: 201 });
 }
