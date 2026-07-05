@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   // num pacote Avulsa — nunca em pacotes recorrentes.
   if (tipoSessaoEhAtendimentoUnico && tipo !== "AVULSA") {
     return NextResponse.json(
-      { erro: "este tipo de sessão é de atendimento único — só permite pacote Avulsa" },
+      { erro: "este tipo de atendimento é de atendimento único — só permite recorrência Avulsa" },
       { status: 400 }
     );
   }
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
     usuario.clinicaId,
     usuario.id,
     acaoLog,
-    `${verboLog} atendimento ${tipoPacoteLabel(tipo)} (${total} ${sessaoOuSessoes}) para ${paciente.nome} — tipo de sessão: ${tipoSessaoNome ?? "não definido"}`
+    `${verboLog} atendimento ${tipoPacoteLabel(tipo)} (${total} ${sessaoOuSessoes}) para ${paciente.nome} — tipo de atendimento: ${tipoSessaoNome ?? "não definido"}`
   );
 
   return NextResponse.json({ pacote, sessoesGeradas: total }, { status: 201 });

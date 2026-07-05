@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const tipo = await prisma.tipoSessao.findUnique({ where: { id } });
   if (!tipo || tipo.clinicaId !== usuario.clinicaId) {
-    return NextResponse.json({ erro: "tipo de sessão não encontrado" }, { status: 404 });
+    return NextResponse.json({ erro: "tipo de atendimento não encontrado" }, { status: 404 });
   }
 
   const body = await req.json();
@@ -57,7 +57,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   const { id } = await ctx.params;
   const tipo = await prisma.tipoSessao.findUnique({ where: { id } });
   if (!tipo || tipo.clinicaId !== usuario.clinicaId) {
-    return NextResponse.json({ erro: "tipo de sessão não encontrado" }, { status: 404 });
+    return NextResponse.json({ erro: "tipo de atendimento não encontrado" }, { status: 404 });
   }
 
   const [pacientesVinculados, agendamentosVinculados] = await Promise.all([
@@ -66,7 +66,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   ]);
   if (pacientesVinculados > 0 || agendamentosVinculados > 0) {
     return NextResponse.json(
-      { erro: "não é possível remover: há pacientes ou sessões usando este tipo" },
+      { erro: "não é possível remover: há pacientes ou sessões usando este tipo de atendimento" },
       { status: 409 }
     );
   }

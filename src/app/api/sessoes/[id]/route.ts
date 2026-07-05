@@ -181,7 +181,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const novoTipo = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!novoTipo || novoTipo.clinicaId !== sessao.paciente.clinicaId) {
-      return NextResponse.json({ erro: "tipo de sessão inválido" }, { status: 400 });
+      return NextResponse.json({ erro: "tipo de atendimento inválido" }, { status: 400 });
     }
 
     // Regra de Meet ao trocar tipo, baseada no caráter (ehOnline) de cada

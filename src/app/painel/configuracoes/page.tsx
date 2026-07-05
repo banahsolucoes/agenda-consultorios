@@ -81,9 +81,12 @@ export default function ConfiguracoesPage() {
   const [carregandoTipos, setCarregandoTipos] = useState(true);
   const [erroCarregarTipos, setErroCarregarTipos] = useState(false);
   const [formTipo, setFormTipo] = useState(FORM_TIPO_VAZIO);
+  const [modalTipoAberto, setModalTipoAberto] = useState(false);
   const [editandoTipoId, setEditandoTipoId] = useState<string | null>(null);
   const [salvandoTipo, setSalvandoTipo] = useState(false);
   const [erroTipo, setErroTipo] = useState("");
+  const [excluindoTipo, setExcluindoTipo] = useState<TipoSessaoItem | null>(null);
+  const [erroExcluirTipo, setErroExcluirTipo] = useState("");
   const [removendoTipoId, setRemovendoTipoId] = useState<string | null>(null);
 
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
@@ -298,13 +301,14 @@ export default function ConfiguracoesPage() {
     setFormTipo((f) => ({ ...f, [name]: type === "checkbox" ? checked : value }));
   }
 
-  function iniciarNovoTipo() {
+  function abrirNovoTipo() {
     setEditandoTipoId(null);
     setFormTipo(FORM_TIPO_VAZIO);
     setErroTipo("");
+    setModalTipoAberto(true);
   }
 
-  function iniciarEdicaoTipo(tipo: TipoSessaoItem) {
+  function abrirEdicaoTipo(tipo: TipoSessaoItem) {
     setEditandoTipoId(tipo.id);
     setFormTipo({
       nome: tipo.nome,
@@ -315,6 +319,11 @@ export default function ConfiguracoesPage() {
       valor: tipo.valor ?? "",
     });
     setErroTipo("");
+    setModalTipoAberto(true);
+  }
+
+  function fecharModalTipo() {
+    setModalTipoAberto(false);
   }
 
   async function handleSalvarTipo(e: React.FormEvent) {
@@ -341,29 +350,37 @@ export default function ConfiguracoesPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setErroTipo(data?.erro ?? "não foi possível salvar o tipo de sessão");
+        setErroTipo(data?.erro ?? "não foi possível salvar o tipo de atendimento");
         return;
       }
 
-      iniciarNovoTipo();
+      setModalTipoAberto(false);
       await carregarTiposSessao();
     } catch {
-      setErroTipo("não foi possível salvar o tipo de sessão");
+      setErroTipo("não foi possível salvar o tipo de atendimento");
     } finally {
       setSalvandoTipo(false);
     }
   }
 
-  async function handleRemoverTipo(id: string) {
-    setRemovendoTipoId(id);
+  function abrirExcluirTipo(tipo: TipoSessaoItem) {
+    setExcluindoTipo(tipo);
+    setErroExcluirTipo("");
+  }
+
+  async function handleConfirmarExcluirTipo() {
+    if (!excluindoTipo) return;
+    setRemovendoTipoId(excluindoTipo.id);
+    setErroExcluirTipo("");
     try {
-      const res = await fetch(`/api/clinica/tipos-sessao/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/clinica/tipos-sessao/${excluindoTipo.id}`, { method: "DELETE" });
       if (res.ok) {
-        if (editandoTipoId === id) iniciarNovoTipo();
+        if (editandoTipoId === excluindoTipo.id) setModalTipoAberto(false);
+        setExcluindoTipo(null);
         await carregarTiposSessao();
       } else {
         const data = await res.json().catch(() => null);
-        setErroTipo(data?.erro ?? "não foi possível remover o tipo de sessão");
+        setErroExcluirTipo(data?.erro ?? "não foi possível remover o tipo de atendimento");
       }
     } finally {
       setRemovendoTipoId(null);
@@ -608,191 +625,236 @@ export default function ConfiguracoesPage() {
           )}
         </section>
 
-        {/* Tipos de sessão */}
+        {/* Tipos de atendimento */}
         <section className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
-            Tipos de sessão
-          </h2>
-          <p className="mb-4 text-sm text-muted">
-            Defina os tipos de sessão oferecidos pela clínica (ex.: Sessão online, Avaliação presencial).
-          </p>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-lg font-semibold text-fg">
+                Tipos de atendimento
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Defina os tipos de atendimento oferecidos pela clínica (ex.: Sessão online, Avaliação presencial).
+              </p>
+            </div>
+            <button
+              onClick={abrirNovoTipo}
+              className="shrink-0 rounded-lg bg-gold px-3 py-1.5 text-sm font-medium text-bg hover:brightness-110"
+            >
+              Novo tipo de atendimento
+            </button>
+          </div>
 
           {carregandoTipos ? (
             <p className="text-sm text-muted">Carregando...</p>
           ) : erroCarregarTipos ? (
             <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
-              Não foi possível carregar os tipos de sessão.
+              Não foi possível carregar os tipos de atendimento.
             </p>
+          ) : tiposSessao.length === 0 ? (
+            <p className="text-sm text-muted">Nenhum tipo de atendimento cadastrado ainda.</p>
           ) : (
-            <>
-              {tiposSessao.length === 0 ? (
-                <p className="mb-4 text-sm text-muted">Nenhum tipo de sessão cadastrado ainda.</p>
-              ) : (
-                <ul className="mb-4 space-y-2">
-                  {tiposSessao.map((tipo) => (
-                    <li
-                      key={tipo.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className="h-4 w-4 rounded-full border border-border"
-                          style={{ backgroundColor: tipo.cor ?? "#c9a96e" }}
-                        />
-                        <div>
-                          <p className="text-sm font-medium text-fg">{tipo.nome}</p>
-                          <p className="text-xs text-muted">
-                            {tipo.duracaoPadraoMin} min · {tipo.ehOnline ? "Online" : "Presencial"}
-                            {tipo.ehAtendimentoUnico ? " · Atendimento único" : ""}
-                            {tipo.valor ? ` · R$ ${tipo.valor}` : ""}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => iniciarEdicaoTipo(tipo)}
-                          className="rounded-lg border border-border px-3 py-1 text-sm text-fg hover:bg-bg"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => handleRemoverTipo(tipo.id)}
-                          disabled={removendoTipoId === tipo.id}
-                          className="rounded-lg border border-border px-3 py-1 text-sm text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Remover
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <form
-                onSubmit={handleSalvarTipo}
-                className="grid grid-cols-1 gap-4 rounded-lg border border-border p-4 sm:grid-cols-2"
-              >
-                <p className="text-sm font-medium text-fg sm:col-span-2">
-                  {editandoTipoId ? "Editar tipo de sessão" : "Novo tipo de sessão"}
-                </p>
-
-                <div className="sm:col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-fg">Nome</label>
-                  <input
-                    type="text"
-                    name="nome"
-                    value={formTipo.nome}
-                    onChange={handleChangeFormTipo}
-                    required
-                    placeholder="Sessão online"
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Cor</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      name="cor"
-                      value={formTipo.cor}
-                      onChange={handleChangeFormTipo}
-                      className="h-9 w-12 cursor-pointer rounded border border-border bg-bg"
+            <ul className="space-y-2">
+              {tiposSessao.map((tipo) => (
+                <li
+                  key={tipo.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="h-4 w-4 shrink-0 rounded-full border border-border"
+                      style={{ backgroundColor: tipo.cor ?? "#c9a96e" }}
                     />
-                    <input
-                      type="text"
-                      name="cor"
-                      value={formTipo.cor}
-                      onChange={handleChangeFormTipo}
-                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                    />
+                    <div>
+                      <p className="text-sm font-medium text-fg">{tipo.nome}</p>
+                      <p className="text-xs text-muted">
+                        {tipo.duracaoPadraoMin} min · {tipo.ehOnline ? "Online" : "Presencial"}
+                        {tipo.ehAtendimentoUnico ? " · Atendimento único" : ""}
+                        {tipo.valor ? ` · R$ ${tipo.valor}` : ""}
+                      </p>
+                    </div>
                   </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Duração padrão (min)</label>
-                  <input
-                    type="number"
-                    name="duracaoPadraoMin"
-                    min={1}
-                    value={formTipo.duracaoPadraoMin}
-                    onChange={handleChangeFormTipo}
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 text-sm font-medium text-fg">
-                  <input
-                    type="checkbox"
-                    name="ehOnline"
-                    checked={formTipo.ehOnline}
-                    onChange={handleChangeFormTipo}
-                    className="h-4 w-4 rounded border-border accent-gold"
-                  />
-                  É online
-                </label>
-
-                <div className="sm:col-span-2">
-                  <label className="flex items-center gap-2 text-sm font-medium text-fg">
-                    <input
-                      type="checkbox"
-                      name="ehAtendimentoUnico"
-                      checked={formTipo.ehAtendimentoUnico}
-                      onChange={handleChangeFormTipo}
-                      className="h-4 w-4 rounded border-border accent-gold"
-                    />
-                    Atendimento único (só avulsa)
-                  </label>
-                  <p className="mt-1 text-xs text-muted">
-                    Tipos marcados assim representam atendimentos de entrada que só acontecem uma
-                    vez (ex: avaliação, primeira consulta).
-                  </p>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Valor (R$, opcional)</label>
-                  <input
-                    type="number"
-                    name="valor"
-                    min={0}
-                    step="0.01"
-                    value={formTipo.valor}
-                    onChange={handleChangeFormTipo}
-                    placeholder="150.00"
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
-                </div>
-
-                {erroTipo && (
-                  <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red sm:col-span-2">
-                    {erroTipo}
-                  </p>
-                )}
-
-                <div className="flex justify-end gap-3 sm:col-span-2">
-                  {editandoTipoId && (
+                  <div className="flex items-center gap-2">
                     <button
-                      type="button"
-                      onClick={iniciarNovoTipo}
-                      disabled={salvandoTipo}
-                      className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => abrirEdicaoTipo(tipo)}
+                      className="rounded-lg border border-border px-3 py-1 text-sm text-fg hover:bg-bg"
                     >
-                      Cancelar
+                      Editar
                     </button>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={salvandoTipo}
-                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {salvandoTipo ? "Salvando..." : editandoTipoId ? "Salvar alterações" : "Adicionar"}
-                  </button>
-                </div>
-              </form>
-            </>
+                    <button
+                      onClick={() => abrirExcluirTipo(tipo)}
+                      className="rounded-lg border border-border px-3 py-1 text-sm text-red hover:bg-red/10"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
       </main>
+
+      {/* Modal: criar/editar tipo de atendimento */}
+      {modalTipoAberto && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              {editandoTipoId ? "Editar tipo de atendimento" : "Novo tipo de atendimento"}
+            </h2>
+            <form onSubmit={handleSalvarTipo} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-fg">Nome</label>
+                <input
+                  type="text"
+                  name="nome"
+                  value={formTipo.nome}
+                  onChange={handleChangeFormTipo}
+                  required
+                  placeholder="Sessão online"
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Cor</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    name="cor"
+                    value={formTipo.cor}
+                    onChange={handleChangeFormTipo}
+                    className="h-9 w-12 cursor-pointer rounded border border-border bg-bg"
+                  />
+                  <input
+                    type="text"
+                    name="cor"
+                    value={formTipo.cor}
+                    onChange={handleChangeFormTipo}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Duração padrão (min)</label>
+                <input
+                  type="number"
+                  name="duracaoPadraoMin"
+                  min={1}
+                  value={formTipo.duracaoPadraoMin}
+                  onChange={handleChangeFormTipo}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-sm font-medium text-fg">
+                <input
+                  type="checkbox"
+                  name="ehOnline"
+                  checked={formTipo.ehOnline}
+                  onChange={handleChangeFormTipo}
+                  className="h-4 w-4 rounded border-border accent-gold"
+                />
+                É online
+              </label>
+
+              <div className="sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-fg">
+                  <input
+                    type="checkbox"
+                    name="ehAtendimentoUnico"
+                    checked={formTipo.ehAtendimentoUnico}
+                    onChange={handleChangeFormTipo}
+                    className="h-4 w-4 rounded border-border accent-gold"
+                  />
+                  Atendimento único (só avulsa)
+                </label>
+                <p className="mt-1 text-xs text-muted">
+                  Tipos marcados assim representam atendimentos de entrada que só acontecem uma
+                  vez (ex: avaliação, primeira consulta).
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Valor (R$, opcional)</label>
+                <input
+                  type="number"
+                  name="valor"
+                  min={0}
+                  step="0.01"
+                  value={formTipo.valor}
+                  onChange={handleChangeFormTipo}
+                  placeholder="150.00"
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              {erroTipo && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red sm:col-span-2">
+                  {erroTipo}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3 sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={fecharModalTipo}
+                  disabled={salvandoTipo}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoTipo}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoTipo ? "Salvando..." : editandoTipoId ? "Salvar alterações" : "Adicionar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar exclusão de tipo de atendimento */}
+      {excluindoTipo && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Excluir {excluindoTipo.nome}
+            </h2>
+            <p className="mb-4 text-sm text-muted">
+              Tem certeza que deseja excluir este tipo de atendimento? Essa ação não pode ser desfeita.
+            </p>
+
+            {erroExcluirTipo && (
+              <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                {erroExcluirTipo}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setExcluindoTipo(null)}
+                disabled={removendoTipoId === excluindoTipo.id}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExcluirTipo}
+                disabled={removendoTipoId === excluindoTipo.id}
+                className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {removendoTipoId === excluindoTipo.id ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

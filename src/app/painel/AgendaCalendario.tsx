@@ -847,7 +847,7 @@ function SessaoDetalheModal({
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setErro(data?.erro ?? "não foi possível trocar o tipo de sessão");
+        setErro(data?.erro ?? "não foi possível trocar o tipo de atendimento");
         return;
       }
       if (data?.avisoMeet) onAviso(data.avisoMeet);
@@ -989,7 +989,7 @@ function SessaoDetalheModal({
         {trocandoTipo && (
           <form onSubmit={salvarTipo} className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-fg">Tipo de sessão</label>
+              <label className="mb-1 block text-sm font-medium text-fg">Tipo de atendimento</label>
               <div className="flex flex-wrap gap-1.5">
                 {tiposSessao.map((t) => (
                   <button

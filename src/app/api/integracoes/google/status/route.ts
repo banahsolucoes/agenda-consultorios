@@ -28,8 +28,10 @@ export async function GET() {
       const { data } = await oauth2.userinfo.get();
       email = data.email ?? null;
     }
-  } catch (err) {
-    console.error("Não foi possível obter a conta Google conectada:", err);
+  } catch {
+    // Best-effort de verdade: sem escopo de e-mail (conexões antigas, antes
+    // do escopo userinfo.email) ou qualquer outra falha, só não mostramos o
+    // e-mail — não é um erro que mereça poluir o log a cada checagem de status.
   }
 
   return NextResponse.json({ conectado: true, email, calendarId: clinica.googleCalendarId });

@@ -8,7 +8,14 @@ import type { Clinica } from "@/generated/prisma";
 import type { NextRequest } from "next/server";
 import { TIMEZONE } from "@/lib/timezone";
 
-const ESCOPOS_GOOGLE = ["https://www.googleapis.com/auth/calendar.events"];
+// calendar.events cobre a integração de agenda/Meet; userinfo.email é só
+// para exibir o e-mail da conta conectada na tela de Configurações — sem
+// esse escopo, oauth2.userinfo.get() responde 401 (a busca do e-mail já é
+// tolerante a essa falha, mas o escopo certo evita o erro na origem).
+const ESCOPOS_GOOGLE = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/userinfo.email",
+];
 
 // Reconstrói a origem pública da requisição para montar redirects internos
 // (ex.: de volta pra /painel/configuracoes após o callback OAuth). Usar

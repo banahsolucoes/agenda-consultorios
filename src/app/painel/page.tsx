@@ -550,14 +550,14 @@ export default function PainelPage() {
     setTotalPacote("");
     setDataInicialPacote("");
     setHorarioPacote("");
-    // Pré-seleciona o tipo de sessão cadastrado no paciente — o operador pode trocar
+    // Pré-seleciona o tipo de atendimento cadastrado no paciente — o operador pode trocar
     setTipoSessaoPacote(pacienteSelecionado?.tipoSessaoId ?? tiposSessao[0]?.id ?? "");
     setErroPacote("");
     setModalPacote(true);
   }
 
-  // Tipo de sessão marcado como "atendimento único" (ex.: avaliação) só
-  // permite pacote Avulsa — ao trocar para um desses, colapsa na hora.
+  // Tipo de atendimento marcado como "atendimento único" (ex.: avaliação) só
+  // permite recorrência Avulsa — ao trocar para um desses, colapsa na hora.
   function handleTrocarTipoSessaoPacote(novoId: string) {
     setTipoSessaoPacote(novoId);
     const tipo = tiposSessao.find((t) => t.id === novoId);
@@ -574,7 +574,7 @@ export default function PainelPage() {
       return;
     }
     if (!tipoSessaoPacote) {
-      setErroPacote("informe o tipo de sessão");
+      setErroPacote("informe o tipo de atendimento");
       return;
     }
     setErroPacote("");
@@ -1128,11 +1128,11 @@ export default function PainelPage() {
 
                   <div className="sm:col-span-2">
                     <label className="mb-1 block text-sm font-medium text-fg">
-                      Tipo de sessão
+                      Tipo de atendimento
                     </label>
                     {tiposSessao.length === 0 ? (
                       <p className="text-sm text-muted">
-                        Nenhum tipo de sessão cadastrado. Configure em Configurações → Tipos de sessão.
+                        Nenhum tipo de atendimento cadastrado. Configure em Configurações → Tipos de atendimento.
                       </p>
                     ) : (
                       <select
@@ -1385,11 +1385,11 @@ export default function PainelPage() {
             <form onSubmit={handleCriarPacote} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
-                  Tipo de sessão
+                  Tipo de atendimento
                 </label>
                 {tiposSessao.length === 0 ? (
                   <p className="text-sm text-muted">
-                    Nenhum tipo de sessão cadastrado. Configure em Configurações → Tipos de sessão.
+                    Nenhum tipo de atendimento cadastrado. Configure em Configurações → Tipos de atendimento.
                   </p>
                 ) : (
                   <select
@@ -1408,7 +1408,7 @@ export default function PainelPage() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
-                  Tipo de atendimento
+                  Recorrência
                 </label>
                 <select
                   value={tipoPacote}
@@ -1424,7 +1424,7 @@ export default function PainelPage() {
                 </select>
                 {tipoSessaoPacoteEhUnico && (
                   <p className="mt-1 text-xs text-muted">
-                    Este tipo de sessão é de atendimento único — permite apenas Avulsa.
+                    Este tipo de atendimento é de atendimento único — a recorrência permite apenas Avulsa.
                   </p>
                 )}
               </div>
