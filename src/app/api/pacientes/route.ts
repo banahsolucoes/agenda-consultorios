@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { registrarLog } from "@/lib/auditoria";
 
 // GET /api/pacientes — lista pacientes da clínica do usuário logado
 export async function GET() {
@@ -58,6 +59,8 @@ export async function POST(req: NextRequest) {
       tipoSessaoId: body.tipoSessaoId,
     },
   });
+
+  await registrarLog(usuario.clinicaId, usuario.id, "CRIAR_PACIENTE", `Cadastrou o paciente ${paciente.nome}`);
 
   return NextResponse.json(paciente, { status: 201 });
 }

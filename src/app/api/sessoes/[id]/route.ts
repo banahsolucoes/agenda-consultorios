@@ -5,6 +5,8 @@ import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
 import { componentesSP, criarDataSP, TIMEZONE } from "@/lib/timezone";
+import { registrarLog } from "@/lib/auditoria";
+import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 const DIA_NUM: Record<string, number> = {
@@ -58,14 +60,26 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const atualizada = await prisma.agendamento.update({
         where: { id }, data: { status: "CANCELADA", motivoCancelamento: motivo },
       });
-      const finalizou = await verificarFinalizacao(sessao.pacoteId);
+      await registrarLog(
+        usuario.clinicaId,
+        usuario.id,
+        "CANCELAR_SESSAO",
+        `Cancelou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} — motivo: ${motivo}`
+      );
+      const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
       return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
     }
 
     const atualizada = await prisma.agendamento.update({
       where: { id }, data: { status: body.status },
     });
-    const finalizou = await verificarFinalizacao(sessao.pacoteId);
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "STATUS_SESSAO",
+      `Marcou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} como ${statusLabel(body.status)}`
+    );
+    const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
     return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
 
@@ -129,6 +143,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const atualizada = await prisma.agendamento.update({
       where: { id }, data: { inicio: novaData, status: "AGENDADA" },
     });
+
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "EDITAR_SESSAO",
+      `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} para ${diaSemanaLabel(body.novoDia)} às ${body.novoHorario}`
+    );
 
     // Reflete o novo horário no Google Calendar, se a sessão tiver evento
     // vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.

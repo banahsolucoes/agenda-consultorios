@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterCalendarDaClinica } from "@/lib/google";
+import { registrarLog } from "@/lib/auditoria";
 
 const CAMPOS_EDITAVEIS = [
   "nome",
@@ -61,6 +62,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   const atualizado = await prisma.paciente.update({ where: { id }, data });
+
+  const camposAlterados = Object.keys(data);
+  const detalheEdicao =
+    camposAlterados.length > 0
+      ? `Editou o paciente ${atualizado.nome} (campos: ${camposAlterados.join(", ")})`
+      : `Editou o paciente ${atualizado.nome}`;
+  await registrarLog(usuario.clinicaId, usuario.id, "EDITAR_PACIENTE", detalheEdicao);
+
   return NextResponse.json(atualizado);
 }
 
@@ -103,6 +112,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     prisma.pacote.deleteMany({ where: { pacienteId: id } }),
     prisma.paciente.delete({ where: { id } }),
   ]);
+
+  await registrarLog(usuario.clinicaId, usuario.id, "EXCLUIR_PACIENTE", `Excluiu o paciente ${paciente.nome}`);
 
   return NextResponse.json({ ok: true });
 }

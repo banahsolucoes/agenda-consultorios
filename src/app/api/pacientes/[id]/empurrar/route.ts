@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
+import { registrarLog } from "@/lib/auditoria";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -103,6 +104,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         data: { inicio: mov.novaData, status: "AGENDADA" },
       })
     )
+  );
+
+  const sessaoOuSessoes = movimentos.length === 1 ? "sessão" : "sessões";
+  const semanaOuSemanas = semanas === 1 ? "semana" : "semanas";
+  await registrarLog(
+    usuario.clinicaId,
+    usuario.id,
+    "EMPURRAR",
+    `Empurrou ${movimentos.length} ${sessaoOuSessoes} de ${paciente.nome} em ${semanas} ${semanaOuSemanas}`
   );
 
   return NextResponse.json({ empurradas: movimentos.length, semanas });

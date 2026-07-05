@@ -4,6 +4,8 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
 import { criarDataSP } from "@/lib/timezone";
+import { registrarLog } from "@/lib/auditoria";
+import { tipoPacoteLabel } from "@/lib/labels";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
   AVULSA: 1, MENSAL: 4, BIMESTRAL: 8, TRIMESTRAL: 12,
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
   let tipoSessaoId = paciente.tipoSessaoId;
   let tipoSessaoEhOnline = paciente.tipoSessao?.ehOnline ?? false;
   let tipoSessaoEhAtendimentoUnico = paciente.tipoSessao?.ehAtendimentoUnico ?? false;
+  let tipoSessaoNome = paciente.tipoSessao?.nome ?? null;
   if (body.tipoSessaoId !== undefined) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
@@ -76,6 +79,7 @@ export async function POST(req: NextRequest) {
     tipoSessaoId = tipoSessao.id;
     tipoSessaoEhOnline = tipoSessao.ehOnline;
     tipoSessaoEhAtendimentoUnico = tipoSessao.ehAtendimentoUnico;
+    tipoSessaoNome = tipoSessao.nome;
   }
 
   // Tipo de sessão de atendimento único (ex.: avaliação) só pode ser usado
@@ -92,7 +96,8 @@ export async function POST(req: NextRequest) {
   });
 
   // Renovação: um pacote novo reativa o paciente, saindo de Finalizado/Cancelado
-  if (paciente.statusGeral !== "ATIVO") {
+  const foiRenovacao = paciente.statusGeral !== "ATIVO";
+  if (foiRenovacao) {
     await prisma.paciente.update({
       where: { id: pacienteId },
       data: { statusGeral: "ATIVO", finalizadoEm: null },
@@ -131,6 +136,16 @@ export async function POST(req: NextRequest) {
   } else {
     await prisma.agendamento.createMany({ data: sessoes });
   }
+
+  const acaoLog = foiRenovacao ? "RENOVAR_ATENDIMENTO" : "CRIAR_ATENDIMENTO";
+  const verboLog = foiRenovacao ? "Renovou" : "Criou";
+  const sessaoOuSessoes = total === 1 ? "sessão" : "sessões";
+  await registrarLog(
+    usuario.clinicaId,
+    usuario.id,
+    acaoLog,
+    `${verboLog} atendimento ${tipoPacoteLabel(tipo)} (${total} ${sessaoOuSessoes}) para ${paciente.nome} — tipo de sessão: ${tipoSessaoNome ?? "não definido"}`
+  );
 
   return NextResponse.json({ pacote, sessoesGeradas: total }, { status: 201 });
 }

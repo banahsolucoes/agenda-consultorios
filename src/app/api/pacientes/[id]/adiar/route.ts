@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { componentesSP } from "@/lib/timezone";
+import { registrarLog } from "@/lib/auditoria";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -63,6 +64,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         data: { inicio: novaData, status: "AGENDADA" },
       });
     })
+  );
+
+  const sessaoOuSessoes = aMover.length === 1 ? "sessão" : "sessões";
+  await registrarLog(
+    usuario.clinicaId,
+    usuario.id,
+    "ADIAR",
+    `Adiou ${aMover.length} ${sessaoOuSessoes} de ${paciente.nome} a partir da sessão ${corte.numeroSessao}`
   );
 
   return NextResponse.json({ adiadas: aMover.length, aPartirDe: corte.numeroSessao });
