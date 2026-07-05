@@ -337,6 +337,7 @@ export default function PainelPage() {
   const [totalPacote, setTotalPacote] = useState("");
   const [dataInicialPacote, setDataInicialPacote] = useState("");
   const [horarioPacote, setHorarioPacote] = useState("");
+  const [tipoSessaoPacote, setTipoSessaoPacote] = useState("");
   const [salvandoPacote, setSalvandoPacote] = useState(false);
   const [erroPacote, setErroPacote] = useState("");
 
@@ -548,6 +549,8 @@ export default function PainelPage() {
     setTotalPacote("");
     setDataInicialPacote("");
     setHorarioPacote("");
+    // Pré-seleciona o tipo de sessão cadastrado no paciente — o operador pode trocar
+    setTipoSessaoPacote(pacienteSelecionado?.tipoSessaoId ?? tiposSessao[0]?.id ?? "");
     setErroPacote("");
     setModalPacote(true);
   }
@@ -559,6 +562,10 @@ export default function PainelPage() {
       setErroPacote("informe o dia e o horário da 1ª sessão");
       return;
     }
+    if (!tipoSessaoPacote) {
+      setErroPacote("informe o tipo de sessão");
+      return;
+    }
     setErroPacote("");
     setSalvandoPacote(true);
 
@@ -568,6 +575,7 @@ export default function PainelPage() {
         tipo: tipoPacote,
         dataInicial: dataInicialPacote,
         horario: horarioPacote,
+        tipoSessaoId: tipoSessaoPacote,
       };
       if (tipoPacote === "PERSONALIZADO") {
         body.totalSessoes = Number(totalPacote);
@@ -1381,6 +1389,29 @@ export default function PainelPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Tipo de sessão
+                </label>
+                {tiposSessao.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    Nenhum tipo de sessão cadastrado. Configure em Configurações → Tipos de sessão.
+                  </p>
+                ) : (
+                  <select
+                    value={tipoSessaoPacote}
+                    onChange={(e) => setTipoSessaoPacote(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    {tiposSessao.map((tipo) => (
+                      <option key={tipo.id} value={tipo.id}>
+                        {tipo.nome}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               {tipoPacote === "PERSONALIZADO" && (
                 <div>
                   <label className="mb-1 block text-sm font-medium text-fg">
@@ -1437,7 +1468,7 @@ export default function PainelPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={salvandoPacote || !dataInicialPacote || !horarioPacote}
+                  disabled={salvandoPacote || !dataInicialPacote || !horarioPacote || !tipoSessaoPacote}
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoPacote ? "Criando..." : "Criar"}

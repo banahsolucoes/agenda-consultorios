@@ -62,6 +62,20 @@ export async function POST(req: NextRequest) {
   // fallback para o dia preferido/horário fixo cadastrados no paciente.
   const primeira = criarDataSP(dataEscolhida.ano, dataEscolhida.mes, dataEscolhida.dia, h, m);
 
+  // Tipo de sessão escolhido no modal — pré-selecionado com o do cadastro do
+  // paciente, mas o operador pode trocar (ex.: uma avaliação avulsa online
+  // para um paciente cujo atendimento normal é presencial).
+  let tipoSessaoId = paciente.tipoSessaoId;
+  let tipoSessaoEhOnline = paciente.tipoSessao?.ehOnline ?? false;
+  if (body.tipoSessaoId !== undefined) {
+    const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
+    if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
+      return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
+    }
+    tipoSessaoId = tipoSessao.id;
+    tipoSessaoEhOnline = tipoSessao.ehOnline;
+  }
+
   const pacote = await prisma.pacote.create({
     data: { pacienteId, tipo, totalSessoes: total, dataInicial: primeira },
   });
@@ -81,7 +95,7 @@ export async function POST(req: NextRequest) {
       pacoteId: pacote.id, pacienteId,
       numeroSessao: i + 1, totalPacote: total,
       inicio, duracaoMin: 45,
-      tipoSessaoId: paciente.tipoSessaoId,
+      tipoSessaoId,
     });
   }
 
@@ -89,7 +103,7 @@ export async function POST(req: NextRequest) {
   // por sessão e grava o link/id junto do agendamento. Fora desse caso, segue
   // o caminho local de sempre — a integração nunca pode travar a criação da
   // sessão em si.
-  const clinica = paciente.tipoSessao?.ehOnline
+  const clinica = tipoSessaoEhOnline
     ? await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } })
     : null;
   const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
