@@ -1257,13 +1257,13 @@ export default function PainelPage() {
                     href={pacienteSelecionado.pastaDriveUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-lg border border-border px-3 py-1 text-sm text-fg hover:bg-bg"
+                    className="rounded-lg border border-blue px-3 py-1 text-sm font-medium text-blue hover:bg-blue/10"
                   >
                     Abrir pasta
                   </a>
                   <button
                     onClick={() => copiar(pacienteSelecionado.pastaDriveUrl!, "drive")}
-                    className="rounded-lg border border-border px-3 py-1 text-sm text-fg hover:bg-bg"
+                    className="rounded-lg border border-green px-3 py-1 text-sm font-medium text-green hover:bg-green/10"
                   >
                     {copiadoId === "drive" ? "Copiado!" : "Copiar link"}
                   </button>
