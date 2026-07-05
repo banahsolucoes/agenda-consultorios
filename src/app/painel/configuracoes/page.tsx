@@ -103,6 +103,8 @@ export default function ConfiguracoesPage() {
   const [avisoGoogle, setAvisoGoogle] = useState<"conectado" | "erro" | null>(null);
 
   const [pastaRaizInput, setPastaRaizInput] = useState("");
+  const [editandoPastaRaiz, setEditandoPastaRaiz] = useState(false);
+  const [confirmandoPastaRaiz, setConfirmandoPastaRaiz] = useState(false);
   const [salvandoPastaRaiz, setSalvandoPastaRaiz] = useState(false);
   const [erroPastaRaiz, setErroPastaRaiz] = useState("");
   const [sucessoPastaRaiz, setSucessoPastaRaiz] = useState(false);
@@ -285,8 +287,28 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  async function handleSalvarPastaRaiz(e: React.FormEvent) {
+  function abrirEdicaoPastaRaiz() {
+    setPastaRaizInput(clinica?.pastaRaizDriveId ?? "");
+    setErroPastaRaiz("");
+    setSucessoPastaRaiz(false);
+    setEditandoPastaRaiz(true);
+  }
+
+  function cancelarEdicaoPastaRaiz() {
+    setEditandoPastaRaiz(false);
+    setConfirmandoPastaRaiz(false);
+    setErroPastaRaiz("");
+  }
+
+  // Só abre a confirmação — a validação de verdade (formato do ID + pasta
+  // acessível pela conta conectada) acontece no servidor, ao confirmar.
+  function pedirConfirmacaoPastaRaiz(e: React.FormEvent) {
     e.preventDefault();
+    setErroPastaRaiz("");
+    setConfirmandoPastaRaiz(true);
+  }
+
+  async function handleSalvarPastaRaiz() {
     setErroPastaRaiz("");
     setSucessoPastaRaiz(false);
     setSalvandoPastaRaiz(true);
@@ -301,6 +323,7 @@ export default function ConfiguracoesPage() {
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         setErroPastaRaiz(data?.erro ?? "não foi possível salvar");
+        setConfirmandoPastaRaiz(false);
         return;
       }
 
@@ -308,8 +331,11 @@ export default function ConfiguracoesPage() {
       setClinica(atualizada);
       setPastaRaizInput(atualizada.pastaRaizDriveId ?? "");
       setSucessoPastaRaiz(true);
+      setConfirmandoPastaRaiz(false);
+      setEditandoPastaRaiz(false);
     } catch {
       setErroPastaRaiz("não foi possível salvar");
+      setConfirmandoPastaRaiz(false);
     } finally {
       setSalvandoPastaRaiz(false);
     }
@@ -618,34 +644,61 @@ export default function ConfiguracoesPage() {
             </div>
           )}
 
-          <form onSubmit={handleSalvarPastaRaiz} className="mt-4">
-            <label className="mb-1 block text-sm font-medium text-fg">
-              Pasta-mãe do Drive (link ou ID)
-            </label>
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="text"
-                value={pastaRaizInput}
-                onChange={(e) => {
-                  setPastaRaizInput(e.target.value);
-                  setSucessoPastaRaiz(false);
-                }}
-                placeholder="https://drive.google.com/drive/folders/..."
-                className="min-w-[240px] flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-              />
-              <button
-                type="submit"
-                disabled={salvandoPastaRaiz}
-                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {salvandoPastaRaiz ? "Salvando..." : "Salvar"}
-              </button>
-            </div>
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-medium text-fg">Pasta-mãe do Drive</label>
+
+            {!editandoPastaRaiz ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg px-3 py-2">
+                {clinica?.pastaRaizDriveId ? (
+                  <span className="truncate font-mono text-sm text-fg">{clinica.pastaRaizDriveId}</span>
+                ) : (
+                  <span className="text-sm text-muted">Nenhuma pasta-mãe configurada</span>
+                )}
+                <button
+                  type="button"
+                  onClick={abrirEdicaoPastaRaiz}
+                  className="shrink-0 rounded-lg border border-border px-3 py-1 text-sm font-medium text-fg hover:bg-bg"
+                >
+                  Alterar
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={pedirConfirmacaoPastaRaiz} className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  autoFocus
+                  value={pastaRaizInput}
+                  onChange={(e) => {
+                    setPastaRaizInput(e.target.value);
+                    setSucessoPastaRaiz(false);
+                  }}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="min-w-[240px] flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <button
+                  type="submit"
+                  disabled={salvandoPastaRaiz}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Salvar
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelarEdicaoPastaRaiz}
+                  disabled={salvandoPastaRaiz}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+              </form>
+            )}
+
             <p className="mt-1 text-xs text-muted">
               Cole o link da pasta (ou já o ID) — as pastas dos pacientes novos são criadas
-              automaticamente aqui dentro, quando o Google estiver conectado.
+              automaticamente aqui dentro, quando o Google estiver conectado. Mudar isso afeta
+              onde as pastas novas são criadas, por isso fica protegido por padrão.
             </p>
-            {erroPastaRaiz && (
+            {erroPastaRaiz && !confirmandoPastaRaiz && (
               <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroPastaRaiz}</p>
             )}
             {sucessoPastaRaiz && (
@@ -653,7 +706,7 @@ export default function ConfiguracoesPage() {
                 Pasta-mãe salva.
               </p>
             )}
-          </form>
+          </div>
         </section>
 
         {/* Email de boas-vindas */}
@@ -1030,6 +1083,43 @@ export default function ConfiguracoesPage() {
                 className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {removendoTipoId === excluindoTipo.id ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar alteração da pasta-mãe do Drive */}
+      {confirmandoPastaRaiz && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Alterar pasta-mãe do Drive
+            </h2>
+            <p className="mb-4 rounded-lg bg-gold/10 px-3 py-2 text-sm text-fg">
+              Alterar a pasta raiz afeta onde novas pastas de pacientes serão criadas. Confirmar?
+            </p>
+
+            {erroPastaRaiz && (
+              <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroPastaRaiz}</p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmandoPastaRaiz(false)}
+                disabled={salvandoPastaRaiz}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarPastaRaiz}
+                disabled={salvandoPastaRaiz}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvandoPastaRaiz ? "Salvando..." : "Confirmar"}
               </button>
             </div>
           </div>

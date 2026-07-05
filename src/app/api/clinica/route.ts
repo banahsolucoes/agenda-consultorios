@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { extrairIdPastaDrive } from "@/lib/validacao";
+import { extrairIdPastaDrive, pareceIdPastaDriveValido } from "@/lib/validacao";
+import { obterDriveDaClinica, verificarPastaDriveAcessivel } from "@/lib/google";
 
 // Campos que podem ser alterados pela tela de Configurações
 const CAMPOS_EDITAVEIS = [
@@ -73,9 +74,31 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Aceita o operador colar tanto um link do Drive quanto já o próprio ID da
-  // pasta-mãe — sempre normaliza e guarda só o ID.
-  if (typeof data.pastaRaizDriveId === "string") {
-    data.pastaRaizDriveId = data.pastaRaizDriveId ? extrairIdPastaDrive(data.pastaRaizDriveId) : null;
+  // pasta-mãe — sempre normaliza e guarda só o ID. Mudar essa configuração
+  // afeta onde as pastas de pacientes novos são criadas, então validamos
+  // com cuidado antes de salvar: formato do ID e, se o Google já estiver
+  // conectado, que a pasta realmente existe e está acessível.
+  if (typeof data.pastaRaizDriveId === "string" && data.pastaRaizDriveId) {
+    const idExtraido = extrairIdPastaDrive(data.pastaRaizDriveId);
+    if (!pareceIdPastaDriveValido(idExtraido)) {
+      return NextResponse.json(
+        { erro: "isso não parece um ID ou link válido de pasta do Drive" },
+        { status: 400 }
+      );
+    }
+
+    const clinicaAtual = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
+    if (clinicaAtual?.googleConectado) {
+      const drive = await obterDriveDaClinica(clinicaAtual);
+      const acessivel = drive ? await verificarPastaDriveAcessivel(drive, idExtraido) : false;
+      if (!acessivel) {
+        return NextResponse.json({ erro: "pasta não encontrada ou sem acesso" }, { status: 400 });
+      }
+    }
+
+    data.pastaRaizDriveId = idExtraido;
+  } else if (data.pastaRaizDriveId === "") {
+    data.pastaRaizDriveId = null;
   }
 
   const clinica = await prisma.clinica.update({

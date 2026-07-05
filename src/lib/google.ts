@@ -147,6 +147,19 @@ export async function obterDriveDaClinica(clinica: Clinica): Promise<drive_v3.Dr
   return google.drive({ version: "v3", auth });
 }
 
+// Confirma que um ID de pasta do Drive existe, é mesmo uma pasta e não está
+// na lixeira, usando a conta conectada da clínica — usado antes de salvar a
+// pasta-mãe em Configurações, pra pegar erro de digitação/pasta errada na
+// hora, em vez de só quando a criação automática de pastas falhar depois.
+export async function verificarPastaDriveAcessivel(drive: drive_v3.Drive, pastaId: string): Promise<boolean> {
+  try {
+    const { data } = await drive.files.get({ fileId: pastaId, fields: "id, mimeType, trashed" });
+    return data.mimeType === "application/vnd.google-apps.folder" && !data.trashed;
+  } catch {
+    return false;
+  }
+}
+
 // Cria a pasta de um paciente dentro da pasta-mãe configurada pela clínica.
 // Tolerante a falha: qualquer erro (pasta-mãe inválida, permissão, rede)
 // devolve tudo null — o cadastro do paciente nunca deve travar por causa

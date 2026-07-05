@@ -37,3 +37,12 @@ export function extrairIdPastaDrive(valor: string): string {
     return texto;
   }
 }
+
+// Formato de um ID de arquivo/pasta do Google Drive: alfanumérico + "-"/"_",
+// sem espaços nem barras — não garante que a pasta exista de fato (isso só a
+// API do Drive confirma), só descarta valores óbvios (URL não reconhecida,
+// texto qualquer) antes de tentar.
+const ID_PASTA_DRIVE_REGEX = /^[a-zA-Z0-9_-]{10,}$/;
+export function pareceIdPastaDriveValido(id: string): boolean {
+  return ID_PASTA_DRIVE_REGEX.test(id);
+}
