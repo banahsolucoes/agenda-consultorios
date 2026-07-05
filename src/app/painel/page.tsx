@@ -555,6 +555,10 @@ export default function PainelPage() {
   async function handleCriarPacote(e: React.FormEvent) {
     e.preventDefault();
     if (!pacienteSelecionado) return;
+    if (!dataInicialPacote || !horarioPacote) {
+      setErroPacote("informe o dia e o horário da 1ª sessão");
+      return;
+    }
     setErroPacote("");
     setSalvandoPacote(true);
 
@@ -562,12 +566,12 @@ export default function PainelPage() {
       const body: Record<string, unknown> = {
         pacienteId: pacienteSelecionado.id,
         tipo: tipoPacote,
+        dataInicial: dataInicialPacote,
+        horario: horarioPacote,
       };
       if (tipoPacote === "PERSONALIZADO") {
         body.totalSessoes = Number(totalPacote);
       }
-      if (dataInicialPacote) body.dataInicial = dataInicialPacote;
-      if (horarioPacote) body.horario = horarioPacote;
 
       const res = await fetch("/api/pacotes", {
         method: "POST",
@@ -1395,17 +1399,18 @@ export default function PainelPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">
-                    Dia da 1ª sessão (opcional)
+                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
+                    Dia da 1ª sessão
                   </label>
                   <DatePickerSP value={dataInicialPacote} onChange={setDataInicialPacote} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">
-                    Horário (opcional)
+                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
+                    Horário
                   </label>
                   <input
                     type="text"
+                    required
                     placeholder="14:00"
                     pattern="^([01]\d|2[0-3]):[0-5]\d$"
                     value={horarioPacote}
@@ -1414,9 +1419,6 @@ export default function PainelPage() {
                   />
                 </div>
               </div>
-              <p className="text-xs text-muted">
-                Deixe em branco para usar o dia preferido e o horário fixo cadastrados no paciente.
-              </p>
 
               {erroPacote && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
@@ -1435,7 +1437,7 @@ export default function PainelPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={salvandoPacote}
+                  disabled={salvandoPacote || !dataInicialPacote || !horarioPacote}
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoPacote ? "Criando..." : "Criar"}
