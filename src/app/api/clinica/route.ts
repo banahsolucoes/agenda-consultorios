@@ -4,10 +4,11 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { extrairIdPastaDrive, pareceIdPastaDriveValido } from "@/lib/validacao";
 import { obterDriveDaClinica, verificarPastaDriveAcessivel } from "@/lib/google";
 
-// Campos que podem ser alterados pela tela de Configurações
+// Campos que podem ser alterados pela tela de Configurações. "logo" e
+// "fundoUrl" ficam de fora de propósito — só mudam via upload em
+// /api/clinica/branding, nunca aceitando uma URL arbitrária digitada aqui.
 const CAMPOS_EDITAVEIS = [
   "nome",
-  "logo",
   "corPrimaria",
   "corSecundaria",
   "duracaoPadraoMin",
@@ -16,6 +17,7 @@ const CAMPOS_EDITAVEIS = [
   "pastaRaizDriveId",
   "emailBoasVindasAssunto",
   "emailBoasVindasCorpo",
+  "fundoOpacidade",
 ] as const;
 
 const SELECT_CLINICA = {
@@ -23,6 +25,8 @@ const SELECT_CLINICA = {
   nome: true,
   slug: true,
   logo: true,
+  fundoUrl: true,
+  fundoOpacidade: true,
   corPrimaria: true,
   corSecundaria: true,
   duracaoPadraoMin: true,
@@ -64,6 +68,14 @@ export async function PATCH(req: NextRequest) {
 
   if (data.duracaoPadraoMin !== undefined) {
     data.duracaoPadraoMin = Number(data.duracaoPadraoMin);
+  }
+
+  if (data.fundoOpacidade !== undefined) {
+    const opacidade = Number(data.fundoOpacidade);
+    if (!Number.isInteger(opacidade) || opacidade < 0 || opacidade > 100) {
+      return NextResponse.json({ erro: "fundoOpacidade deve ser um inteiro entre 0 e 100" }, { status: 400 });
+    }
+    data.fundoOpacidade = opacidade;
   }
 
   if (data.emailBoasVindasAssunto !== undefined && !data.emailBoasVindasAssunto) {

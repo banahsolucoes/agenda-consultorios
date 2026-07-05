@@ -18,6 +18,8 @@ interface Clinica {
   id: string;
   nome: string;
   logo: string | null;
+  fundoUrl: string | null;
+  fundoOpacidade: number;
   corPrimaria: string | null;
   corSecundaria: string | null;
   duracaoPadraoMin: number;
@@ -75,6 +77,15 @@ export default function ConfiguracoesPage() {
   const [erroEmailBoasVindas, setErroEmailBoasVindas] = useState("");
   const [sucessoEmailBoasVindas, setSucessoEmailBoasVindas] = useState(false);
 
+  const [enviandoLogo, setEnviandoLogo] = useState(false);
+  const [erroLogo, setErroLogo] = useState("");
+  const [enviandoFundo, setEnviandoFundo] = useState(false);
+  const [erroFundo, setErroFundo] = useState("");
+  const [opacidadeInput, setOpacidadeInput] = useState(100);
+  const [salvandoOpacidade, setSalvandoOpacidade] = useState(false);
+  const [erroOpacidade, setErroOpacidade] = useState("");
+  const [sucessoOpacidade, setSucessoOpacidade] = useState(false);
+
   const [horarios, setHorarios] = useState<FaixaHorario[]>([]);
   const [carregandoHorarios, setCarregandoHorarios] = useState(true);
   const [erroCarregarHorarios, setErroCarregarHorarios] = useState(false);
@@ -118,6 +129,7 @@ export default function ConfiguracoesPage() {
         const dados = await res.json();
         setClinica(dados);
         setPastaRaizInput(dados.pastaRaizDriveId ?? "");
+        setOpacidadeInput(dados.fundoOpacidade ?? 100);
       } else {
         setErroCarregarClinica(true);
       }
@@ -231,7 +243,6 @@ export default function ConfiguracoesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome: clinica.nome,
-          logo: clinica.logo,
           corPrimaria: clinica.corPrimaria,
           corSecundaria: clinica.corSecundaria,
           duracaoPadraoMin: clinica.duracaoPadraoMin,
@@ -284,6 +295,61 @@ export default function ConfiguracoesPage() {
       setErroEmailBoasVindas("não foi possível salvar");
     } finally {
       setSalvandoEmailBoasVindas(false);
+    }
+  }
+
+  async function handleUploadImagem(tipo: "logo" | "fundo", arquivo: File) {
+    const setEnviando = tipo === "logo" ? setEnviandoLogo : setEnviandoFundo;
+    const setErro = tipo === "logo" ? setErroLogo : setErroFundo;
+    setErro("");
+    setEnviando(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("tipo", tipo);
+      formData.append("arquivo", arquivo);
+
+      const res = await fetch("/api/clinica/branding", { method: "POST", body: formData });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível enviar a imagem");
+        return;
+      }
+
+      const atualizada = await res.json();
+      setClinica(atualizada);
+      setOpacidadeInput(atualizada.fundoOpacidade ?? 100);
+    } catch {
+      setErro("não foi possível enviar a imagem");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function handleSalvarOpacidade() {
+    setErroOpacidade("");
+    setSucessoOpacidade(false);
+    setSalvandoOpacidade(true);
+
+    try {
+      const res = await fetch("/api/clinica", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fundoOpacidade: opacidadeInput }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroOpacidade(data?.erro ?? "não foi possível salvar");
+        return;
+      }
+
+      setClinica(await res.json());
+      setSucessoOpacidade(true);
+    } catch {
+      setErroOpacidade("não foi possível salvar");
+    } finally {
+      setSalvandoOpacidade(false);
     }
   }
 
@@ -551,7 +617,6 @@ export default function ConfiguracoesPage() {
                 onChange={handleChangeClinica}
                 pattern="^([01]\d|2[0-3]):[0-5]\d$"
               />
-              <CampoTexto label="Logo (URL)" name="logo" value={clinica.logo ?? ""} onChange={handleChangeClinica} />
               <CampoCor label="Cor primária" name="corPrimaria" value={clinica.corPrimaria ?? "#c9a96e"} onChange={handleChangeClinica} />
               <CampoCor label="Cor secundária" name="corSecundaria" value={clinica.corSecundaria ?? "#1a1a1a"} onChange={handleChangeClinica} />
 
@@ -576,6 +641,130 @@ export default function ConfiguracoesPage() {
                 </button>
               </div>
             </form>
+          )}
+        </section>
+
+        {/* Identidade visual */}
+        <section className="rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
+            Identidade visual
+          </h2>
+          <p className="mb-4 text-sm text-muted">
+            Logo e fundo de tela exibidos no painel da clínica.
+          </p>
+
+          {carregandoClinica ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : erroCarregarClinica || !clinica ? (
+            <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Não foi possível carregar os dados da clínica.
+            </p>
+          ) : (
+            <div className="space-y-6">
+              {/* Logo */}
+              <div>
+                <p className="mb-2 text-sm font-medium text-fg">Logo</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-bg">
+                    {clinica.logo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={clinica.logo} alt="Logo da clínica" className="h-full w-full object-contain" />
+                    ) : (
+                      <span className="px-1 text-center text-[10px] text-muted">Sem logo</span>
+                    )}
+                  </div>
+                  <label className="cursor-pointer rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg">
+                    {enviandoLogo ? "Enviando..." : "Escolher imagem"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                      disabled={enviandoLogo}
+                      onChange={(e) => {
+                        const arquivo = e.target.files?.[0];
+                        if (arquivo) handleUploadImagem("logo", arquivo);
+                        e.target.value = "";
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <p className="mt-1 text-xs text-muted">PNG, JPG, SVG ou WEBP, até 5MB.</p>
+                {erroLogo && (
+                  <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroLogo}</p>
+                )}
+              </div>
+
+              {/* Fundo de tela */}
+              <div>
+                <p className="mb-2 text-sm font-medium text-fg">Fundo de tela</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div
+                    className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-bg bg-cover bg-center"
+                    style={
+                      clinica.fundoUrl
+                        ? { backgroundImage: `url(${clinica.fundoUrl})`, opacity: opacidadeInput / 100 }
+                        : undefined
+                    }
+                  >
+                    {!clinica.fundoUrl && <span className="text-[10px] text-muted">Sem fundo</span>}
+                  </div>
+                  <label className="cursor-pointer rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg">
+                    {enviandoFundo ? "Enviando..." : "Escolher imagem"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                      disabled={enviandoFundo}
+                      onChange={(e) => {
+                        const arquivo = e.target.files?.[0];
+                        if (arquivo) handleUploadImagem("fundo", arquivo);
+                        e.target.value = "";
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <p className="mt-1 text-xs text-muted">PNG, JPG, SVG ou WEBP, até 5MB.</p>
+                {erroFundo && (
+                  <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroFundo}</p>
+                )}
+
+                <div className="mt-4">
+                  <label className="mb-1 flex items-center justify-between text-sm font-medium text-fg">
+                    <span>Opacidade do fundo</span>
+                    <span className="text-muted">{opacidadeInput}%</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={opacidadeInput}
+                    onChange={(e) => {
+                      setOpacidadeInput(Number(e.target.value));
+                      setSucessoOpacidade(false);
+                    }}
+                    className="w-full accent-gold"
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSalvarOpacidade}
+                      disabled={salvandoOpacidade}
+                      className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {salvandoOpacidade ? "Salvando..." : "Salvar opacidade"}
+                    </button>
+                  </div>
+                  {erroOpacidade && (
+                    <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroOpacidade}</p>
+                  )}
+                  {sucessoOpacidade && (
+                    <p className="mt-2 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                      Opacidade salva.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </section>
 

@@ -100,6 +100,10 @@ interface Sessao {
 }
 
 interface Clinica {
+  nome: string;
+  logo: string | null;
+  fundoUrl: string | null;
+  fundoOpacidade: number;
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
   emailBoasVindasAssunto: string;
@@ -944,13 +948,34 @@ export default function PainelPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="relative min-h-screen bg-bg">
+      {/* Fundo de tela da clínica (identidade visual white-label) — fica
+          atrás de todo o conteúdo, com opacidade própria, sem desbotar o
+          texto/UI por cima. */}
+      {clinica?.fundoUrl && (
+        <div
+          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center"
+          style={{ backgroundImage: `url(${clinica.fundoUrl})`, opacity: clinica.fundoOpacidade / 100 }}
+        />
+      )}
+
       {/* Cabeçalho */}
       <header className="sticky top-0 z-30 h-16 border-b border-border bg-surface">
         <div className="mx-auto flex h-full max-w-5xl items-center justify-between px-6">
-          <h1 className="font-serif text-lg font-semibold text-fg">
-            Agenda Consultórios
-          </h1>
+          <button
+            onClick={() => router.push("/painel")}
+            className="flex items-center gap-2"
+            aria-label="Ir para o painel"
+          >
+            {clinica?.logo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={clinica.logo} alt={clinica.nome} className="h-9 w-auto max-w-[180px] object-contain" />
+            ) : (
+              <span className="font-serif text-lg font-semibold text-fg">
+                {clinica?.nome || "Agenda Consultórios"}
+              </span>
+            )}
+          </button>
           <div className="flex items-center gap-2">
             {/* Sino de notificações: sessões reagendadas + pacientes finalizados */}
             <div

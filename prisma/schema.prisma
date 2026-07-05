@@ -13,6 +13,8 @@ model Clinica {
   nome                      String
   slug                      String            @unique
   logo                      String?
+  fundoUrl                  String?
+  fundoOpacidade            Int               @default(100)
   corPrimaria               String?
   corSecundaria             String?
   duracaoPadraoMin          Int               @default(45)
