@@ -59,6 +59,7 @@ interface Paciente {
   estado: string | null;
   cep: string | null;
   quemIndicou: string | null;
+  pastaDriveUrl: string | null;
   origemCadastro: string;
   diaPreferido: string;
   horarioFixo: string;
@@ -122,6 +123,7 @@ const FORM_VAZIO = {
   cidade: "",
   estado: "",
   quemIndicou: "",
+  pastaDriveUrl: "",
   origemCadastro: "MANUAL" as string,
   diaPreferido: DIAS_SEMANA[0] as string,
   horarioFixo: "",
@@ -453,6 +455,7 @@ export default function PainelPage() {
       cidade: p.cidade ?? "",
       estado: p.estado ?? "",
       quemIndicou: p.quemIndicou ?? "",
+      pastaDriveUrl: p.pastaDriveUrl ?? "",
       origemCadastro: p.origemCadastro,
       diaPreferido: p.diaPreferido,
       horarioFixo: p.horarioFixo,
@@ -1056,6 +1059,15 @@ export default function PainelPage() {
                   <Campo label="Telefone" name="telefone" value={form.telefone} onChange={handleChange} />
                   <Campo label="E-mail" name="email" value={form.email} onChange={handleChange} type="email" className="sm:col-span-2" />
                   <Campo label="Quem indicou" name="quemIndicou" value={form.quemIndicou} onChange={handleChange} />
+                  <Campo
+                    label="Link da pasta de gravações (Google Drive)"
+                    name="pastaDriveUrl"
+                    value={form.pastaDriveUrl}
+                    onChange={handleChange}
+                    type="url"
+                    placeholder="https://drive.google.com/..."
+                    className="sm:col-span-2"
+                  />
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">
                       Origem do cadastro
@@ -1234,6 +1246,31 @@ export default function PainelPage() {
                   ✕
                 </button>
               </div>
+            </div>
+
+            {/* Link das sessões: pasta do Drive com as gravações do paciente */}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
+              <p className="text-sm font-medium text-fg">Link das sessões</p>
+              {pacienteSelecionado.pastaDriveUrl ? (
+                <div className="flex items-center gap-2">
+                  <a
+                    href={pacienteSelecionado.pastaDriveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-border px-3 py-1 text-sm text-fg hover:bg-bg"
+                  >
+                    Abrir pasta
+                  </a>
+                  <button
+                    onClick={() => copiar(pacienteSelecionado.pastaDriveUrl!, "drive")}
+                    className="rounded-lg border border-border px-3 py-1 text-sm text-fg hover:bg-bg"
+                  >
+                    {copiadoId === "drive" ? "Copiado!" : "Copiar link"}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted">Nenhuma pasta cadastrada</p>
+              )}
             </div>
 
             {/* Ações gerais do paciente — Criar atendimento fica sempre visível,

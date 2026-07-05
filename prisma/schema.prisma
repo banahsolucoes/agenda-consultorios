@@ -93,6 +93,7 @@ model Paciente {
   estado          String?
   cep             String?
   quemIndicou     String?
+  pastaDriveUrl   String?
   origemCadastro  OrigemCadastro  @default(MANUAL)
   diaPreferido    DiaSemana
   horarioFixo     String          // "HH:MM"

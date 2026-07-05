@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
+import { pareceUrl } from "@/lib/validacao";
 
 // GET /api/pacientes — lista pacientes da clínica do usuário logado
 export async function GET() {
@@ -37,6 +38,9 @@ export async function POST(req: NextRequest) {
   if (body.origemCadastro && !["MANUAL", "FORMS"].includes(body.origemCadastro)) {
     return NextResponse.json({ erro: "origemCadastro inválida" }, { status: 400 });
   }
+  if (body.pastaDriveUrl && !pareceUrl(body.pastaDriveUrl)) {
+    return NextResponse.json({ erro: "pastaDriveUrl deve ser uma URL válida" }, { status: 400 });
+  }
 
   const paciente = await prisma.paciente.create({
     data: {
@@ -53,6 +57,7 @@ export async function POST(req: NextRequest) {
       estado: body.estado ?? null,
       cep: body.cep ?? null,
       quemIndicou: body.quemIndicou ?? null,
+      pastaDriveUrl: body.pastaDriveUrl ?? null,
       origemCadastro: body.origemCadastro ?? "MANUAL",
       diaPreferido: body.diaPreferido,
       horarioFixo: body.horarioFixo,

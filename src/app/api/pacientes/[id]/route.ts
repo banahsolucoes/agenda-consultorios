@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterCalendarDaClinica } from "@/lib/google";
 import { registrarLog } from "@/lib/auditoria";
+import { pareceUrl } from "@/lib/validacao";
 
 const CAMPOS_EDITAVEIS = [
   "nome",
@@ -17,6 +18,7 @@ const CAMPOS_EDITAVEIS = [
   "estado",
   "cep",
   "quemIndicou",
+  "pastaDriveUrl",
   "origemCadastro",
   "diaPreferido",
   "horarioFixo",
@@ -54,6 +56,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
       return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
     }
+  }
+  if (body.pastaDriveUrl && !pareceUrl(body.pastaDriveUrl)) {
+    return NextResponse.json({ erro: "pastaDriveUrl deve ser uma URL válida" }, { status: 400 });
   }
 
   const data: Record<string, unknown> = {};
