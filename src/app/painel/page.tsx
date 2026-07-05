@@ -10,6 +10,7 @@ import {
 } from "@/lib/labels";
 import { TIMEZONE } from "@/lib/timezone";
 import AgendaCalendario from "./AgendaCalendario";
+import DatePickerSP from "./DatePickerSP";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -218,6 +219,21 @@ function IconLapis({ className }: { className?: string }) {
   );
 }
 
+// Ícone de lixeira (excluir paciente)
+function IconLixeira({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6M6 6l.6 9.4A1.5 1.5 0 0 0 8.1 17h3.8a1.5 1.5 0 0 0 1.5-1.6L14 6"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // Ícone de sino (notificações)
 function IconSino({ className }: { className?: string }) {
   return (
@@ -350,6 +366,12 @@ export default function PainelPage() {
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
   const [salvandoCancelar, setSalvandoCancelar] = useState(false);
   const [erroCancelar, setErroCancelar] = useState("");
+
+  // Modal: excluir paciente — trava exige digitar o nome do paciente
+  const [pacienteExcluindo, setPacienteExcluindo] = useState<Paciente | null>(null);
+  const [confirmacaoExclusao, setConfirmacaoExclusao] = useState("");
+  const [salvandoExclusao, setSalvandoExclusao] = useState(false);
+  const [erroExclusao, setErroExclusao] = useState("");
 
   // Busca a lista de pacientes da clínica logada
   async function carregarPacientes() {
@@ -750,6 +772,37 @@ export default function PainelPage() {
     }
   }
 
+  // Exclusão definitiva de paciente — trava exige digitar o nome do paciente
+  function abrirModalExcluir(p: Paciente) {
+    setPacienteExcluindo(p);
+    setConfirmacaoExclusao("");
+    setErroExclusao("");
+  }
+
+  async function handleConfirmarExclusao(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pacienteExcluindo) return;
+    setErroExclusao("");
+    setSalvandoExclusao(true);
+
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteExcluindo.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroExclusao(data?.erro ?? "não foi possível excluir o paciente");
+        return;
+      }
+
+      setPacienteExcluindo(null);
+      fecharPainelPaciente();
+      await carregarPacientes();
+    } catch {
+      setErroExclusao("não foi possível excluir o paciente");
+    } finally {
+      setSalvandoExclusao(false);
+    }
+  }
+
   // Monta a mensagem de confirmação de sessão, pronta para copiar e colar
   function montarMensagemConfirmacao(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
@@ -1143,6 +1196,14 @@ export default function PainelPage() {
                   <IconLapis className="h-4 w-4" />
                 </button>
                 <button
+                  onClick={() => abrirModalExcluir(pacienteSelecionado)}
+                  className="text-muted hover:text-red"
+                  aria-label="Excluir paciente"
+                  title="Excluir paciente"
+                >
+                  <IconLixeira className="h-4 w-4" />
+                </button>
+                <button
                   onClick={fecharPainelPaciente}
                   className="text-muted hover:text-fg"
                   aria-label="Fechar"
@@ -1337,12 +1398,7 @@ export default function PainelPage() {
                   <label className="mb-1 block text-sm font-medium text-fg">
                     Dia da 1ª sessão (opcional)
                   </label>
-                  <input
-                    type="date"
-                    value={dataInicialPacote}
-                    onChange={(e) => setDataInicialPacote(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
+                  <DatePickerSP value={dataInicialPacote} onChange={setDataInicialPacote} />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-fg">
@@ -1500,6 +1556,63 @@ export default function PainelPage() {
                   className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoCancelar ? "Cancelando..." : "Confirmar cancelamento"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: excluir paciente — trava exige digitar o nome do paciente */}
+      {pacienteExcluindo && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Excluir {pacienteExcluindo.nome}
+            </h2>
+            <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Esta ação é irreversível. Todos os atendimentos, sessões e o histórico deste
+              paciente serão apagados permanentemente.
+            </p>
+            <form onSubmit={handleConfirmarExclusao} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Para confirmar, digite o nome completo do paciente
+                </label>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  value={confirmacaoExclusao}
+                  onChange={(e) => setConfirmacaoExclusao(e.target.value)}
+                  placeholder={pacienteExcluindo.nome}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-red focus:ring-2 focus:ring-red/20"
+                />
+              </div>
+
+              {erroExclusao && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroExclusao}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPacienteExcluindo(null)}
+                  disabled={salvandoExclusao}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    salvandoExclusao ||
+                    confirmacaoExclusao.trim().toLowerCase() !== pacienteExcluindo.nome.trim().toLowerCase()
+                  }
+                  className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoExclusao ? "Excluindo..." : "Excluir definitivamente"}
                 </button>
               </div>
             </form>

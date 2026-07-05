@@ -24,6 +24,10 @@ export async function GET(req: NextRequest) {
     where: {
       paciente: { clinicaId: usuario.clinicaId },
       inicio: { gte: inicio, lte: fim },
+      // Sessão cancelada some do calendário visual (a profissional acompanha
+      // pelo Google Agenda no celular, que só deve refletir sessões ativas);
+      // o histórico continua no banco e visível no painel do paciente.
+      status: { not: "CANCELADA" },
     },
     include: {
       paciente: { select: { id: true, nome: true } },

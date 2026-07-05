@@ -12,6 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
+import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -526,6 +527,20 @@ function DiaColuna({
   const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
   const hoje = mesmoDia(dia, new Date());
 
+  // Sessões que caem no mesmo horário não podem ficar uma escondendo a
+  // outra — divide o espaço horizontal entre as que se sobrepõem, como um
+  // sinal visual de conflito/overbooking a revisar.
+  const layoutColunas = useMemo(
+    () =>
+      calcularLayoutColunas(
+        sessoesDoDia.map((s) => {
+          const inicioMs = new Date(s.inicio).getTime();
+          return { id: s.id, inicioMs, fimMs: inicioMs + s.duracaoMin * 60000 };
+        })
+      ),
+    [sessoesDoDia]
+  );
+
   return (
     <div className="min-w-[120px] flex-1 border-r border-border last:border-r-0">
       <div
@@ -560,6 +575,7 @@ function DiaColuna({
             onAbrirDetalhe={onAbrirDetalhe}
             clinica={clinica}
             agora={agora}
+            layout={layoutColunas.get(s.id) ?? { coluna: 0, totalColunas: 1 }}
           />
         ))}
       </div>
@@ -574,6 +590,7 @@ function BlocoSessao({
   onAbrirDetalhe,
   clinica,
   agora,
+  layout,
 }: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
@@ -581,6 +598,7 @@ function BlocoSessao({
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
   agora: number;
+  layout: LayoutColuna;
 }) {
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -602,14 +620,26 @@ function BlocoSessao({
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
 
+  // Duas ou mais sessões no mesmo horário dividem o espaço horizontal lado a
+  // lado, em vez de ficarem uma escondendo a outra — sinal visual de
+  // conflito/overbooking a revisar.
+  const sobreposta = layout.totalColunas > 1;
+  const larguraPercent = 100 / layout.totalColunas;
+
   const style: React.CSSProperties = {
     top,
     height: altura,
     backgroundColor: cor,
-    opacity: sessao.status === "CANCELADA" || jaComecou ? 0.5 : 1,
+    opacity: jaComecou ? 0.5 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     zIndex: isDragging ? 20 : 1,
     cursor: travada ? "default" : "grab",
+    ...(sobreposta
+      ? {
+          left: `calc(${larguraPercent * layout.coluna}% + 2px)`,
+          width: `calc(${larguraPercent}% - 4px)`,
+        }
+      : {}),
   };
 
   function mostrarCopiado(tipo: "conf" | "meet") {
@@ -646,7 +676,7 @@ function BlocoSessao({
       }}
       style={style}
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
-      className="absolute left-1 right-1 flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm"
+      className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm`}
     >
       <p className="truncate text-[11px] font-medium leading-[13px]">
         {sessao.paciente.nome.split(" ")[0]} {sessao.numeroSessao}/{sessao.totalPacote}
