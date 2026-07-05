@@ -24,6 +24,8 @@ interface Clinica {
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
   pastaRaizDriveId: string | null;
+  emailBoasVindasAssunto: string;
+  emailBoasVindasCorpo: string;
 }
 
 interface FaixaHorario {
@@ -68,6 +70,10 @@ export default function ConfiguracoesPage() {
   const [salvandoClinica, setSalvandoClinica] = useState(false);
   const [erroClinica, setErroClinica] = useState("");
   const [sucessoClinica, setSucessoClinica] = useState(false);
+
+  const [salvandoEmailBoasVindas, setSalvandoEmailBoasVindas] = useState(false);
+  const [erroEmailBoasVindas, setErroEmailBoasVindas] = useState("");
+  const [sucessoEmailBoasVindas, setSucessoEmailBoasVindas] = useState(false);
 
   const [horarios, setHorarios] = useState<FaixaHorario[]>([]);
   const [carregandoHorarios, setCarregandoHorarios] = useState(true);
@@ -203,7 +209,7 @@ export default function ConfiguracoesPage() {
   }
 
   function handleChangeClinica(
-    e: React.ChangeEvent<HTMLInputElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) {
     const { name, value } = e.target;
     setClinica((c) => (c ? { ...c, [name]: value } : c));
@@ -244,6 +250,38 @@ export default function ConfiguracoesPage() {
       setErroClinica("não foi possível salvar");
     } finally {
       setSalvandoClinica(false);
+    }
+  }
+
+  async function handleSalvarEmailBoasVindas(e: React.FormEvent) {
+    e.preventDefault();
+    if (!clinica) return;
+    setErroEmailBoasVindas("");
+    setSucessoEmailBoasVindas(false);
+    setSalvandoEmailBoasVindas(true);
+
+    try {
+      const res = await fetch("/api/clinica", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailBoasVindasAssunto: clinica.emailBoasVindasAssunto,
+          emailBoasVindasCorpo: clinica.emailBoasVindasCorpo,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroEmailBoasVindas(data?.erro ?? "não foi possível salvar");
+        return;
+      }
+
+      setClinica(await res.json());
+      setSucessoEmailBoasVindas(true);
+    } catch {
+      setErroEmailBoasVindas("não foi possível salvar");
+    } finally {
+      setSalvandoEmailBoasVindas(false);
     }
   }
 
@@ -616,6 +654,73 @@ export default function ConfiguracoesPage() {
               </p>
             )}
           </form>
+        </section>
+
+        {/* Email de boas-vindas */}
+        <section className="rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
+            Email de boas-vindas
+          </h2>
+          <p className="mb-4 text-sm text-muted">
+            Template usado ao compartilhar a pasta de um paciente. <strong>{"{nome}"}</strong>{" "}
+            é substituído pelo primeiro nome do paciente, e <strong>{"{link_pasta}"}</strong>{" "}
+            vira o botão com o link da pasta do Drive.
+          </p>
+
+          {carregandoClinica ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : erroCarregarClinica || !clinica ? (
+            <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Não foi possível carregar os dados da clínica.
+            </p>
+          ) : (
+            <form onSubmit={handleSalvarEmailBoasVindas} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Assunto</label>
+                <input
+                  type="text"
+                  name="emailBoasVindasAssunto"
+                  value={clinica.emailBoasVindasAssunto}
+                  onChange={handleChangeClinica}
+                  required
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Corpo</label>
+                <textarea
+                  name="emailBoasVindasCorpo"
+                  value={clinica.emailBoasVindasCorpo}
+                  onChange={handleChangeClinica}
+                  required
+                  rows={10}
+                  className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              {erroEmailBoasVindas && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroEmailBoasVindas}
+                </p>
+              )}
+              {sucessoEmailBoasVindas && (
+                <p className="rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  Template salvo.
+                </p>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={salvandoEmailBoasVindas}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoEmailBoasVindas ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          )}
         </section>
 
         {/* Horário de trabalho */}

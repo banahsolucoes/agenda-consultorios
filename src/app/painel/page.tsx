@@ -9,6 +9,7 @@ import {
   origemCadastroLabel,
 } from "@/lib/labels";
 import { TIMEZONE } from "@/lib/timezone";
+import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 
@@ -101,6 +102,13 @@ interface Sessao {
 interface Clinica {
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
+  emailBoasVindasAssunto: string;
+  emailBoasVindasCorpo: string;
+}
+
+interface GoogleStatus {
+  conectado: boolean;
+  prontoParaCompartilhar: boolean;
 }
 
 interface TipoSessao {
@@ -315,6 +323,7 @@ export default function PainelPage() {
   const [busca, setBusca] = useState("");
   const [saindo, setSaindo] = useState(false);
   const [clinica, setClinica] = useState<Clinica | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [tiposSessao, setTiposSessao] = useState<TipoSessao[]>([]);
 
   // Sino de notificações (sessões reagendadas + pacientes finalizados)
@@ -377,6 +386,17 @@ export default function PainelPage() {
   const [salvandoExclusao, setSalvandoExclusao] = useState(false);
   const [erroExclusao, setErroExclusao] = useState("");
 
+  // Modal: compartilhar pasta do Drive + enviar e-mail de boas-vindas
+  const [compartilhando, setCompartilhando] = useState(false);
+  const [assuntoCompartilhar, setAssuntoCompartilhar] = useState("");
+  const [corpoCompartilhar, setCorpoCompartilhar] = useState("");
+  const [enviandoCompartilhar, setEnviandoCompartilhar] = useState(false);
+  const [erroCompartilhar, setErroCompartilhar] = useState("");
+  const [resultadoCompartilhar, setResultadoCompartilhar] = useState<{
+    pastaCompartilhada: boolean;
+    emailEnviado: boolean;
+  } | null>(null);
+
   // Busca a lista de pacientes da clínica logada
   async function carregarPacientes() {
     setCarregandoLista(true);
@@ -405,6 +425,11 @@ export default function PainelPage() {
     if (res.ok) setClinica(await res.json());
   }
 
+  async function carregarGoogleStatus() {
+    const res = await fetch("/api/integracoes/google/status");
+    if (res.ok) setGoogleStatus(await res.json());
+  }
+
   async function carregarTiposSessao() {
     const res = await fetch("/api/clinica/tipos-sessao");
     if (res.ok) setTiposSessao(await res.json());
@@ -421,6 +446,7 @@ export default function PainelPage() {
     carregarClinica();
     carregarTiposSessao();
     carregarNotificacoes();
+    carregarGoogleStatus();
   }, []);
 
   // Lista filtrada por nome, ignorando maiúsculas/minúsculas e acentos
@@ -826,6 +852,62 @@ export default function PainelPage() {
       setErroExclusao("não foi possível excluir o paciente");
     } finally {
       setSalvandoExclusao(false);
+    }
+  }
+
+  // Diz por que o botão "Compartilhar pasta e enviar boas-vindas" está
+  // desabilitado (null quando está tudo certo) — vira o tooltip do botão.
+  function motivoBloqueioCompartilhar(p: Paciente): string | null {
+    const faltando: string[] = [];
+    if (!p.email) faltando.push("paciente sem e-mail cadastrado");
+    if (!p.pastaDriveUrl) faltando.push("pasta do Drive não cadastrada");
+    if (!googleStatus?.prontoParaCompartilhar) {
+      faltando.push("Google não conectado ou sem permissão de Drive/Gmail (reconecte em Configurações)");
+    }
+    return faltando.length > 0 ? faltando.join(" · ") : null;
+  }
+
+  // Abre a tela de confirmação já preenchida com o template da clínica
+  function abrirCompartilharPasta() {
+    if (!pacienteSelecionado || !clinica) return;
+    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
+    setAssuntoCompartilhar(renderizarAssuntoBoasVindas(clinica.emailBoasVindasAssunto, primeiroNome));
+    setCorpoCompartilhar(
+      renderizarTemplateBoasVindas(clinica.emailBoasVindasCorpo, primeiroNome, pacienteSelecionado.pastaDriveUrl ?? "")
+    );
+    setErroCompartilhar("");
+    setResultadoCompartilhar(null);
+    setCompartilhando(true);
+  }
+
+  function fecharModalCompartilhar() {
+    if (enviandoCompartilhar) return;
+    setCompartilhando(false);
+  }
+
+  async function handleConfirmarCompartilhar() {
+    if (!pacienteSelecionado) return;
+    setErroCompartilhar("");
+    setEnviandoCompartilhar(true);
+
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}/compartilhar-pasta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assunto: assuntoCompartilhar, corpo: corpoCompartilhar }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroCompartilhar(data?.erro ?? "não foi possível compartilhar a pasta");
+        return;
+      }
+
+      setResultadoCompartilhar(data);
+    } catch {
+      setErroCompartilhar("não foi possível compartilhar a pasta");
+    } finally {
+      setEnviandoCompartilhar(false);
     }
   }
 
@@ -1273,6 +1355,18 @@ export default function PainelPage() {
               )}
             </div>
 
+            {/* Compartilhar a pasta com o paciente + e-mail de boas-vindas */}
+            <div className="mb-4">
+              <button
+                onClick={abrirCompartilharPasta}
+                disabled={motivoBloqueioCompartilhar(pacienteSelecionado) !== null}
+                title={motivoBloqueioCompartilhar(pacienteSelecionado) ?? undefined}
+                className="w-full rounded-lg border border-gold px-3 py-1.5 text-sm font-medium text-gold hover:bg-gold/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:hover:bg-transparent"
+              >
+                Compartilhar pasta e enviar boas-vindas
+              </button>
+            </div>
+
             {/* Ações gerais do paciente — Criar atendimento fica sempre visível,
                 mesmo com sessões já geradas, para permitir novos atendimentos
                 a qualquer momento */}
@@ -1703,6 +1797,99 @@ export default function PainelPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: compartilhar pasta do Drive + enviar e-mail de boas-vindas */}
+      {compartilhando && pacienteSelecionado && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Compartilhar pasta e enviar boas-vindas
+            </h2>
+
+            {resultadoCompartilhar ? (
+              <div className="space-y-4">
+                <p
+                  className={`rounded-lg px-3 py-2 text-sm ${
+                    resultadoCompartilhar.pastaCompartilhada && resultadoCompartilhar.emailEnviado
+                      ? "bg-green/10 text-green"
+                      : "bg-red/10 text-red"
+                  }`}
+                >
+                  {resultadoCompartilhar.pastaCompartilhada
+                    ? "Pasta compartilhada com sucesso. "
+                    : "Não foi possível compartilhar a pasta. "}
+                  {resultadoCompartilhar.emailEnviado
+                    ? "E-mail enviado com sucesso."
+                    : "Não foi possível enviar o e-mail."}
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setCompartilhando(false)}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-gold/40 bg-gold/5 px-3 py-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted">Destinatário</p>
+                  <p className="text-sm font-semibold text-fg">{pacienteSelecionado.email}</p>
+                </div>
+                <p className="text-xs text-muted">
+                  A pasta do Drive será compartilhada com este e-mail (permissão de leitura) e o
+                  e-mail de boas-vindas será enviado a partir da conta Google conectada da clínica.
+                </p>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Assunto</label>
+                  <input
+                    type="text"
+                    value={assuntoCompartilhar}
+                    onChange={(e) => setAssuntoCompartilhar(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Corpo do e-mail</label>
+                  <textarea
+                    rows={10}
+                    value={corpoCompartilhar}
+                    onChange={(e) => setCorpoCompartilhar(e.target.value)}
+                    className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+
+                {erroCompartilhar && (
+                  <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroCompartilhar}</p>
+                )}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={fecharModalCompartilhar}
+                    disabled={enviandoCompartilhar}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarCompartilhar}
+                    disabled={enviandoCompartilhar || !assuntoCompartilhar.trim() || !corpoCompartilhar.trim()}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {enviandoCompartilhar ? "Enviando..." : "Confirmar e enviar"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

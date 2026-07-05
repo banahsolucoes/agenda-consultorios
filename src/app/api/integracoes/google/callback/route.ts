@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
         // (garantido pelo prompt=consent usado ao gerar a URL). Se por algum
         // motivo não vier desta vez, preserva o que já estava salvo.
         ...(tokens.refresh_token ? { googleRefreshToken: tokens.refresh_token } : {}),
+        // Escopos realmente concedidos nesta autorização — usado pra saber se
+        // a conexão já cobre Drive/Gmail sem precisar tentar a chamada.
+        ...(tokens.scope ? { googleEscopos: tokens.scope } : {}),
         googleTokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         googleConectado: true,
       },

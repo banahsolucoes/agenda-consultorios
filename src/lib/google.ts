@@ -2,7 +2,7 @@
 // Cada clínica conecta a própria conta Google; as credenciais do app (client
 // id/secret/redirect) são únicas e ficam no .env.
 
-import { google, calendar_v3, drive_v3 } from "googleapis";
+import { google, calendar_v3, drive_v3, gmail_v1 } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import type { Clinica } from "@/generated/prisma";
 import type { NextRequest } from "next/server";
@@ -14,11 +14,30 @@ import { TIMEZONE } from "@/lib/timezone";
 // tolerante a essa falha, mas o escopo certo evita o erro na origem).
 // drive.file é o escopo mínimo do Drive: só enxerga/edita arquivos e pastas
 // criados pelo próprio app — nunca os demais arquivos do Drive da clínica.
+// gmail.send só permite enviar e-mail em nome da clínica — não lê a caixa.
+export const ESCOPO_DRIVE = "https://www.googleapis.com/auth/drive.file";
+export const ESCOPO_GMAIL = "https://www.googleapis.com/auth/gmail.send";
 const ESCOPOS_GOOGLE = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/drive.file",
+  ESCOPO_DRIVE,
+  ESCOPO_GMAIL,
 ];
+
+// Confere se a última autorização OAuth da clínica concedeu um escopo
+// específico — usado pra saber se dá pra compartilhar pasta/mandar e-mail
+// sem precisar tentar a chamada pra descobrir.
+export function clinicaTemEscopo(clinica: Pick<Clinica, "googleEscopos">, escopo: string): boolean {
+  return (clinica.googleEscopos ?? "").split(" ").includes(escopo);
+}
+
+// Pronta pra "Compartilhar pasta e enviar boas-vindas": conectada e com os
+// dois escopos (Drive + Gmail) concedidos na autorização.
+export function clinicaProntaParaCompartilhar(
+  clinica: Pick<Clinica, "googleConectado" | "googleEscopos">
+): boolean {
+  return clinica.googleConectado && clinicaTemEscopo(clinica, ESCOPO_DRIVE) && clinicaTemEscopo(clinica, ESCOPO_GMAIL);
+}
 
 // Reconstrói a origem pública da requisição para montar redirects internos
 // (ex.: de volta pra /painel/configuracoes após o callback OAuth). Usar
@@ -151,6 +170,78 @@ export async function criarPastaPacienteDrive(
   } catch (err) {
     console.error("Falha ao criar pasta do paciente no Google Drive:", err);
     return { pastaDriveId: null, pastaDriveUrl: null };
+  }
+}
+
+// Compartilha a pasta do paciente com o e-mail informado, permissão de
+// leitura. sendNotificationEmail:false porque o e-mail de boas-vindas
+// (enviarEmailBoasVindas) já avisa o paciente — evita duplicar com o aviso
+// genérico do próprio Google. Tolerante a falha: nunca lança.
+export async function compartilharPastaComEmail(
+  drive: drive_v3.Drive,
+  pastaDriveId: string,
+  email: string
+): Promise<{ compartilhado: boolean }> {
+  try {
+    await drive.permissions.create({
+      fileId: pastaDriveId,
+      sendNotificationEmail: false,
+      requestBody: { role: "reader", type: "user", emailAddress: email },
+    });
+    return { compartilhado: true };
+  } catch (err) {
+    console.error("Falha ao compartilhar pasta do Drive:", err);
+    return { compartilhado: false };
+  }
+}
+
+// Cliente pronto do Gmail para a clínica, ou null se ela não tiver a
+// integração conectada — mesmo padrão do obterCalendarDaClinica.
+export async function obterGmailDaClinica(clinica: Clinica): Promise<gmail_v1.Gmail | null> {
+  const auth = await obterClienteGoogleDaClinica(clinica);
+  if (!auth) return null;
+  return google.gmail({ version: "v1", auth });
+}
+
+function codificarAssuntoMime(assunto: string): string {
+  return `=?UTF-8?B?${Buffer.from(assunto, "utf-8").toString("base64")}?=`;
+}
+
+function base64UrlEncode(texto: string): string {
+  return Buffer.from(texto, "utf-8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function montarMensagemGmailRaw(para: string, assunto: string, corpoHtml: string): string {
+  const mensagem = [
+    `To: ${para}`,
+    `Subject: ${codificarAssuntoMime(assunto)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    Buffer.from(corpoHtml, "utf-8").toString("base64"),
+  ].join("\r\n");
+  return base64UrlEncode(mensagem);
+}
+
+// Envia o e-mail de boas-vindas pela conta Gmail conectada da clínica (o
+// "From" fica a cargo do próprio Gmail — sempre a conta autenticada, nunca
+// um remetente arbitrário). Tolerante a falha: nunca lança.
+export async function enviarEmailBoasVindas(
+  gmail: gmail_v1.Gmail,
+  para: string,
+  assunto: string,
+  corpoHtml: string
+): Promise<{ enviado: boolean }> {
+  try {
+    await gmail.users.messages.send({
+      userId: "me",
+      requestBody: { raw: montarMensagemGmailRaw(para, assunto, corpoHtml) },
+    });
+    return { enviado: true };
+  } catch (err) {
+    console.error("Falha ao enviar e-mail de boas-vindas via Gmail:", err);
+    return { enviado: false };
   }
 }
 

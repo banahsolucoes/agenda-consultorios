@@ -13,6 +13,8 @@ const CAMPOS_EDITAVEIS = [
   "nomeAssistente",
   "horarioLimiteConfirmacao",
   "pastaRaizDriveId",
+  "emailBoasVindasAssunto",
+  "emailBoasVindasCorpo",
 ] as const;
 
 const SELECT_CLINICA = {
@@ -29,6 +31,8 @@ const SELECT_CLINICA = {
   googleConectado: true,
   googleCalendarId: true,
   pastaRaizDriveId: true,
+  emailBoasVindasAssunto: true,
+  emailBoasVindasCorpo: true,
 } as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado
@@ -59,6 +63,13 @@ export async function PATCH(req: NextRequest) {
 
   if (data.duracaoPadraoMin !== undefined) {
     data.duracaoPadraoMin = Number(data.duracaoPadraoMin);
+  }
+
+  if (data.emailBoasVindasAssunto !== undefined && !data.emailBoasVindasAssunto) {
+    return NextResponse.json({ erro: "emailBoasVindasAssunto não pode ser vazio" }, { status: 400 });
+  }
+  if (data.emailBoasVindasCorpo !== undefined && !data.emailBoasVindasCorpo) {
+    return NextResponse.json({ erro: "emailBoasVindasCorpo não pode ser vazio" }, { status: 400 });
   }
 
   // Aceita o operador colar tanto um link do Drive quanto já o próprio ID da

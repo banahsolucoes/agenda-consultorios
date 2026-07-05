@@ -26,10 +26,19 @@ model Clinica {
   googleTokenExpiry         DateTime?
   googleConectado           Boolean           @default(false)
   googleCalendarId          String?           @default("primary")
+  // Escopos concedidos pela clínica na última autorização OAuth (string
+  // separada por espaço, formato do próprio Google) — usado só para saber
+  // se a conexão já cobre Drive/Gmail, sem precisar chamar a API pra checar.
+  googleEscopos             String?
 
   // Pasta-mãe do Google Drive onde as pastas de cada paciente são criadas
   // automaticamente no cadastro (Tarefa Drive Parte 3).
   pastaRaizDriveId          String?
+
+  // Template do e-mail de boas-vindas (Drive Parte 2) — {nome} vira o
+  // primeiro nome do paciente, {link_pasta} vira o botão com o link da pasta.
+  emailBoasVindasAssunto    String            @default("Acesso a Gravações com a Fono Pâmela Rachid")
+  emailBoasVindasCorpo      String            @default("Olá {nome}, tudo bem?\n\nSuas sessões ficam gravadas e disponíveis através do acesso por esse e-mail. É só clicar e acionar seu conteúdo.\n\n{link_pasta}\n\nVale muito a pena ir praticando durante a semana, nos intervalos do dia mesmo… no banho, arrumando a casa, caminhando. Esses pequenos momentos fazem diferença de verdade no seu resultado.\n\nQualquer dúvida, me chama 😊\n\nAtenciosamente\nFono Pâmela Rachid")
 
   usuarios                  Usuario[]
   pacientes                 Paciente[]

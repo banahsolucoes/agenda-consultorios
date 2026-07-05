@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { obterClienteGoogleDaClinica } from "@/lib/google";
+import { obterClienteGoogleDaClinica, clinicaProntaParaCompartilhar } from "@/lib/google";
 
 // GET /api/integracoes/google/status — estado da integração Google da
 // clínica do usuário logado (conectado/desconectado + e-mail da conta
-// conectada, quando possível obter).
+// conectada, quando possível obter, + se os escopos de Drive/Gmail já foram
+// concedidos, para o botão de compartilhar pasta saber se pode habilitar).
 export async function GET() {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
@@ -15,7 +16,7 @@ export async function GET() {
   if (!clinica) return NextResponse.json({ erro: "clínica não encontrada" }, { status: 404 });
 
   if (!clinica.googleConectado) {
-    return NextResponse.json({ conectado: false });
+    return NextResponse.json({ conectado: false, prontoParaCompartilhar: false });
   }
 
   // Buscar o e-mail da conta é best-effort: se a chamada falhar (rede, token
@@ -34,5 +35,10 @@ export async function GET() {
     // e-mail — não é um erro que mereça poluir o log a cada checagem de status.
   }
 
-  return NextResponse.json({ conectado: true, email, calendarId: clinica.googleCalendarId });
+  return NextResponse.json({
+    conectado: true,
+    email,
+    calendarId: clinica.googleCalendarId,
+    prontoParaCompartilhar: clinicaProntaParaCompartilhar(clinica),
+  });
 }
