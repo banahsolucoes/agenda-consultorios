@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { extrairIdPastaDrive, pareceIdPastaDriveValido } from "@/lib/validacao";
 import { obterDriveDaClinica, verificarPastaDriveAcessivel } from "@/lib/google";
+import { OPCOES_AJUSTE_FUNDO } from "@/lib/fundo";
 
 // Campos que podem ser alterados pela tela de Configurações. "logo" e
 // "fundoUrl" ficam de fora de propósito — só mudam via upload em
 // /api/clinica/branding, nunca aceitando uma URL arbitrária digitada aqui.
 const CAMPOS_EDITAVEIS = [
   "nome",
+  "nomeExibicao",
   "corPrimaria",
   "corSecundaria",
   "duracaoPadraoMin",
@@ -18,15 +20,18 @@ const CAMPOS_EDITAVEIS = [
   "emailBoasVindasAssunto",
   "emailBoasVindasCorpo",
   "fundoOpacidade",
+  "fundoAjuste",
 ] as const;
 
 const SELECT_CLINICA = {
   id: true,
   nome: true,
+  nomeExibicao: true,
   slug: true,
   logo: true,
   fundoUrl: true,
   fundoOpacidade: true,
+  fundoAjuste: true,
   corPrimaria: true,
   corSecundaria: true,
   duracaoPadraoMin: true,
@@ -76,6 +81,20 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ erro: "fundoOpacidade deve ser um inteiro entre 0 e 100" }, { status: 400 });
     }
     data.fundoOpacidade = opacidade;
+  }
+
+  if (data.fundoAjuste !== undefined) {
+    const valores = OPCOES_AJUSTE_FUNDO.map((o) => o.valor);
+    if (typeof data.fundoAjuste !== "string" || !valores.includes(data.fundoAjuste)) {
+      return NextResponse.json(
+        { erro: `fundoAjuste deve ser um dos valores: ${valores.join(", ")}` },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (data.nomeExibicao === "") {
+    data.nomeExibicao = null;
   }
 
   if (data.emailBoasVindasAssunto !== undefined && !data.emailBoasVindasAssunto) {

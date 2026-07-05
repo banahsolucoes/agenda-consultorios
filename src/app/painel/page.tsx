@@ -10,6 +10,7 @@ import {
 } from "@/lib/labels";
 import { TIMEZONE } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
+import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 
@@ -101,9 +102,11 @@ interface Sessao {
 
 interface Clinica {
   nome: string;
+  nomeExibicao: string | null;
   logo: string | null;
   fundoUrl: string | null;
   fundoOpacidade: number;
+  fundoAjuste: string;
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
   emailBoasVindasAssunto: string;
@@ -949,13 +952,19 @@ export default function PainelPage() {
 
   return (
     <div className="relative min-h-screen bg-bg">
-      {/* Fundo de tela da clínica (identidade visual white-label) — fica
-          atrás de todo o conteúdo, com opacidade própria, sem desbotar o
-          texto/UI por cima. */}
+      {/* Fundo de tela da clínica (identidade visual white-label). z-index
+          negativo garante que fique sempre atrás do conteúdo em fluxo
+          normal (que não tem z-index próprio) — um z-index 0 aqui pintaria
+          por cima desse conteúdo, mesmo vindo antes no DOM. A opacidade é
+          aplicada só nesta camada, nunca no conteúdo. */}
       {clinica?.fundoUrl && (
         <div
-          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${clinica.fundoUrl})`, opacity: clinica.fundoOpacidade / 100 }}
+          className="pointer-events-none fixed inset-0 -z-10"
+          style={{
+            backgroundImage: `url(${clinica.fundoUrl})`,
+            opacity: clinica.fundoOpacidade / 100,
+            ...estiloFundoTela(clinica.fundoAjuste),
+          }}
         />
       )}
 
@@ -967,14 +976,13 @@ export default function PainelPage() {
             className="flex items-center gap-2"
             aria-label="Ir para o painel"
           >
-            {clinica?.logo ? (
+            {clinica?.logo && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={clinica.logo} alt={clinica.nome} className="h-9 w-auto max-w-[180px] object-contain" />
-            ) : (
-              <span className="font-serif text-lg font-semibold text-fg">
-                {clinica?.nome || "Agenda Consultórios"}
-              </span>
             )}
+            <span className="font-serif text-lg font-semibold text-fg">
+              {clinica?.nomeExibicao || clinica?.nome || "Agenda Consultórios"}
+            </span>
           </button>
           <div className="flex items-center gap-2">
             {/* Sino de notificações: sessões reagendadas + pacientes finalizados */}

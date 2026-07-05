@@ -16,10 +16,12 @@ const EXTENSAO_POR_TIPO: Record<string, string> = {
 const SELECT_CLINICA = {
   id: true,
   nome: true,
+  nomeExibicao: true,
   slug: true,
   logo: true,
   fundoUrl: true,
   fundoOpacidade: true,
+  fundoAjuste: true,
   corPrimaria: true,
   corSecundaria: true,
   duracaoPadraoMin: true,

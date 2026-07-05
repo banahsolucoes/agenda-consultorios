@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { diaSemanaLabel } from "@/lib/labels";
+import { AJUSTE_FUNDO_PADRAO, OPCOES_AJUSTE_FUNDO, estiloFundoTela } from "@/lib/fundo";
 
 const DIAS_SEMANA = [
   "SEGUNDA",
@@ -17,9 +18,11 @@ const DIAS_SEMANA = [
 interface Clinica {
   id: string;
   nome: string;
+  nomeExibicao: string | null;
   logo: string | null;
   fundoUrl: string | null;
   fundoOpacidade: number;
+  fundoAjuste: string;
   corPrimaria: string | null;
   corSecundaria: string | null;
   duracaoPadraoMin: number;
@@ -82,9 +85,11 @@ export default function ConfiguracoesPage() {
   const [enviandoFundo, setEnviandoFundo] = useState(false);
   const [erroFundo, setErroFundo] = useState("");
   const [opacidadeInput, setOpacidadeInput] = useState(100);
-  const [salvandoOpacidade, setSalvandoOpacidade] = useState(false);
-  const [erroOpacidade, setErroOpacidade] = useState("");
-  const [sucessoOpacidade, setSucessoOpacidade] = useState(false);
+  const [fundoAjusteInput, setFundoAjusteInput] = useState(AJUSTE_FUNDO_PADRAO);
+  const [nomeExibicaoInput, setNomeExibicaoInput] = useState("");
+  const [salvandoIdentidade, setSalvandoIdentidade] = useState(false);
+  const [erroIdentidade, setErroIdentidade] = useState("");
+  const [sucessoIdentidade, setSucessoIdentidade] = useState(false);
 
   const [horarios, setHorarios] = useState<FaixaHorario[]>([]);
   const [carregandoHorarios, setCarregandoHorarios] = useState(true);
@@ -130,6 +135,8 @@ export default function ConfiguracoesPage() {
         setClinica(dados);
         setPastaRaizInput(dados.pastaRaizDriveId ?? "");
         setOpacidadeInput(dados.fundoOpacidade ?? 100);
+        setFundoAjusteInput(dados.fundoAjuste ?? AJUSTE_FUNDO_PADRAO);
+        setNomeExibicaoInput(dados.nomeExibicao ?? "");
       } else {
         setErroCarregarClinica(true);
       }
@@ -319,6 +326,7 @@ export default function ConfiguracoesPage() {
       const atualizada = await res.json();
       setClinica(atualizada);
       setOpacidadeInput(atualizada.fundoOpacidade ?? 100);
+      setFundoAjusteInput(atualizada.fundoAjuste ?? AJUSTE_FUNDO_PADRAO);
     } catch {
       setErro("não foi possível enviar a imagem");
     } finally {
@@ -326,30 +334,34 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  async function handleSalvarOpacidade() {
-    setErroOpacidade("");
-    setSucessoOpacidade(false);
-    setSalvandoOpacidade(true);
+  async function handleSalvarIdentidadeVisual() {
+    setErroIdentidade("");
+    setSucessoIdentidade(false);
+    setSalvandoIdentidade(true);
 
     try {
       const res = await fetch("/api/clinica", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fundoOpacidade: opacidadeInput }),
+        body: JSON.stringify({
+          fundoOpacidade: opacidadeInput,
+          fundoAjuste: fundoAjusteInput,
+          nomeExibicao: nomeExibicaoInput || null,
+        }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setErroOpacidade(data?.erro ?? "não foi possível salvar");
+        setErroIdentidade(data?.erro ?? "não foi possível salvar");
         return;
       }
 
       setClinica(await res.json());
-      setSucessoOpacidade(true);
+      setSucessoIdentidade(true);
     } catch {
-      setErroOpacidade("não foi possível salvar");
+      setErroIdentidade("não foi possível salvar");
     } finally {
-      setSalvandoOpacidade(false);
+      setSalvandoIdentidade(false);
     }
   }
 
@@ -661,6 +673,26 @@ export default function ConfiguracoesPage() {
             </p>
           ) : (
             <div className="space-y-6">
+              {/* Texto ao lado da logo */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Texto ao lado da logo
+                </label>
+                <input
+                  type="text"
+                  value={nomeExibicaoInput}
+                  onChange={(e) => {
+                    setNomeExibicaoInput(e.target.value);
+                    setSucessoIdentidade(false);
+                  }}
+                  placeholder={clinica.nome}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Exibido no canto superior esquerdo do painel. Deixe em branco para usar o nome da clínica (&quot;{clinica.nome}&quot;).
+                </p>
+              </div>
+
               {/* Logo */}
               <div>
                 <p className="mb-2 text-sm font-medium text-fg">Logo</p>
@@ -699,10 +731,14 @@ export default function ConfiguracoesPage() {
                 <p className="mb-2 text-sm font-medium text-fg">Fundo de tela</p>
                 <div className="flex flex-wrap items-center gap-4">
                   <div
-                    className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-bg bg-cover bg-center"
+                    className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-bg"
                     style={
                       clinica.fundoUrl
-                        ? { backgroundImage: `url(${clinica.fundoUrl})`, opacity: opacidadeInput / 100 }
+                        ? {
+                            backgroundImage: `url(${clinica.fundoUrl})`,
+                            opacity: opacidadeInput / 100,
+                            ...estiloFundoTela(fundoAjusteInput),
+                          }
                         : undefined
                     }
                   >
@@ -729,6 +765,24 @@ export default function ConfiguracoesPage() {
                 )}
 
                 <div className="mt-4">
+                  <label className="mb-1 block text-sm font-medium text-fg">Ajuste da imagem</label>
+                  <select
+                    value={fundoAjusteInput}
+                    onChange={(e) => {
+                      setFundoAjusteInput(e.target.value);
+                      setSucessoIdentidade(false);
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    {OPCOES_AJUSTE_FUNDO.map((opcao) => (
+                      <option key={opcao.valor} value={opcao.valor}>
+                        {opcao.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-4">
                   <label className="mb-1 flex items-center justify-between text-sm font-medium text-fg">
                     <span>Opacidade do fundo</span>
                     <span className="text-muted">{opacidadeInput}%</span>
@@ -740,26 +794,26 @@ export default function ConfiguracoesPage() {
                     value={opacidadeInput}
                     onChange={(e) => {
                       setOpacidadeInput(Number(e.target.value));
-                      setSucessoOpacidade(false);
+                      setSucessoIdentidade(false);
                     }}
                     className="w-full accent-gold"
                   />
                   <div className="mt-2 flex justify-end">
                     <button
                       type="button"
-                      onClick={handleSalvarOpacidade}
-                      disabled={salvandoOpacidade}
+                      onClick={handleSalvarIdentidadeVisual}
+                      disabled={salvandoIdentidade}
                       className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {salvandoOpacidade ? "Salvando..." : "Salvar opacidade"}
+                      {salvandoIdentidade ? "Salvando..." : "Salvar identidade visual"}
                     </button>
                   </div>
-                  {erroOpacidade && (
-                    <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroOpacidade}</p>
+                  {erroIdentidade && (
+                    <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroIdentidade}</p>
                   )}
-                  {sucessoOpacidade && (
+                  {sucessoIdentidade && (
                     <p className="mt-2 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
-                      Opacidade salva.
+                      Identidade visual salva.
                     </p>
                   )}
                 </div>

@@ -15,6 +15,10 @@ model Clinica {
   logo                      String?
   fundoUrl                  String?
   fundoOpacidade            Int               @default(100)
+  fundoAjuste               String            @default("cover")
+  // Texto exibido ao lado da logo no canto superior esquerdo do painel.
+  // Quando vazio, o painel usa o campo "nome" da própria clínica.
+  nomeExibicao              String?
   corPrimaria               String?
   corSecundaria             String?
   duracaoPadraoMin          Int               @default(45)
