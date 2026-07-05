@@ -4,11 +4,13 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
+import { componentesSP, criarDataSP, TIMEZONE } from "@/lib/timezone";
 
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 const DIA_NUM: Record<string, number> = {
   DOMINGO: 0, SEGUNDA: 1, TERCA: 2, QUARTA: 3, QUINTA: 4, SEXTA: 5, SABADO: 6,
 };
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
@@ -101,18 +103,24 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ erro: "horário fora do expediente da clínica" }, { status: 400 });
     }
 
-    const d = new Date(sessao.inicio);
-    const diaSem = d.getDay();
-    const distSeg = diaSem === 0 ? 6 : diaSem - 1;
-    const segunda = new Date(d);
-    segunda.setDate(d.getDate() - distSeg);
+    // Dia/semana calculados no calendário de São Paulo (não no fuso do
+    // processo) — senão, num runtime em UTC, um horário perto da meia-noite
+    // pode cair no dia de calendário errado.
+    const atual = componentesSP(sessao.inicio);
+    const distSeg = atual.diaSemana === 0 ? 6 : atual.diaSemana - 1;
+    const segundaUTC = Date.UTC(atual.ano, atual.mes - 1, atual.dia) - distSeg * DIA_MS;
 
     // Deslocamento em relação à segunda-feira: DOMINGO (diaAlvo 0) fica no
     // fim da semana (segunda + 6), os demais dias seguem diaAlvo - 1.
     const offsetSegunda = diaAlvo === 0 ? 6 : diaAlvo - 1;
-    const novaData = new Date(segunda);
-    novaData.setDate(segunda.getDate() + offsetSegunda);
-    novaData.setHours(h, m, 0, 0);
+    const diaCalendario = new Date(segundaUTC + offsetSegunda * DIA_MS);
+    const novaData = criarDataSP(
+      diaCalendario.getUTCFullYear(),
+      diaCalendario.getUTCMonth() + 1,
+      diaCalendario.getUTCDate(),
+      h,
+      m
+    );
 
     if (novaData.getTime() < Date.now()) {
       return NextResponse.json({ erro: "não é possível mover a sessão para o passado" }, { status: 400 });
@@ -134,8 +142,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
             calendarId: sessao.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
             eventId: sessao.googleEventId,
             requestBody: {
-              start: { dateTime: novaData.toISOString() },
-              end: { dateTime: fimEvento.toISOString() },
+              start: { dateTime: novaData.toISOString(), timeZone: TIMEZONE },
+              end: { dateTime: fimEvento.toISOString(), timeZone: TIMEZONE },
             },
           })
           .catch((err) => console.error("Falha ao atualizar evento no Google Calendar:", err));

@@ -8,6 +8,7 @@ import {
   statusLabel,
   origemCadastroLabel,
 } from "@/lib/labels";
+import { TIMEZONE } from "@/lib/timezone";
 import AgendaCalendario from "./AgendaCalendario";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
@@ -145,7 +146,8 @@ function normalizar(texto: string) {
     .toLowerCase();
 }
 
-// Formata a data/hora da sessão no padrão pt-BR
+// Formata a data/hora da sessão no padrão pt-BR, sempre no fuso de São Paulo
+// (independente do fuso do navegador ou do processo que renderizou a página)
 function formatarDataHora(iso: string) {
   return new Date(iso).toLocaleString("pt-BR", {
     weekday: "short",
@@ -153,15 +155,16 @@ function formatarDataHora(iso: string) {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: TIMEZONE,
   });
 }
 
 // Data curta dd/mm e horário HH:MM, usados nas mensagens de copiar-colar
 function formatarDataCurta(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
 }
 function formatarHorario(iso: string) {
-  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE });
 }
 
 // Cor da badge de status (sessão ou paciente/pacote)

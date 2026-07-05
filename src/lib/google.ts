@@ -6,6 +6,7 @@ import { google, calendar_v3 } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import type { Clinica } from "@/generated/prisma";
 import type { NextRequest } from "next/server";
+import { TIMEZONE } from "@/lib/timezone";
 
 const ESCOPOS_GOOGLE = ["https://www.googleapis.com/auth/calendar.events"];
 
@@ -124,8 +125,8 @@ export async function criarEventoGoogleMeet(
       conferenceDataVersion: 1,
       requestBody: {
         summary: dados.titulo,
-        start: { dateTime: dados.inicio.toISOString() },
-        end: { dateTime: fim.toISOString() },
+        start: { dateTime: dados.inicio.toISOString(), timeZone: TIMEZONE },
+        end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
         conferenceData: {
           createRequest: {
             requestId: crypto.randomUUID(),

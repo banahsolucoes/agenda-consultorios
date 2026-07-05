@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { componentesSP, criarDataSP } from "@/lib/timezone";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -13,14 +14,15 @@ const DIA_OFFSET: Record<string, number> = {
   DOMINGO: 6,
 };
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DIA_MS = 24 * 60 * 60 * 1000;
 
-// Início (segunda-feira, 00:00 local) da semana que contém a data informada
+// Marcador (meia-noite UTC do dia de calendário) da segunda-feira da semana
+// que contém `data`, calculado no calendário de São Paulo — usado só para
+// achar o dia de calendário alvo, nunca exposto como instante real.
 function inicioDaSemana(data: Date): Date {
-  const d = new Date(data.getFullYear(), data.getMonth(), data.getDate());
-  const diaSem = d.getDay(); // 0 = domingo ... 6 = sábado
-  const distSeg = diaSem === 0 ? 6 : diaSem - 1;
-  d.setDate(d.getDate() - distSeg);
-  return d;
+  const c = componentesSP(data);
+  const distSeg = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
+  return new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - distSeg * DIA_MS);
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -56,7 +58,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   const agora = new Date();
-  const hojeZero = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const hojeSP = componentesSP(agora);
+  const hojeZero = criarDataSP(hojeSP.ano, hojeSP.mes, hojeSP.dia, 0, 0, 0);
 
   const sessoes = await prisma.agendamento.findMany({
     where: { pacienteId, status: { notIn: ["CANCELADA"] } },
@@ -66,14 +69,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const movimentos: { id: string; novaData: Date }[] = [];
   for (const s of sessoes) {
     if (s.inicio < agora) continue;
-    let novaData = new Date(s.inicio);
-    novaData.setDate(novaData.getDate() + semanas * 7);
+    let novaData = new Date(s.inicio.getTime() + semanas * 7 * DIA_MS);
 
     if (diaAlvo !== null && horaAlvo) {
       const semana = inicioDaSemana(novaData);
-      novaData = new Date(semana);
-      novaData.setDate(semana.getDate() + diaAlvo);
-      novaData.setHours(horaAlvo.h, horaAlvo.m, 0, 0);
+      const diaCalendario = new Date(semana.getTime() + diaAlvo * DIA_MS);
+      novaData = criarDataSP(
+        diaCalendario.getUTCFullYear(),
+        diaCalendario.getUTCMonth() + 1,
+        diaCalendario.getUTCDate(),
+        horaAlvo.h,
+        horaAlvo.m
+      );
     }
 
     if (novaData < hojeZero) {

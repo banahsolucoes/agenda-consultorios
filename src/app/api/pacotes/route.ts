@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
+import { componentesSP, criarDataSP } from "@/lib/timezone";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
   AVULSA: 1, MENSAL: 4, BIMESTRAL: 8, TRIMESTRAL: 12,
@@ -12,15 +13,15 @@ const DIA_NUM: Record<string, number> = {
 };
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATA_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DIA_MS = 24 * 60 * 60 * 1000;
 
-// Constrói uma Date a partir de "YYYY-MM-DD" usando componentes locais, para
-// não sofrer o deslocamento de fuso que "new Date('YYYY-MM-DD')" (UTC) causa
-// dependendo do timezone do servidor.
-function parseDataLocal(dataStr: string): Date | null {
+// Componentes {ano, mes, dia} a partir de "YYYY-MM-DD", sem envolver Date
+// (que sofreria o deslocamento de fuso ao interpretar a string).
+function parseDataLocal(dataStr: string): { ano: number; mes: number; dia: number } | null {
   const m = DATA_REGEX.exec(dataStr);
   if (!m) return null;
   const [, ano, mes, dia] = m;
-  return new Date(Number(ano), Number(mes) - 1, Number(dia));
+  return { ano: Number(ano), mes: Number(mes), dia: Number(dia) };
 }
 
 export async function POST(req: NextRequest) {
@@ -62,17 +63,19 @@ export async function POST(req: NextRequest) {
     // Dia escolhido explicitamente na criação do atendimento: a primeira
     // sessão cai exatamente nessa data, sem procurar o dia preferido do
     // paciente (o usuário está decidindo o dia de propósito).
-    primeira = dataEscolhida;
-    primeira.setHours(h, m, 0, 0);
+    primeira = criarDataSP(dataEscolhida.ano, dataEscolhida.mes, dataEscolhida.dia, h, m);
   } else {
-    // Sem data escolhida: mantém o comportamento padrão — parte de hoje e
-    // avança até o próximo dia da semana preferido do paciente.
+    // Sem data escolhida: mantém o comportamento padrão — parte de hoje (no
+    // calendário de São Paulo) e avança até o próximo dia da semana
+    // preferido do paciente.
     const diaAlvo = DIA_NUM[paciente.diaPreferido];
-    primeira = new Date();
-    primeira.setHours(h, m, 0, 0);
-    while (primeira.getDay() !== diaAlvo) {
-      primeira.setDate(primeira.getDate() + 1);
+    const hojeSP = componentesSP(new Date());
+    let cursorUTC = Date.UTC(hojeSP.ano, hojeSP.mes - 1, hojeSP.dia);
+    while (new Date(cursorUTC).getUTCDay() !== diaAlvo) {
+      cursorUTC += DIA_MS;
     }
+    const c = new Date(cursorUTC);
+    primeira = criarDataSP(c.getUTCFullYear(), c.getUTCMonth() + 1, c.getUTCDate(), h, m);
   }
 
   const pacote = await prisma.pacote.create({
@@ -89,8 +92,7 @@ export async function POST(req: NextRequest) {
 
   const sessoes = [];
   for (let i = 0; i < total; i++) {
-    const inicio = new Date(primeira);
-    inicio.setDate(primeira.getDate() + i * 7);
+    const inicio = new Date(primeira.getTime() + i * 7 * DIA_MS);
     sessoes.push({
       pacoteId: pacote.id, pacienteId,
       numeroSessao: i + 1, totalPacote: total,

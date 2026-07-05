@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { componentesSP } from "@/lib/timezone";
 
-// Início (segunda-feira, 00:00 local) da semana que contém a data informada
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+// Marcador (meia-noite UTC do dia de calendário) da segunda-feira da semana
+// que contém `data`, calculado no calendário de São Paulo — usado só para
+// comparação de igualdade entre semanas, nunca exposto como instante real.
 function inicioDaSemana(data: Date): Date {
-  const d = new Date(data.getFullYear(), data.getMonth(), data.getDate());
-  const diaSem = d.getDay(); // 0 = domingo ... 6 = sábado
-  const distSeg = diaSem === 0 ? 6 : diaSem - 1;
-  d.setDate(d.getDate() - distSeg);
-  return d;
+  const c = componentesSP(data);
+  const distSeg = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
+  return new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - distSeg * DIA_MS);
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -43,9 +46,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // Regra de conflito: a sessão de corte recuada 7 dias não pode cair na mesma
   // semana (segunda a domingo) de uma sessão anterior que não será movida.
   // Se colidir, bloqueia a operação inteira — nada é movido.
-  const novaSemanaCorte = inicioDaSemana(
-    new Date(corte.inicio.getTime() - 7 * 24 * 60 * 60 * 1000)
-  ).getTime();
+  const novaSemanaCorte = inicioDaSemana(new Date(corte.inicio.getTime() - 7 * DIA_MS)).getTime();
   const colide = anteriores.some((s) => inicioDaSemana(s.inicio).getTime() === novaSemanaCorte);
   if (colide) {
     return NextResponse.json(
@@ -56,8 +57,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   await prisma.$transaction(
     aMover.map((s) => {
-      const novaData = new Date(s.inicio);
-      novaData.setDate(novaData.getDate() - 7);
+      const novaData = new Date(s.inicio.getTime() - 7 * DIA_MS);
       return prisma.agendamento.update({
         where: { id: s.id },
         data: { inicio: novaData, status: "AGENDADA" },

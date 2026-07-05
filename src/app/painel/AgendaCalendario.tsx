@@ -11,6 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { diaSemanaLabel, statusLabel } from "@/lib/labels";
+import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -22,6 +23,7 @@ const ROW_PX_MIN = 34;
 const ROW_PX_MAX = 52;
 const ALTURA_CABECALHO_DIA = 40; // h-10
 
+const DIA_MS = 24 * 60 * 60 * 1000;
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 const STATUS_SESSAO_OPCOES = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA"] as const;
 const DIA_SEMANA_POR_INDICE = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
@@ -71,35 +73,45 @@ function minutosParaHora(min: number) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// Todas as funções abaixo trabalham em componentes de calendário de São
+// Paulo (via componentesSP/criarDataSP), nunca nos métodos locais do Date
+// (getDay/getDate/setHours...) — esses dependem do fuso do navegador, que
+// pode divergir do fuso da clínica.
 function normalizarData(d: Date) {
-  const n = new Date(d);
-  n.setHours(0, 0, 0, 0);
-  return n;
+  const c = componentesSP(d);
+  return criarDataSP(c.ano, c.mes, c.dia, 0, 0, 0);
 }
 
 function segundaDaSemana(d: Date) {
-  const dia = d.getDay();
-  const dist = dia === 0 ? 6 : dia - 1;
-  const seg = new Date(d);
-  seg.setDate(d.getDate() - dist);
-  seg.setHours(0, 0, 0, 0);
-  return seg;
+  const c = componentesSP(d);
+  const dist = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
+  const diaCalendario = new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - dist * DIA_MS);
+  return criarDataSP(diaCalendario.getUTCFullYear(), diaCalendario.getUTCMonth() + 1, diaCalendario.getUTCDate(), 0, 0, 0);
 }
 
 function mesmoDia(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const ca = componentesSP(a);
+  const cb = componentesSP(b);
+  return ca.ano === cb.ano && ca.mes === cb.mes && ca.dia === cb.dia;
 }
 
 function diaSemanaDeData(d: Date) {
-  return DIA_SEMANA_POR_INDICE[d.getDay()];
+  return DIA_SEMANA_POR_INDICE[componentesSP(d).diaSemana];
 }
 
 function formatarDiaMes(d: Date) {
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
 }
 
 function formatarHorario(d: Date) {
-  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE });
+}
+
+// Soma `dias` dias de calendário a `d`, preservando o horário de parede em
+// São Paulo (aritmética em ms é segura aqui: o Brasil não observa horário de
+// verão desde 2019, então o deslocamento UTC-3 é sempre fixo).
+function somarDiasSP(d: Date, dias: number) {
+  return new Date(d.getTime() + dias * DIA_MS);
 }
 
 // Copia texto pro clipboard; retorna se deu certo (contexto não seguro falha silenciosamente)
@@ -182,21 +194,17 @@ export default function AgendaCalendario() {
   const dias = useMemo(() => {
     if (modo === "dia") return [refData];
     const seg = segundaDaSemana(refData);
-    const semanaCompleta = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(seg);
-      d.setDate(seg.getDate() + i);
-      return d;
-    });
+    const semanaCompleta = Array.from({ length: 7 }, (_, i) => somarDiasSP(seg, i));
     if (!diasTrabalhoSet) return semanaCompleta;
     const diasComAtendimento = semanaCompleta.filter((d) => diasTrabalhoSet.has(diaSemanaDeData(d)));
     return diasComAtendimento.length > 0 ? diasComAtendimento : semanaCompleta;
   }, [refData, modo, diasTrabalhoSet]);
 
   const intervalo = useMemo(() => {
-    const inicio = new Date(dias[0]);
-    inicio.setHours(0, 0, 0, 0);
-    const fim = new Date(dias[dias.length - 1]);
-    fim.setHours(23, 59, 59, 999);
+    const c0 = componentesSP(dias[0]);
+    const inicio = criarDataSP(c0.ano, c0.mes, c0.dia, 0, 0, 0);
+    const cUlt = componentesSP(dias[dias.length - 1]);
+    const fim = criarDataSP(cUlt.ano, cUlt.mes, cUlt.dia, 23, 59, 59);
     return { inicio, fim };
   }, [dias]);
 
@@ -280,39 +288,20 @@ export default function AgendaCalendario() {
   // No modo "dia", pula direto para o próximo dia em que a clínica atende
   // (sem parar num fim de semana ou dia fechado, por exemplo).
   function proximoDiaComAtendimento(d: Date, direcao: 1 | -1) {
-    const n = new Date(d);
-    if (!diasTrabalhoSet) {
-      n.setDate(n.getDate() + direcao);
-      return n;
-    }
+    if (!diasTrabalhoSet) return somarDiasSP(d, direcao);
+    let n = d;
     for (let i = 0; i < 7; i++) {
-      n.setDate(n.getDate() + direcao);
+      n = somarDiasSP(n, direcao);
       if (diasTrabalhoSet.has(diaSemanaDeData(n))) return n;
     }
-    const fallback = new Date(d);
-    fallback.setDate(d.getDate() + direcao);
-    return fallback;
+    return somarDiasSP(d, direcao);
   }
 
   function irAnterior() {
-    setRefData((d) => {
-      if (modo === "semana") {
-        const n = new Date(d);
-        n.setDate(d.getDate() - 7);
-        return n;
-      }
-      return proximoDiaComAtendimento(d, -1);
-    });
+    setRefData((d) => (modo === "semana" ? somarDiasSP(d, -7) : proximoDiaComAtendimento(d, -1)));
   }
   function irProximo() {
-    setRefData((d) => {
-      if (modo === "semana") {
-        const n = new Date(d);
-        n.setDate(d.getDate() + 7);
-        return n;
-      }
-      return proximoDiaComAtendimento(d, 1);
-    });
+    setRefData((d) => (modo === "semana" ? somarDiasSP(d, 7) : proximoDiaComAtendimento(d, 1)));
   }
   function irHoje() {
     setRefData(normalizarData(new Date()));
@@ -365,8 +354,8 @@ export default function AgendaCalendario() {
 
     const diaAlvo = dias[diaIndex];
     const [hh, mm] = novoHorario.split(":").map(Number);
-    const novaData = new Date(diaAlvo);
-    novaData.setHours(hh, mm, 0, 0);
+    const cDiaAlvo = componentesSP(diaAlvo);
+    const novaData = criarDataSP(cDiaAlvo.ano, cDiaAlvo.mes, cDiaAlvo.dia, hh, mm);
 
     if (STATUS_TRAVADOS.includes(sessao.status)) return;
 
@@ -398,7 +387,7 @@ export default function AgendaCalendario() {
   const titulo =
     modo === "semana"
       ? `${formatarDiaMes(dias[0])} – ${formatarDiaMes(dias[dias.length - 1])}`
-      : dias[0].toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit" });
+      : dias[0].toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
 
   return (
     <div className="flex flex-col gap-4">
@@ -604,7 +593,8 @@ function BlocoSessao({
 
   const inicio = new Date(sessao.inicio);
   const fim = new Date(inicio.getTime() + sessao.duracaoMin * 60000);
-  const minutos = inicio.getHours() * 60 + inicio.getMinutes();
+  const cInicio = componentesSP(inicio);
+  const minutos = cInicio.hora * 60 + cInicio.minuto;
   const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
   // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
   const altura = Math.max(46, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
@@ -847,7 +837,7 @@ function SessaoDetalheModal({
               Sessão {sessao.numeroSessao}/{sessao.totalPacote} — {sessao.tipoSessao?.nome ?? "Sem tipo"}
             </p>
             <p className="text-sm text-muted">
-              {inicio.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })} às{" "}
+              {inicio.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: TIMEZONE })} às{" "}
               {formatarHorario(inicio)}
             </p>
           </div>
