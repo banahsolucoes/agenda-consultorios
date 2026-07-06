@@ -176,6 +176,7 @@ model Agendamento {
   linkMeet          String?
   tipoSessaoId      String?
   motivoCancelamento String?
+  confirmada        Boolean        @default(false)
   criadoEm          DateTime       @default(now())
 
   pacote            Pacote         @relation(fields: [pacoteId], references: [id])

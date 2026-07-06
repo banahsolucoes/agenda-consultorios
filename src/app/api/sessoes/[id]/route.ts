@@ -235,5 +235,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ ...atualizada, avisoMeet });
   }
 
+  if (typeof body.confirmada === "boolean") {
+    // Confirmação de presença é independente do status — não interfere na
+    // máquina de status da sessão nem toma nenhuma ação automática (Google
+    // Calendar, etc.), só guarda a marcação para a profissional decidir.
+    const atualizada = await prisma.agendamento.update({
+      where: { id },
+      data: { confirmada: body.confirmada },
+    });
+    return NextResponse.json(atualizada);
+  }
+
   return NextResponse.json({ erro: "nada para atualizar" }, { status: 400 });
 }

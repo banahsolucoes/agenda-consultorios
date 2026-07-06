@@ -13,6 +13,7 @@ import {
 import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
+import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
 import DatePickerSP from "./DatePickerSP";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
@@ -43,6 +44,7 @@ interface SessaoAgenda {
   tipoSessao: { id: string; nome: string; cor: string | null } | null;
   linkMeet: string | null;
   motivoCancelamento: string | null;
+  confirmada: boolean;
 }
 
 interface HorarioTrabalho {
@@ -686,7 +688,7 @@ function BlocoSessao({
       className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm`}
     >
       <p className="truncate text-[11px] font-medium leading-[13px]">
-        {sessao.paciente.nome.split(" ")[0]} {sessao.numeroSessao}/{sessao.totalPacote}
+        {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
       </p>
       <div className="flex items-center justify-between gap-1 leading-none">
         {copiado ? (
@@ -774,6 +776,26 @@ function SessaoDetalheModal({
 
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const inicio = new Date(sessao.inicio);
+
+  async function alternarConfirmacao() {
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmada: !sessao.confirmada }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível atualizar a confirmação");
+        return;
+      }
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
 
   async function mudarStatus(novoStatus: string) {
     setErro("");
@@ -887,6 +909,19 @@ function SessaoDetalheModal({
           <span className={`h-2 w-2 rounded-full ${corPontoStatus(sessao.status)}`} />
           <span className="text-sm text-fg">{statusLabel(sessao.status)}</span>
         </div>
+
+        {!travada && (
+          <label className="mb-4 flex items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              checked={sessao.confirmada}
+              disabled={salvando}
+              onChange={alternarConfirmacao}
+              className="h-4 w-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            Sessão confirmada
+          </label>
+        )}
 
         {sessao.status === "CANCELADA" && sessao.motivoCancelamento && (
           <p className="mb-4 rounded-lg bg-bg px-3 py-2 text-xs italic text-muted">
