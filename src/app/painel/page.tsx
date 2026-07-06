@@ -8,7 +8,7 @@ import {
   statusLabel,
   origemCadastroLabel,
 } from "@/lib/labels";
-import { TIMEZONE } from "@/lib/timezone";
+import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
 import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
@@ -163,6 +163,16 @@ function normalizar(texto: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+// Data ("YYYY-MM-DD") e horário ("HH:MM") de um ISO no calendário de São
+// Paulo, para pré-preencher o form de edição a partir do valor atual da sessão
+function dataHoraCamposSP(iso: string): { novaData: string; novoHorario: string } {
+  const c = componentesSP(new Date(iso));
+  return {
+    novaData: `${c.ano}-${String(c.mes).padStart(2, "0")}-${String(c.dia).padStart(2, "0")}`,
+    novoHorario: `${String(c.hora).padStart(2, "0")}:${String(c.minuto).padStart(2, "0")}`,
+  };
 }
 
 // Formata a data/hora da sessão no padrão pt-BR, sempre no fuso de São Paulo
@@ -360,9 +370,9 @@ export default function PainelPage() {
   const [salvandoPacote, setSalvandoPacote] = useState(false);
   const [erroPacote, setErroPacote] = useState("");
 
-  // Modal: editar sessão pontual (novo dia + novo horário)
+  // Modal: editar sessão pontual (nova data completa + novo horário)
   const [sessaoEditando, setSessaoEditando] = useState<Sessao | null>(null);
-  const [formEditar, setFormEditar] = useState({ novoDia: DIAS_SEMANA[0] as string, novoHorario: "" });
+  const [formEditar, setFormEditar] = useState({ novaData: "", novoHorario: "" });
   const [salvandoEditar, setSalvandoEditar] = useState(false);
   const [erroEditar, setErroEditar] = useState("");
 
@@ -698,10 +708,12 @@ export default function PainelPage() {
     }
   }
 
-  // Edição pontual de dia/horário de uma sessão
+  // Edição pontual de data/horário de uma sessão — pré-preenche com o valor
+  // atual, já que agora qualquer data pode ser escolhida (não só a semana
+  // original)
   function abrirModalEditar(s: Sessao) {
     setSessaoEditando(s);
-    setFormEditar({ novoDia: DIAS_SEMANA[0], novoHorario: "" });
+    setFormEditar(dataHoraCamposSP(s.inicio));
     setErroEditar("");
   }
 
@@ -1427,10 +1439,11 @@ export default function PainelPage() {
       {pacienteSelecionado && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-40 flex justify-end bg-black/60">
           <div
-            className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-6 shadow-lg"
+            className="flex h-full w-full max-w-md flex-col border-l border-border bg-surface shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-6 flex items-center justify-between">
+          <div className="flex-shrink-0 border-b border-border p-6 pb-4">
+            <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-serif text-lg font-semibold text-fg">
                   {pacienteSelecionado.nome}
@@ -1477,6 +1490,44 @@ export default function PainelPage() {
                 </button>
               </div>
             </div>
+
+            {sessoesSelecionadas.size > 0 && (
+              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/5 p-3">
+                <span className="text-sm font-medium text-fg">
+                  {sessoesSelecionadas.size}{" "}
+                  {sessoesSelecionadas.size === 1 ? "sessão selecionada" : "sessões selecionadas"}
+                </span>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAplicarLote("REALIZADA")}
+                    disabled={aplicandoLote}
+                    className="rounded-lg border border-green px-2 py-1 text-sm font-medium text-green hover:bg-green/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Marcar como Realizada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAplicarLote("NAO_REALIZADA")}
+                    disabled={aplicandoLote}
+                    className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Marcar como Não realizada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={abrirModalCancelarLote}
+                    disabled={aplicandoLote}
+                    className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar selecionadas
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 pt-4">
 
             {/* Link das sessões: pasta do Drive com as gravações do paciente */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
@@ -1582,41 +1633,6 @@ export default function PainelPage() {
                   </label>
                 </div>
 
-                {sessoesSelecionadas.size > 0 && (
-                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/5 p-3">
-                    <span className="text-sm font-medium text-fg">
-                      {sessoesSelecionadas.size}{" "}
-                      {sessoesSelecionadas.size === 1 ? "sessão selecionada" : "sessões selecionadas"}
-                    </span>
-                    <div className="ml-auto flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleAplicarLote("REALIZADA")}
-                        disabled={aplicandoLote}
-                        className="rounded-lg border border-green px-2 py-1 text-sm font-medium text-green hover:bg-green/10 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Marcar como Realizada
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAplicarLote("NAO_REALIZADA")}
-                        disabled={aplicandoLote}
-                        className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Marcar como Não realizada
-                      </button>
-                      <button
-                        type="button"
-                        onClick={abrirModalCancelarLote}
-                        disabled={aplicandoLote}
-                        className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Cancelar selecionadas
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {erroLote && (
                   <p className="mb-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroLote}</p>
                 )}
@@ -1676,7 +1692,7 @@ export default function PainelPage() {
                       <button
                         onClick={() => abrirModalEditar(s)}
                         disabled={travada}
-                        title={travada ? "Sessão consumida — somente leitura" : "Editar dia e horário"}
+                        title={travada ? "Sessão consumida — somente leitura" : "Editar data e horário"}
                         className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-sm text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <IconLapis className="h-3.5 w-3.5" />
@@ -1717,6 +1733,7 @@ export default function PainelPage() {
                 </ul>
               </>
             )}
+          </div>
           </div>
         </div>
       )}
@@ -1852,19 +1869,12 @@ export default function PainelPage() {
             <form onSubmit={handleSalvarEdicao} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
-                  Novo dia (mesma semana)
+                  Nova data
                 </label>
-                <select
-                  value={formEditar.novoDia}
-                  onChange={(e) => setFormEditar((f) => ({ ...f, novoDia: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
-                  {DIAS_SEMANA.map((dia) => (
-                    <option key={dia} value={dia}>
-                      {diaSemanaLabel(dia)}
-                    </option>
-                  ))}
-                </select>
+                <DatePickerSP
+                  value={formEditar.novaData}
+                  onChange={(valor) => setFormEditar((f) => ({ ...f, novaData: valor }))}
+                />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
@@ -1876,10 +1886,13 @@ export default function PainelPage() {
                   placeholder="14:00"
                   pattern="^([01]\d|2[0-3]):[0-5]\d$"
                   value={formEditar.novoHorario}
-                  onChange={(e) => setFormEditar((f) => ({ ...f, novoHorario: e.target.value }))}
+                  onChange={(e) => setFormEditar((f) => ({ ...f, novoHorario: mascararHorario(e.target.value) }))}
                   className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
               </div>
+              <p className="text-xs text-muted">
+                A sessão pode ir para qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente.
+              </p>
 
               {erroEditar && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
@@ -1898,7 +1911,7 @@ export default function PainelPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={salvandoEditar}
+                  disabled={salvandoEditar || !formEditar.novaData || !formEditar.novoHorario}
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoEditar ? "Salvando..." : "Salvar"}

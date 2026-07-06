@@ -13,6 +13,7 @@ import {
 import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
+import DatePickerSP from "./DatePickerSP";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -106,6 +107,12 @@ function formatarDiaMes(d: Date) {
 
 function formatarHorario(d: Date) {
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE });
+}
+
+// "YYYY-MM-DD" de `d` no calendário de São Paulo, formato aceito pelo DatePickerSP
+function dataISODeData(d: Date) {
+  const c = componentesSP(d);
+  return `${c.ano}-${String(c.mes).padStart(2, "0")}-${String(c.dia).padStart(2, "0")}`;
 }
 
 // Soma `dias` dias de calendário a `d`, preservando o horário de parede em
@@ -758,7 +765,7 @@ function SessaoDetalheModal({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [editando, setEditando] = useState(false);
-  const [novoDia, setNovoDia] = useState(diaSemanaDeData(new Date(sessao.inicio)));
+  const [novaData, setNovaData] = useState(dataISODeData(new Date(sessao.inicio)));
   const [novoHorario, setNovoHorario] = useState(formatarHorario(new Date(sessao.inicio)));
   const [cancelando, setCancelando] = useState(false);
   const [motivo, setMotivo] = useState("");
@@ -796,7 +803,7 @@ function SessaoDetalheModal({
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novoDia, novoHorario }),
+        body: JSON.stringify({ novaData, novoHorario }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -917,7 +924,7 @@ function SessaoDetalheModal({
                 onClick={() => setEditando(true)}
                 className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
               >
-                Editar dia/horário
+                Editar data/horário
               </button>
               <button
                 onClick={() => {
@@ -941,18 +948,8 @@ function SessaoDetalheModal({
         {editando && (
           <form onSubmit={salvarEdicao} className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-fg">Novo dia (mesma semana)</label>
-              <select
-                value={novoDia}
-                onChange={(e) => setNovoDia(e.target.value)}
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-              >
-                {["SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO", "DOMINGO"].map((d) => (
-                  <option key={d} value={d}>
-                    {diaSemanaLabel(d)}
-                  </option>
-                ))}
-              </select>
+              <label className="mb-1 block text-sm font-medium text-fg">Nova data</label>
+              <DatePickerSP value={novaData} onChange={setNovaData} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-fg">Novo horário (HH:MM)</label>
@@ -966,6 +963,9 @@ function SessaoDetalheModal({
                 className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
             </div>
+            <p className="text-xs text-muted">
+              Qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente.
+            </p>
             <div className="flex justify-end gap-3">
               <button
                 type="button"
@@ -977,7 +977,7 @@ function SessaoDetalheModal({
               </button>
               <button
                 type="submit"
-                disabled={salvando}
+                disabled={salvando || !novaData || !novoHorario}
                 className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {salvando ? "Salvando..." : "Salvar"}

@@ -61,6 +61,19 @@ export function criarDataSP(ano: number, mes: number, dia: number, hora = 0, min
   return new Date(chute.getTime() - offset);
 }
 
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+// Início (segunda-feira, 00:00) da semana de `date` no calendário de São
+// Paulo, como instante real (UTC). O Brasil não observa mais horário de
+// verão desde 2019, então somar 7*DIA_MS a este instante sempre cai
+// exatamente na próxima segunda-feira à meia-noite em SP.
+export function inicioSemanaSP(date: Date): Date {
+  const c = componentesSP(date);
+  const distSeg = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
+  const diaCalculo = new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - distSeg * DIA_MS);
+  return criarDataSP(diaCalculo.getUTCFullYear(), diaCalculo.getUTCMonth() + 1, diaCalculo.getUTCDate(), 0, 0, 0);
+}
+
 export function formatarHoraSP(date: Date): string {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE });
 }

@@ -4,15 +4,17 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
-import { componentesSP, criarDataSP, TIMEZONE } from "@/lib/timezone";
+import { componentesSP, criarDataSP, formatarDataHoraSP, TIMEZONE } from "@/lib/timezone";
+import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
-import { diaSemanaLabel, statusLabel } from "@/lib/labels";
+import { statusLabel } from "@/lib/labels";
 
-const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
-const DIA_NUM: Record<string, number> = {
-  DOMINGO: 0, SEGUNDA: 1, TERCA: 2, QUARTA: 3, QUINTA: 4, SEXTA: 5, SABADO: 6,
+// Sessões nesses status são somente-leitura — nem data/horário nem tipo de
+// atendimento podem mudar.
+const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
+const DIA_NOME_POR_NUM: Record<number, string> = {
+  0: "DOMINGO", 1: "SEGUNDA", 2: "TERCA", 3: "QUARTA", 4: "QUINTA", 5: "SEXTA", 6: "SABADO",
 };
-const DIA_MS = 24 * 60 * 60 * 1000;
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
@@ -83,28 +85,43 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
 
-  if (body.novoDia && body.novoHorario) {
+  if (body.novaData && body.novoHorario) {
     if (STATUS_CONSUMIDOS.includes(sessao.status)) {
       return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
     }
-    const diaAlvo = DIA_NUM[body.novoDia];
-    if (diaAlvo === undefined) return NextResponse.json({ erro: "dia inválido" }, { status: 400 });
 
-    const [h, m] = body.novoHorario.split(":").map(Number);
-    if (isNaN(h) || isNaN(m)) {
-      return NextResponse.json({ erro: "horário inválido" }, { status: 400 });
+    const dataMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(body.novaData);
+    if (!dataMatch) return NextResponse.json({ erro: "data inválida" }, { status: 400 });
+    const [, anoStr, mesStr, diaStr] = dataMatch;
+    const ano = Number(anoStr);
+    const mes = Number(mesStr);
+    const dia = Number(diaStr);
+
+    const horaMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(body.novoHorario);
+    if (!horaMatch) return NextResponse.json({ erro: "horário inválido" }, { status: 400 });
+    const h = Number(horaMatch[1]);
+    const m = Number(horaMatch[2]);
+
+    // Constrói o instante (UTC) a partir do horário de parede em São Paulo, e
+    // confere se os componentes voltam batendo — protege contra datas
+    // inexistentes no calendário (ex.: 31/02).
+    const novaData = criarDataSP(ano, mes, dia, h, m);
+    const confirmacao = componentesSP(novaData);
+    if (confirmacao.ano !== ano || confirmacao.mes !== mes || confirmacao.dia !== dia) {
+      return NextResponse.json({ erro: "data inválida" }, { status: 400 });
     }
 
     // Valida contra o horário de trabalho configurado da clínica. Se a
     // clínica já configurou horários, um dia sem faixa cadastrada está
     // fechado (ex.: fim de semana); só cai na grade padrão 08:00–19:30
     // quando a clínica ainda não configurou horário nenhum.
+    const diaSemanaNome = DIA_NOME_POR_NUM[confirmacao.diaSemana];
     const inicioMin = h * 60 + m;
     const fimMin = inicioMin + sessao.duracaoMin;
     const todosHorarios = await prisma.horarioTrabalho.findMany({
       where: { clinicaId: sessao.paciente.clinicaId },
     });
-    const horariosDia = todosHorarios.filter((hr) => hr.diaSemana === body.novoDia);
+    const horariosDia = todosHorarios.filter((hr) => hr.diaSemana === diaSemanaNome);
     const dentroExpediente =
       todosHorarios.length > 0
         ? horariosDia.some((hr) => {
@@ -117,27 +134,23 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ erro: "horário fora do expediente da clínica" }, { status: 400 });
     }
 
-    // Dia/semana calculados no calendário de São Paulo (não no fuso do
-    // processo) — senão, num runtime em UTC, um horário perto da meia-noite
-    // pode cair no dia de calendário errado.
-    const atual = componentesSP(sessao.inicio);
-    const distSeg = atual.diaSemana === 0 ? 6 : atual.diaSemana - 1;
-    const segundaUTC = Date.UTC(atual.ano, atual.mes - 1, atual.dia) - distSeg * DIA_MS;
-
-    // Deslocamento em relação à segunda-feira: DOMINGO (diaAlvo 0) fica no
-    // fim da semana (segunda + 6), os demais dias seguem diaAlvo - 1.
-    const offsetSegunda = diaAlvo === 0 ? 6 : diaAlvo - 1;
-    const diaCalendario = new Date(segundaUTC + offsetSegunda * DIA_MS);
-    const novaData = criarDataSP(
-      diaCalendario.getUTCFullYear(),
-      diaCalendario.getUTCMonth() + 1,
-      diaCalendario.getUTCDate(),
-      h,
-      m
-    );
-
     if (novaData.getTime() < Date.now()) {
       return NextResponse.json({ erro: "não é possível mover a sessão para o passado" }, { status: 400 });
+    }
+
+    // Conflito de semana: nenhuma outra sessão (não cancelada) deste mesmo
+    // paciente pode cair na mesma semana (segunda a domingo, calendário de
+    // São Paulo) da nova data. Validado aqui no backend — não confiamos
+    // apenas na checagem já feita no front.
+    const outrasSessoesPaciente = await prisma.agendamento.findMany({
+      where: { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
+      select: { id: true, inicio: true, status: true },
+    });
+    if (existeConflitoDeSemana(novaData, outrasSessoesPaciente)) {
+      return NextResponse.json(
+        { erro: "Não é possível: já existe uma sessão deste paciente nesta semana." },
+        { status: 409 }
+      );
     }
 
     const atualizada = await prisma.agendamento.update({
@@ -148,7 +161,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       usuario.clinicaId,
       usuario.id,
       "EDITAR_SESSAO",
-      `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} para ${diaSemanaLabel(body.novoDia)} às ${body.novoHorario}`
+      `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} para ${formatarDataHoraSP(novaData)}`
     );
 
     // Reflete o novo horário no Google Calendar, se a sessão tiver evento
