@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
   if (calendar && clinica) {
     for (const sessao of sessoes) {
       const dadosGoogle = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
-        titulo: `${primeiroUltimoNome(paciente.nome)} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
+        titulo: `${primeiroUltimoNome(paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
         inicio: sessao.inicio,
         duracaoMin: sessao.duracaoMin,
       });

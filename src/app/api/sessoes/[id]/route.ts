@@ -212,7 +212,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
       if (calendar && clinica) {
         const resultado = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
-          titulo: `${primeiroUltimoNome(sessao.paciente.nome)} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
+          titulo: `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
           inicio: sessao.inicio,
           duracaoMin: sessao.duracaoMin,
         });
