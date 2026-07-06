@@ -956,19 +956,19 @@ function SessaoDetalheModal({
           <div className="space-y-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Status</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 {STATUS_SESSAO_OPCOES.map((st) => (
                   <button
                     key={st}
                     disabled={salvando}
                     onClick={() => mudarStatus(st)}
-                    className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
+                    className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
                       st === sessao.status
                         ? "border-gold bg-gold/10 text-gold"
                         : "border-border text-fg hover:bg-bg"
                     }`}
                   >
-                    <span className={`h-1.5 w-1.5 rounded-full ${corPontoStatus(st)}`} />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${corPontoStatus(st)}`} />
                     {statusLabel(st)}
                   </button>
                 ))}
