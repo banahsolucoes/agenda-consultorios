@@ -496,6 +496,7 @@ export default function AgendaCalendario() {
         <SessaoDetalheModal
           sessao={sessaoDetalhe}
           tiposSessao={tiposSessao}
+          clinica={clinica}
           onFechar={() => setSessaoDetalhe(null)}
           onAtualizado={() => {
             carregarSessoes();
@@ -754,12 +755,14 @@ function IconMeet({ className }: { className?: string }) {
 function SessaoDetalheModal({
   sessao,
   tiposSessao,
+  clinica,
   onFechar,
   onAtualizado,
   onAviso,
 }: {
   sessao: SessaoAgenda;
   tiposSessao: TipoSessaoOpcao[];
+  clinica: ClinicaAgenda | null;
   onFechar: () => void;
   onAtualizado: () => void;
   onAviso: (msg: string) => void;
@@ -773,9 +776,27 @@ function SessaoDetalheModal({
   const [motivo, setMotivo] = useState("");
   const [trocandoTipo, setTrocandoTipo] = useState(false);
   const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
+  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const inicio = new Date(sessao.inicio);
+
+  function mostrarCopiado(tipo: "conf" | "meet") {
+    setCopiado(tipo);
+    if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
+    copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
+  }
+
+  async function handleCopiarConfirmacao() {
+    if (!clinica) return;
+    if (await copiarParaClipboard(montarMensagemConfirmacao(sessao, clinica))) mostrarCopiado("conf");
+  }
+
+  async function handleCopiarMeet() {
+    if (!sessao.linkMeet) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao))) mostrarCopiado("meet");
+  }
 
   async function alternarConfirmacao() {
     setErro("");
@@ -975,6 +996,23 @@ function SessaoDetalheModal({
                 className="flex-1 rounded-lg border border-red px-3 py-1.5 text-sm font-medium text-red hover:bg-red/10"
               >
                 Cancelar sessão
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleCopiarConfirmacao}
+                className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10"
+              >
+                {copiado === "conf" ? "Copiado!" : "Copiar confirmação"}
+              </button>
+              <button
+                onClick={handleCopiarMeet}
+                disabled={!sessao.linkMeet}
+                title={!sessao.linkMeet ? "Sessão sem link do Meet" : undefined}
+                className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                {copiado === "meet" ? "Copiado!" : "Copiar link Meet"}
               </button>
             </div>
           </div>
