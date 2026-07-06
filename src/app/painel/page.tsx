@@ -387,6 +387,16 @@ export default function PainelPage() {
   const [salvandoCancelar, setSalvandoCancelar] = useState(false);
   const [erroCancelar, setErroCancelar] = useState("");
 
+  // Seleção múltipla de sessões + barra de ações em lote
+  const [sessoesSelecionadas, setSessoesSelecionadas] = useState<Set<string>>(new Set());
+  const [aplicandoLote, setAplicandoLote] = useState(false);
+  const [erroLote, setErroLote] = useState("");
+  const [feedbackLote, setFeedbackLote] = useState<string | null>(null);
+
+  // Modal: cancelar em lote — mesmo motivo aplicado a todas as selecionadas
+  const [modalCancelarLote, setModalCancelarLote] = useState(false);
+  const [motivoCancelamentoLote, setMotivoCancelamentoLote] = useState("");
+
   // Modal: excluir paciente — trava exige digitar o nome do paciente
   const [pacienteExcluindo, setPacienteExcluindo] = useState<Paciente | null>(null);
   const [confirmacaoExclusao, setConfirmacaoExclusao] = useState("");
@@ -555,7 +565,18 @@ export default function PainelPage() {
     try {
       const res = await fetch(`/api/agendamentos?pacienteId=${pacienteId}`);
       if (res.ok) {
-        setSessoes(await res.json());
+        const dados: Sessao[] = await res.json();
+        setSessoes(dados);
+        // Remove da seleção qualquer sessão que tenha virado consumida (ou
+        // deixado de existir) nesse recarregamento, sem descartar o resto.
+        setSessoesSelecionadas((atual) => {
+          if (atual.size === 0) return atual;
+          const elegiveis = new Set(
+            dados.filter((s) => !STATUS_TRAVADOS.includes(s.status)).map((s) => s.id)
+          );
+          const novo = new Set(Array.from(atual).filter((id) => elegiveis.has(id)));
+          return novo.size === atual.size ? atual : novo;
+        });
       }
     } finally {
       setCarregandoSessoes(false);
@@ -565,12 +586,18 @@ export default function PainelPage() {
   function abrirPainelPaciente(p: Paciente) {
     setPacienteSelecionado(p);
     setSessoes([]);
+    setSessoesSelecionadas(new Set());
+    setErroLote("");
+    setFeedbackLote(null);
     carregarSessoes(p.id);
   }
 
   function fecharPainelPaciente() {
     setPacienteSelecionado(null);
     setSessoes([]);
+    setSessoesSelecionadas(new Set());
+    setErroLote("");
+    setFeedbackLote(null);
   }
 
   // Ao clicar numa pendência do sino, fecha o dropdown e abre o painel do paciente
@@ -829,6 +856,94 @@ export default function PainelPage() {
     } finally {
       setSalvandoCancelar(false);
     }
+  }
+
+  // Seleção múltipla de sessões para ações em lote — sessões travadas
+  // (já consumidas) nunca entram na lista de elegíveis.
+  const sessoesSelecionaveis = sessoes.filter((s) => !STATUS_TRAVADOS.includes(s.status));
+  const todasSelecionadas =
+    sessoesSelecionaveis.length > 0 && sessoesSelecionaveis.every((s) => sessoesSelecionadas.has(s.id));
+
+  function toggleSelecaoSessao(id: string) {
+    setSessoesSelecionadas((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
+  }
+
+  function toggleSelecionarTodas() {
+    setSessoesSelecionadas(todasSelecionadas ? new Set() : new Set(sessoesSelecionaveis.map((s) => s.id)));
+  }
+
+  // Aplica uma ação em lote (status ou cancelamento) às sessões selecionadas.
+  // Retorna true em caso de sucesso, para o chamador (ex.: modal de
+  // cancelamento em lote) decidir se fecha o modal.
+  async function handleAplicarLote(status: string, motivo?: string): Promise<boolean> {
+    if (!pacienteSelecionado || sessoesSelecionadas.size === 0) return false;
+    setAplicandoLote(true);
+    setErroLote("");
+    setFeedbackLote(null);
+
+    try {
+      const res = await fetch("/api/sessoes/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: Array.from(sessoesSelecionadas),
+          status,
+          ...(motivo ? { motivoCancelamento: motivo } : {}),
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroLote(data?.erro ?? "não foi possível aplicar a ação em lote");
+        return false;
+      }
+      if (!data.aplicadas) {
+        setErroLote("nenhuma das sessões selecionadas pôde receber essa ação");
+        return false;
+      }
+
+      const sessaoOuSessoes = data.aplicadas === 1 ? "sessão" : "sessões";
+      let mensagem =
+        status === "CANCELADA"
+          ? `${data.aplicadas} ${sessaoOuSessoes} ${data.aplicadas === 1 ? "cancelada" : "canceladas"}`
+          : `${data.aplicadas} ${sessaoOuSessoes} ${data.aplicadas === 1 ? "marcada" : "marcadas"} como ${statusLabel(status)}`;
+      if (data.puladas > 0) {
+        mensagem += ` (${data.puladas} ${data.puladas === 1 ? "ignorada" : "ignoradas"})`;
+      }
+      setFeedbackLote(mensagem);
+
+      await carregarSessoes(pacienteSelecionado.id);
+      await recarregarPacienteSelecionado();
+      await carregarNotificacoes();
+      return true;
+    } catch {
+      setErroLote("não foi possível aplicar a ação em lote");
+      return false;
+    } finally {
+      setAplicandoLote(false);
+    }
+  }
+
+  function abrirModalCancelarLote() {
+    setMotivoCancelamentoLote("");
+    setErroLote("");
+    setModalCancelarLote(true);
+  }
+
+  async function handleConfirmarCancelamentoLote(e: React.FormEvent) {
+    e.preventDefault();
+    const motivo = motivoCancelamentoLote.trim();
+    if (!motivo) {
+      setErroLote("informe o motivo do cancelamento");
+      return;
+    }
+    const ok = await handleAplicarLote("CANCELADA", motivo);
+    if (ok) setModalCancelarLote(false);
   }
 
   // Exclusão definitiva de paciente — trava exige digitar o nome do paciente
@@ -1453,7 +1568,63 @@ export default function PainelPage() {
                 </p>
               </div>
             ) : (
-              <ul className="space-y-3">
+              <>
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm text-muted">
+                    <input
+                      type="checkbox"
+                      checked={todasSelecionadas}
+                      onChange={toggleSelecionarTodas}
+                      disabled={sessoesSelecionaveis.length === 0}
+                      className="h-4 w-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                    Selecionar todas
+                  </label>
+                </div>
+
+                {sessoesSelecionadas.size > 0 && (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/5 p-3">
+                    <span className="text-sm font-medium text-fg">
+                      {sessoesSelecionadas.size}{" "}
+                      {sessoesSelecionadas.size === 1 ? "sessão selecionada" : "sessões selecionadas"}
+                    </span>
+                    <div className="ml-auto flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAplicarLote("REALIZADA")}
+                        disabled={aplicandoLote}
+                        className="rounded-lg border border-green px-2 py-1 text-sm font-medium text-green hover:bg-green/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Marcar como Realizada
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAplicarLote("NAO_REALIZADA")}
+                        disabled={aplicandoLote}
+                        className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Marcar como Não realizada
+                      </button>
+                      <button
+                        type="button"
+                        onClick={abrirModalCancelarLote}
+                        disabled={aplicandoLote}
+                        className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Cancelar selecionadas
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {erroLote && (
+                  <p className="mb-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroLote}</p>
+                )}
+                {feedbackLote && (
+                  <p className="mb-3 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">{feedbackLote}</p>
+                )}
+
+                <ul className="space-y-3">
                 {sessoes.map((s) => {
                   const travada = STATUS_TRAVADOS.includes(s.status);
                   return (
@@ -1462,13 +1633,23 @@ export default function PainelPage() {
                     className={`rounded-lg border border-border p-3 ${travada ? "opacity-70" : ""}`}
                   >
                     <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-fg">
-                          Sessão {s.numeroSessao}/{s.totalPacote}
-                        </p>
-                        <p className="text-sm text-muted">
-                          {formatarDataHora(s.inicio)}
-                        </p>
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sessoesSelecionadas.has(s.id)}
+                          onChange={() => toggleSelecaoSessao(s.id)}
+                          disabled={travada}
+                          title={travada ? "Sessão consumida — não pode ser selecionada" : undefined}
+                          className="mt-1 h-4 w-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-fg">
+                            Sessão {s.numeroSessao}/{s.totalPacote}
+                          </p>
+                          <p className="text-sm text-muted">
+                            {formatarDataHora(s.inicio)}
+                          </p>
+                        </div>
                       </div>
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(s.status)}`}
@@ -1533,7 +1714,8 @@ export default function PainelPage() {
                   </li>
                   );
                 })}
-              </ul>
+                </ul>
+              </>
             )}
           </div>
         </div>
@@ -1770,6 +1952,57 @@ export default function PainelPage() {
                   className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoCancelar ? "Cancelando..." : "Confirmar cancelamento"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: cancelar em lote — um único motivo aplicado a todas as selecionadas */}
+      {modalCancelarLote && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Cancelar {sessoesSelecionadas.size}{" "}
+              {sessoesSelecionadas.size === 1 ? "sessão" : "sessões"}
+            </h2>
+            <form onSubmit={handleConfirmarCancelamentoLote} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Motivo do cancelamento
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={motivoCancelamentoLote}
+                  onChange={(e) => setMotivoCancelamentoLote(e.target.value)}
+                  placeholder="Descreva o motivo do cancelamento..."
+                  className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              {erroLote && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroLote}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalCancelarLote(false)}
+                  disabled={aplicandoLote}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={aplicandoLote || !motivoCancelamentoLote.trim()}
+                  className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {aplicandoLote ? "Cancelando..." : "Confirmar cancelamento"}
                 </button>
               </div>
             </form>
