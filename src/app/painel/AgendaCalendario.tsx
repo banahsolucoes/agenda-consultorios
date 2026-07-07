@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -268,6 +268,10 @@ export default function AgendaCalendario() {
 
   const gridHeightPx = ((janela.fimMin - janela.inicioMin) / ROW_MIN) * rowPx;
 
+  const setColRef = useCallback((index: number, node: HTMLDivElement | null) => {
+    colRefs.current[index] = node;
+  }, []);
+
   const marcadores = useMemo(() => {
     const lista: number[] = [];
     const primeiraHoraCheia = Math.ceil(janela.inicioMin / 60) * 60;
@@ -470,12 +474,10 @@ export default function AgendaCalendario() {
                   marcadores={marcadores}
                   gridHeightPx={gridHeightPx}
                   rowPx={rowPx}
-                  colRefCallback={(idx, node) => {
-                    colRefs.current[idx] = node;
-                  }}
                   onAbrirDetalhe={setSessaoDetalhe}
                   clinica={clinica}
                   agora={agora}
+                  setColRef={setColRef}
                 />
               ))}
             </div>
@@ -499,19 +501,7 @@ export default function AgendaCalendario() {
   );
 }
 
-function DiaColuna({
-  index,
-  dia,
-  sessoesDoDia,
-  janela,
-  marcadores,
-  gridHeightPx,
-  rowPx,
-  colRefCallback,
-  onAbrirDetalhe,
-  clinica,
-  agora,
-}: {
+const DiaColuna = memo(({ index, dia, sessoesDoDia, janela, marcadores, gridHeightPx, rowPx, onAbrirDetalhe, clinica, agora, setColRef }: {
   index: number;
   dia: Date;
   sessoesDoDia: SessaoAgenda[];
@@ -519,15 +509,15 @@ function DiaColuna({
   marcadores: number[];
   gridHeightPx: number;
   rowPx: number;
-  colRefCallback: (index: number, node: HTMLDivElement | null) => void;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
   agora: number;
-}) {
+  setColRef: (index: number, node: HTMLDivElement | null) => void;
+}) => {
   const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
   const hoje = mesmoDia(dia, new Date());
 
-  // Sessões que caem no mesmo horário não podem ficar uma escondendo a
+  // Sessões que caem no mesmo horário não pueden ficar uma escondendo a
   // outra — divide o espaço horizontal entre as que se sobrepõem, como um
   // sinal visual de conflito/overbooking a revisar.
   const layoutColunas = useMemo(
@@ -554,7 +544,7 @@ function DiaColuna({
       <div
         ref={(node) => {
           setNodeRef(node);
-          colRefCallback(index, node);
+          setColRef(index, node);
         }}
         className={`relative ${isOver ? "bg-gold/5" : ""}`}
         style={{ height: gridHeightPx }}
@@ -581,17 +571,9 @@ function DiaColuna({
       </div>
     </div>
   );
-}
+});
 
-function BlocoSessao({
-  sessao,
-  janela,
-  rowPx,
-  onAbrirDetalhe,
-  clinica,
-  agora,
-  layout,
-}: {
+const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agora, layout }: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
   rowPx: number;
@@ -599,7 +581,7 @@ function BlocoSessao({
   clinica: ClinicaAgenda | null;
   agora: number;
   layout: LayoutColuna;
-}) {
+}) => {
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: sessao.id,
@@ -717,7 +699,7 @@ function BlocoSessao({
       </div>
     </div>
   );
-}
+});
 
 // Ícone de copiar (clipboard), usado nos botões de copiar do bloco de sessão
 function IconCopiar({ className }: { className?: string }) {
