@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
+import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
-import { componentesSP, criarDataSP, formatarDataHoraSP, TIMEZONE } from "@/lib/timezone";
+import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
 import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
 import { statusLabel } from "@/lib/labels";
@@ -47,12 +47,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       // a esta sessão. Falha na integração nunca deve impedir o cancelamento
       // local — o Google fica "melhor esforço".
       if (sessao.googleEventId) {
-        const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-        const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-        if (calendar) {
-          await calendar.events
+        const google = await obterClinicaECalendar(usuario.clinicaId);
+        if (google) {
+          await google.calendar.events
             .delete({
-              calendarId: sessao.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
+              calendarId: sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
               eventId: sessao.googleEventId,
             })
             .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));
@@ -167,20 +166,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     // Reflete o novo horário no Google Calendar, se a sessão tiver evento
     // vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
     if (sessao.googleEventId) {
-      const clinica = await prisma.clinica.findUnique({ where: { id: sessao.paciente.clinicaId } });
-      const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-      if (calendar) {
-        const fimEvento = new Date(novaData.getTime() + sessao.duracaoMin * 60_000);
-        await calendar.events
-          .patch({
-            calendarId: sessao.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
-            eventId: sessao.googleEventId,
-            requestBody: {
-              start: { dateTime: novaData.toISOString(), timeZone: TIMEZONE },
-              end: { dateTime: fimEvento.toISOString(), timeZone: TIMEZONE },
-            },
-          })
-          .catch((err) => console.error("Falha ao atualizar evento no Google Calendar:", err));
+      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      if (google) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: novaData, duracaoMin: sessao.duracaoMin }
+        );
       }
     }
 
@@ -203,18 +196,23 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     // gravado; entre dois tipos de mesmo caráter não mexe em nada disso.
     const eraOnline = sessao.tipoSessao?.ehOnline ?? false;
     const ficaOnline = novoTipo.ehOnline;
+    // A duração da sessão segue o padrão do tipo escolhido (mesma regra da
+    // criação do atendimento) — o Google precisa refletir isso no fim do
+    // evento, mesmo quando o Meet em si não muda.
+    const novaDuracaoMin = novoTipo.duracaoPadraoMin;
 
     let dadosGoogle: { googleEventId?: string | null; googleCalendarId?: string | null; linkMeet?: string | null } = {};
     let avisoMeet: string | null = null;
 
+    const precisaGoogle = (!eraOnline && ficaOnline && !sessao.linkMeet) || Boolean(sessao.googleEventId);
+    const google = precisaGoogle ? await obterClinicaECalendar(sessao.paciente.clinicaId) : null;
+
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
-      const clinica = await prisma.clinica.findUnique({ where: { id: sessao.paciente.clinicaId } });
-      const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-      if (calendar && clinica) {
-        const resultado = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
+      if (google) {
+        const resultado = await criarEventoGoogleMeet(google.calendar, google.clinica.googleCalendarId ?? "primary", {
           titulo: `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
           inicio: sessao.inicio,
-          duracaoMin: sessao.duracaoMin,
+          duracaoMin: novaDuracaoMin,
         });
         if (resultado.linkMeet) {
           dadosGoogle = resultado;
@@ -228,21 +226,46 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const atualizada = await prisma.agendamento.update({
       where: { id },
-      data: { tipoSessaoId: novoTipo.id, ...dadosGoogle },
+      data: { tipoSessaoId: novoTipo.id, duracaoMin: novaDuracaoMin, ...dadosGoogle },
       include: { tipoSessao: true },
     });
+
+    // Evento que já existia antes desta troca (não foi criado agora pelo
+    // bloco acima) e cuja duração mudou — só falta corrigir o fim no Google.
+    if (!dadosGoogle.googleEventId && sessao.googleEventId && google && novaDuracaoMin !== sessao.duracaoMin) {
+      await sincronizarEventoGoogle(
+        google.calendar,
+        sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+        sessao.googleEventId,
+        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin }
+      );
+    }
 
     return NextResponse.json({ ...atualizada, avisoMeet });
   }
 
   if (typeof body.confirmada === "boolean") {
     // Confirmação de presença é independente do status — não interfere na
-    // máquina de status da sessão nem toma nenhuma ação automática (Google
-    // Calendar, etc.), só guarda a marcação para a profissional decidir.
+    // máquina de status da sessão, mas replica o mesmo ✅ do bloco na agenda
+    // no título do evento do Google, já que é por lá que a Pâmela acompanha.
     const atualizada = await prisma.agendamento.update({
       where: { id },
       data: { confirmada: body.confirmada },
     });
+
+    if (sessao.googleEventId) {
+      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      if (google) {
+        const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${body.confirmada ? " ✅" : ""}`;
+        await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo }
+        );
+      }
+    }
+
     return NextResponse.json(atualizada);
   }
 

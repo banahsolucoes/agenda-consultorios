@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { obterCalendarDaClinica } from "@/lib/google";
+import { obterClinicaECalendar } from "@/lib/google";
 import { registrarLog } from "@/lib/auditoria";
 import { pareceUrl } from "@/lib/validacao";
 
@@ -97,13 +97,12 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     where: { pacienteId: id, googleEventId: { not: null }, inicio: { gte: new Date() } },
   });
   if (sessoesFuturasComEvento.length > 0) {
-    const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-    const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-    if (calendar) {
+    const google = await obterClinicaECalendar(usuario.clinicaId);
+    if (google) {
       for (const s of sessoesFuturasComEvento) {
-        await calendar.events
+        await google.calendar.events
           .delete({
-            calendarId: s.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
+            calendarId: s.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
             eventId: s.googleEventId!,
           })
           .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));

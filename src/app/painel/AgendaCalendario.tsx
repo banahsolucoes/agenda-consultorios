@@ -319,7 +319,7 @@ export default function AgendaCalendario() {
 
   // Move a sessão localmente (otimista) e confirma no servidor; em caso de
   // falha (regra de negócio violada ou erro de rede), desfaz e avisa.
-  async function moverSessao(sessao: SessaoAgenda, novaData: Date, novoDia: string, novoHorario: string) {
+  async function moverSessao(sessao: SessaoAgenda, novaData: Date, novoHorario: string) {
     const anteriores = sessoes;
     setSessoes((prev) =>
       prev.map((s) => (s.id === sessao.id ? { ...s, inicio: novaData.toISOString(), status: "AGENDADA" } : s))
@@ -328,7 +328,7 @@ export default function AgendaCalendario() {
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novoDia, novoHorario }),
+        body: JSON.stringify({ novaData: dataISODeData(novaData), novoHorario }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -391,7 +391,7 @@ export default function AgendaCalendario() {
       return;
     }
 
-    moverSessao(sessao, novaData, diaSemanaAlvo, novoHorario);
+    moverSessao(sessao, novaData, novoHorario);
   }
 
   const titulo =

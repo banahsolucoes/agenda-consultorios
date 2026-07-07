@@ -139,6 +139,20 @@ export async function obterCalendarDaClinica(
   return google.calendar({ version: "v3", auth });
 }
 
+// Busca a clínica pelo id e já resolve o client do Calendar numa única
+// chamada — ponto único usado por toda operação que precisa sincronizar ou
+// remover eventos de sessões no Google. Retorna null se a clínica não
+// existir ou não tiver a integração conectada; nunca lança.
+export async function obterClinicaECalendar(
+  clinicaId: string
+): Promise<{ clinica: Clinica; calendar: calendar_v3.Calendar } | null> {
+  const clinica = await prisma.clinica.findUnique({ where: { id: clinicaId } });
+  if (!clinica) return null;
+  const calendar = await obterCalendarDaClinica(clinica).catch(() => null);
+  if (!calendar) return null;
+  return { clinica, calendar };
+}
+
 // Cliente pronto do Google Drive para a clínica, ou null se ela não tiver a
 // integração conectada — mesmo padrão do obterCalendarDaClinica.
 export async function obterDriveDaClinica(clinica: Clinica): Promise<drive_v3.Drive | null> {
@@ -292,5 +306,33 @@ export async function criarEventoGoogleMeet(
   } catch (err) {
     console.error("Falha ao criar evento no Google Calendar:", err);
     return { googleEventId: null, googleCalendarId: null, linkMeet: null };
+  }
+}
+
+// Ponto único que sincroniza o evento já existente de uma sessão de volta
+// pro Google Calendar — data/hora (a partir de início + duração) e,
+// opcionalmente, o título. Usado por toda operação que move, empurra, adia
+// ou muda a duração/confirmação de uma sessão que já tem googleEventId.
+// Melhor esforço: qualquer falha só é logada, nunca interrompe a operação
+// local que já foi persistida.
+export async function sincronizarEventoGoogle(
+  calendar: calendar_v3.Calendar,
+  googleCalendarId: string,
+  eventId: string,
+  dados: { inicio: Date; duracaoMin: number; titulo?: string }
+): Promise<void> {
+  try {
+    const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
+    await calendar.events.patch({
+      calendarId: googleCalendarId,
+      eventId,
+      requestBody: {
+        start: { dateTime: dados.inicio.toISOString(), timeZone: TIMEZONE },
+        end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
+        ...(dados.titulo ? { summary: dados.titulo } : {}),
+      },
+    });
+  } catch (err) {
+    console.error("Falha ao atualizar evento no Google Calendar:", err);
   }
 }

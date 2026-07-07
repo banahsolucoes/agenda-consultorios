@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterCalendarDaClinica } from "@/lib/google";
+import { obterClinicaECalendar } from "@/lib/google";
 import { registrarLog } from "@/lib/auditoria";
 import {
   filtrarSessoesElegiveis,
@@ -53,16 +53,14 @@ export async function POST(req: NextRequest) {
   // Remoção dos eventos do Google Calendar é melhor esforço: busca o cliente
   // uma única vez para todo o lote e nunca deixa uma falha de integração
   // impedir o cancelamento local de nenhuma sessão.
-  let calendar: Awaited<ReturnType<typeof obterCalendarDaClinica>> = null;
   if (status === "CANCELADA") {
-    const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-    calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-    if (calendar) {
+    const google = await obterClinicaECalendar(usuario.clinicaId);
+    if (google) {
       for (const s of validas) {
         if (!s.googleEventId) continue;
-        await calendar.events
+        await google.calendar.events
           .delete({
-            calendarId: s.googleCalendarId ?? "primary",
+            calendarId: s.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
             eventId: s.googleEventId,
           })
           .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));

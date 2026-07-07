@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
+import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -67,7 +68,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     orderBy: { numeroSessao: "asc" },
   });
 
-  const movimentos: { id: string; novaData: Date }[] = [];
+  const movimentos: {
+    id: string;
+    novaData: Date;
+    googleEventId: string | null;
+    googleCalendarId: string | null;
+    duracaoMin: number;
+  }[] = [];
   for (const s of sessoes) {
     if (s.inicio < agora) continue;
     let novaData = new Date(s.inicio.getTime() + semanas * 7 * DIA_MS);
@@ -90,7 +97,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         { status: 400 }
       );
     }
-    movimentos.push({ id: s.id, novaData });
+    movimentos.push({
+      id: s.id,
+      novaData,
+      googleEventId: s.googleEventId,
+      googleCalendarId: s.googleCalendarId,
+      duracaoMin: s.duracaoMin,
+    });
   }
 
   if (movimentos.length === 0) {
@@ -105,6 +118,24 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       })
     )
   );
+
+  // Reflete a nova data/hora no Google Calendar de cada sessão movida que
+  // tenha evento vinculado. Melhor esforço — busca o client uma única vez
+  // para o lote todo, e falha na integração nunca desfaz o que já foi movido.
+  const movimentosComEvento = movimentos.filter((mov) => mov.googleEventId);
+  if (movimentosComEvento.length > 0) {
+    const google = await obterClinicaECalendar(usuario.clinicaId);
+    if (google) {
+      for (const mov of movimentosComEvento) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          mov.googleEventId!,
+          { inicio: mov.novaData, duracaoMin: mov.duracaoMin }
+        );
+      }
+    }
+  }
 
   const sessaoOuSessoes = movimentos.length === 1 ? "sessão" : "sessões";
   const semanaOuSemanas = semanas === 1 ? "semana" : "semanas";
