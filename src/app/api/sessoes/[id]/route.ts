@@ -16,6 +16,26 @@ const DIA_NOME_POR_NUM: Record<number, string> = {
   0: "DOMINGO", 1: "SEGUNDA", 2: "TERCA", 3: "QUARTA", 4: "QUINTA", 5: "SEXTA", 6: "SABADO",
 };
 
+// Mesma regra usada tanto ao mover quanto ao redimensionar uma sessão: um dia
+// sem faixa cadastrada está fechado quando a clínica já configurou algum
+// horário; só cai na grade padrão 08:00–19:30 quando a clínica ainda não
+// configurou horário nenhum.
+function dentroDoExpediente(
+  todosHorarios: { diaSemana: string; horaInicio: string; horaFim: string }[],
+  diaSemanaNome: string,
+  inicioMin: number,
+  fimMin: number
+): boolean {
+  const horariosDia = todosHorarios.filter((hr) => hr.diaSemana === diaSemanaNome);
+  return todosHorarios.length > 0
+    ? horariosDia.some((hr) => {
+        const [hi, mi] = hr.horaInicio.split(":").map(Number);
+        const [hf, mf] = hr.horaFim.split(":").map(Number);
+        return inicioMin >= hi * 60 + mi && fimMin <= hf * 60 + mf;
+      })
+    : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
+}
+
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
@@ -122,16 +142,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const todosHorarios = await prisma.horarioTrabalho.findMany({
       where: { clinicaId: sessao.paciente.clinicaId },
     });
-    const horariosDia = todosHorarios.filter((hr) => hr.diaSemana === diaSemanaNome);
-    const dentroExpediente =
-      todosHorarios.length > 0
-        ? horariosDia.some((hr) => {
-            const [hi, mi] = hr.horaInicio.split(":").map(Number);
-            const [hf, mf] = hr.horaFim.split(":").map(Number);
-            return inicioMin >= hi * 60 + mi && fimMin <= hf * 60 + mf;
-          })
-        : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
-    if (!dentroExpediente) {
+    if (!dentroDoExpediente(todosHorarios, diaSemanaNome, inicioMin, fimMin)) {
       return NextResponse.json({ erro: "horário fora do expediente da clínica" }, { status: 400 });
     }
 
@@ -175,6 +186,60 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
           { inicio: novaData, duracaoMin: sessao.duracaoMin }
+        );
+      }
+    }
+
+    return NextResponse.json(atualizada);
+  }
+
+  if (typeof body.duracaoMin === "number") {
+    if (STATUS_CONSUMIDOS.includes(sessao.status)) {
+      return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
+    }
+
+    const novaDuracaoMin = body.duracaoMin;
+    if (!Number.isInteger(novaDuracaoMin) || novaDuracaoMin < 15 || novaDuracaoMin % 15 !== 0) {
+      return NextResponse.json(
+        { erro: "duracaoMin deve ser um número inteiro múltiplo de 15, de no mínimo 15" },
+        { status: 400 }
+      );
+    }
+
+    // Expediente é checado contra o início já existente da sessão — só a
+    // duração está mudando, o dia/horário de início continuam os mesmos.
+    const inicioComponentes = componentesSP(sessao.inicio);
+    const diaSemanaNome = DIA_NOME_POR_NUM[inicioComponentes.diaSemana];
+    const inicioMin = inicioComponentes.hora * 60 + inicioComponentes.minuto;
+    const fimMin = inicioMin + novaDuracaoMin;
+    const todosHorarios = await prisma.horarioTrabalho.findMany({
+      where: { clinicaId: sessao.paciente.clinicaId },
+    });
+    if (!dentroDoExpediente(todosHorarios, diaSemanaNome, inicioMin, fimMin)) {
+      return NextResponse.json({ erro: "duração ultrapassa o expediente da clínica" }, { status: 400 });
+    }
+
+    const atualizada = await prisma.agendamento.update({
+      where: { id }, data: { duracaoMin: novaDuracaoMin },
+    });
+
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "ALTERAR_DURACAO_SESSAO",
+      `Alterou a duração da sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} de ${sessao.duracaoMin} para ${novaDuracaoMin} minutos`
+    );
+
+    // Reflete o novo fim do evento no Google Calendar, se a sessão tiver
+    // evento vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
+    if (sessao.googleEventId) {
+      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      if (google) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: sessao.inicio, duracaoMin: novaDuracaoMin }
         );
       }
     }

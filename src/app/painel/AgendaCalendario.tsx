@@ -30,6 +30,8 @@ const ALTURA_CABECALHO_DIA = 40; // h-10
 const DIA_MS = 24 * 60 * 60 * 1000;
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 const STATUS_SESSAO_OPCOES = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA"] as const;
+const DURACAO_OPCOES_MIN = [30, 45, 60, 90, 120];
+const DURACAO_SNAP_MIN = 15;
 const DIA_SEMANA_POR_INDICE = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
 
 interface SessaoAgenda {
@@ -72,6 +74,22 @@ interface ClinicaAgenda {
 function horaParaMinutos(hora: string) {
   const [h, m] = hora.split(":").map(Number);
   return h * 60 + m;
+}
+
+// Mesma regra do servidor: um dia sem faixa cadastrada está fechado quando a
+// clínica já configurou algum horário; só cai na grade padrão 08:00–19:30
+// quando a clínica ainda não configurou horário nenhum. Usada tanto ao
+// arrastar (mudar dia/horário) quanto ao redimensionar (mudar duração).
+function estaDentroExpediente(
+  horarios: HorarioTrabalho[],
+  diaSemanaNome: string,
+  inicioMin: number,
+  fimMin: number
+): boolean {
+  const horariosDia = horarios.filter((h) => h.diaSemana === diaSemanaNome);
+  return horarios.length > 0
+    ? horariosDia.some((hr) => inicioMin >= horaParaMinutos(hr.horaInicio) && fimMin <= horaParaMinutos(hr.horaFim))
+    : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
 }
 
 function minutosParaHora(min: number) {
@@ -362,6 +380,30 @@ export default function AgendaCalendario() {
     }
   }
 
+  // Redimensiona a sessão localmente (otimista) e confirma no servidor; em
+  // caso de falha desfaz e avisa — mesmo padrão de moverSessao.
+  async function redimensionarSessao(sessao: SessaoAgenda, novaDuracaoMin: number) {
+    const anteriores = sessoes;
+    setSessoes((prev) => prev.map((s) => (s.id === sessao.id ? { ...s, duracaoMin: novaDuracaoMin } : s)));
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duracaoMin: novaDuracaoMin }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setSessoes(anteriores);
+        mostrarAviso(data?.erro ?? "não foi possível alterar a duração");
+        return;
+      }
+      await carregarSessoes();
+    } catch {
+      setSessoes(anteriores);
+      mostrarAviso("não foi possível alterar a duração");
+    }
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     const sessao = sessoes.find((s) => s.id === active.id);
@@ -395,17 +437,7 @@ export default function AgendaCalendario() {
 
     const diaSemanaAlvo = diaSemanaDeData(diaAlvo);
     const fimMin = novoMinutoAbsoluto + sessao.duracaoMin;
-    const horariosDoDia = horarios.filter((h) => h.diaSemana === diaSemanaAlvo);
-    // Mesma regra do servidor: dia sem faixa configurada está fechado quando
-    // a clínica já tem horários definidos; só usa a grade padrão se a
-    // clínica ainda não configurou horário nenhum.
-    const dentroExpediente =
-      horarios.length > 0
-        ? horariosDoDia.some(
-            (hr) => novoMinutoAbsoluto >= horaParaMinutos(hr.horaInicio) && fimMin <= horaParaMinutos(hr.horaFim)
-          )
-        : novoMinutoAbsoluto >= 8 * 60 && fimMin <= 19 * 60 + 30;
-    if (!dentroExpediente) {
+    if (!estaDentroExpediente(horarios, diaSemanaAlvo, novoMinutoAbsoluto, fimMin)) {
       mostrarAviso("Esse horário está fora do expediente da clínica.");
       return;
     }
@@ -504,6 +536,9 @@ export default function AgendaCalendario() {
                   onAbrirDetalhe={setSessaoDetalhe}
                   clinica={clinica}
                   agora={agora}
+                  horarios={horarios}
+                  onRedimensionar={redimensionarSessao}
+                  onAviso={mostrarAviso}
                 />
               ))}
             </div>
@@ -540,6 +575,9 @@ function DiaColuna({
   onAbrirDetalhe,
   clinica,
   agora,
+  horarios,
+  onRedimensionar,
+  onAviso,
 }: {
   index: number;
   dia: Date;
@@ -552,6 +590,9 @@ function DiaColuna({
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
   agora: number;
+  horarios: HorarioTrabalho[];
+  onRedimensionar: (sessao: SessaoAgenda, novaDuracaoMin: number) => void;
+  onAviso: (msg: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
   const hoje = mesmoDia(dia, new Date());
@@ -605,6 +646,9 @@ function DiaColuna({
             clinica={clinica}
             agora={agora}
             layout={layoutColunas.get(s.id) ?? { coluna: 0, totalColunas: 1 }}
+            horarios={horarios}
+            onRedimensionar={onRedimensionar}
+            onAviso={onAviso}
           />
         ))}
       </div>
@@ -620,6 +664,9 @@ function BlocoSessao({
   clinica,
   agora,
   layout,
+  horarios,
+  onRedimensionar,
+  onAviso,
 }: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
@@ -628,8 +675,12 @@ function BlocoSessao({
   clinica: ClinicaAgenda | null;
   agora: number;
   layout: LayoutColuna;
+  horarios: HorarioTrabalho[];
+  onRedimensionar: (sessao: SessaoAgenda, novaDuracaoMin: number) => void;
+  onAviso: (msg: string) => void;
 }) {
   const travada = STATUS_TRAVADOS.includes(sessao.status);
+  const [previewDuracaoMin, setPreviewDuracaoMin] = useState<number | null>(null);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: sessao.id,
     disabled: travada,
@@ -643,8 +694,11 @@ function BlocoSessao({
   const cInicio = componentesSP(inicio);
   const minutos = cInicio.hora * 60 + cInicio.minuto;
   const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
+  // Enquanto o mouse está arrastando a borda inferior, a altura reflete a
+  // duração-preview (ainda não confirmada no servidor) em vez da real.
+  const duracaoExibida = previewDuracaoMin ?? sessao.duracaoMin;
   // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
-  const altura = Math.max(46, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
+  const altura = Math.max(46, (duracaoExibida / ROW_MIN) * rowPx - 2);
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
@@ -687,6 +741,50 @@ function BlocoSessao({
     e.stopPropagation();
     if (!sessao.linkMeet || !clinica) return;
     if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  // Redimensiona a duração arrastando a borda inferior do bloco. Evento
+  // tratado fora do dnd-kit (stopPropagation impede que o drag de mover
+  // comece junto) — pointermove/pointerup ficam no window para acompanhar o
+  // ponteiro mesmo saindo da área do bloco.
+  function handleResizePointerDown(e: React.PointerEvent) {
+    if (travada) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startY = e.clientY;
+    const duracaoInicial = sessao.duracaoMin;
+
+    function calcularCandidato(ev: PointerEvent) {
+      const deltaY = ev.clientY - startY;
+      const deltaMin = Math.round((deltaY / rowPx) * ROW_MIN / DURACAO_SNAP_MIN) * DURACAO_SNAP_MIN;
+      return Math.max(DURACAO_SNAP_MIN, duracaoInicial + deltaMin);
+    }
+
+    function onMove(ev: PointerEvent) {
+      setPreviewDuracaoMin(calcularCandidato(ev));
+    }
+
+    function onUp(ev: PointerEvent) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setPreviewDuracaoMin(null);
+
+      const candidato = calcularCandidato(ev);
+      if (candidato === duracaoInicial) return;
+
+      const diaSemanaNome = DIA_SEMANA_POR_INDICE[cInicio.diaSemana];
+      const fimMin = minutos + candidato;
+      if (!estaDentroExpediente(horarios, diaSemanaNome, minutos, fimMin)) {
+        onAviso("Essa duração ultrapassa o expediente da clínica.");
+        return;
+      }
+
+      onRedimensionar(sessao, candidato);
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   return (
@@ -744,6 +842,16 @@ function BlocoSessao({
           </>
         )}
       </div>
+
+      {!travada && (
+        <div
+          onPointerDown={handleResizePointerDown}
+          onClick={(e) => e.stopPropagation()}
+          title="Arraste para alterar a duração"
+          className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
     </div>
   );
 }
@@ -796,6 +904,8 @@ function SessaoDetalheModal({
   const [arquivar, setArquivar] = useState(false);
   const [trocandoTipo, setTrocandoTipo] = useState(false);
   const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
+  const [alterandoDuracao, setAlterandoDuracao] = useState(false);
+  const [novaDuracao, setNovaDuracao] = useState(sessao.duracaoMin);
   const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
   const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -927,6 +1037,27 @@ function SessaoDetalheModal({
     }
   }
 
+  async function salvarDuracao(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duracaoMin: novaDuracao }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível alterar a duração");
+        return;
+      }
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
@@ -972,7 +1103,7 @@ function SessaoDetalheModal({
 
         {erro && <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
 
-        {!travada && !editando && !cancelando && !trocandoTipo && (
+        {!travada && !editando && !cancelando && !trocandoTipo && !alterandoDuracao && (
           <div className="space-y-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Status</p>
@@ -1010,6 +1141,15 @@ function SessaoDetalheModal({
                 className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
               >
                 Trocar tipo
+              </button>
+              <button
+                onClick={() => {
+                  setNovaDuracao(sessao.duracaoMin);
+                  setAlterandoDuracao(true);
+                }}
+                className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Duração
               </button>
               <button
                 onClick={() => {
@@ -1115,6 +1255,62 @@ function SessaoDetalheModal({
               <button
                 type="submit"
                 disabled={salvando || !novoTipoId || novoTipoId === sessao.tipoSessaoId}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {alterandoDuracao && (
+          <form onSubmit={salvarDuracao} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Duração (minutos)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DURACAO_OPCOES_MIN.map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    onClick={() => setNovaDuracao(min)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs ${
+                      min === novaDuracao ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                    }`}
+                  >
+                    {min} min
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number"
+                min={DURACAO_SNAP_MIN}
+                step={DURACAO_SNAP_MIN}
+                value={novaDuracao}
+                onChange={(e) => setNovaDuracao(Number(e.target.value))}
+                className="mt-2 w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+            </div>
+            <p className="text-xs text-muted">
+              Múltiplo de {DURACAO_SNAP_MIN} minutos, sem ultrapassar o expediente da clínica.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setAlterandoDuracao(false)}
+                disabled={salvando}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  salvando ||
+                  !Number.isInteger(novaDuracao) ||
+                  novaDuracao < DURACAO_SNAP_MIN ||
+                  novaDuracao % DURACAO_SNAP_MIN !== 0 ||
+                  novaDuracao === sessao.duracaoMin
+                }
                 className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {salvando ? "Salvando..." : "Salvar"}
