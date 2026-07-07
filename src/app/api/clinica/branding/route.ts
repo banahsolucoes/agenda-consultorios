@@ -33,6 +33,8 @@ const SELECT_CLINICA = {
   pastaRaizDriveId: true,
   emailBoasVindasAssunto: true,
   emailBoasVindasCorpo: true,
+  templateConfirmacao: true,
+  templateMeet: true,
 } as const;
 
 // POST /api/clinica/branding — upload de logo ou fundo de tela da clínica do

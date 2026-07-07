@@ -139,6 +139,20 @@ export async function obterCalendarDaClinica(
   return google.calendar({ version: "v3", auth });
 }
 
+// Busca a clínica pelo id e já resolve o client do Calendar numa única
+// chamada — ponto único usado por toda operação que precisa sincronizar ou
+// remover eventos de sessões no Google. Retorna null se a clínica não
+// existir ou não tiver a integração conectada; nunca lança.
+export async function obterClinicaECalendar(
+  clinicaId: string
+): Promise<{ clinica: Clinica; calendar: calendar_v3.Calendar } | null> {
+  const clinica = await prisma.clinica.findUnique({ where: { id: clinicaId } });
+  if (!clinica) return null;
+  const calendar = await obterCalendarDaClinica(clinica).catch(() => null);
+  if (!calendar) return null;
+  return { clinica, calendar };
+}
+
 // Cliente pronto do Google Drive para a clínica, ou null se ela não tiver a
 // integração conectada — mesmo padrão do obterCalendarDaClinica.
 export async function obterDriveDaClinica(clinica: Clinica): Promise<drive_v3.Drive | null> {
@@ -258,16 +272,54 @@ export async function enviarEmailBoasVindas(
   }
 }
 
+// Paleta fixa de cores de evento do Google Calendar (colors.event da API
+// v3 — os colorId 1–11 são os únicos aceitos, cada um com um hex fixo do
+// lado do Google). Cada tipo de sessão tem uma cor livre (hex) cadastrada
+// pela clínica; aqui mapeamos para o colorId mais próximo por distância
+// euclidiana em RGB — best-effort, nunca impede a sincronização do evento.
+const PALETA_CORES_GOOGLE: Record<string, string> = {
+  "1": "a4bdfc", "2": "7ae7bf", "3": "dbadff", "4": "ff887c", "5": "fbd75b",
+  "6": "ffb878", "7": "46d6db", "8": "e1e1e1", "9": "5484ed", "10": "51b749", "11": "dc2127",
+};
+
+function hexParaRgb(hex: string): [number, number, number] | null {
+  const limpo = hex.replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(limpo)) return null;
+  return [parseInt(limpo.slice(0, 2), 16), parseInt(limpo.slice(2, 4), 16), parseInt(limpo.slice(4, 6), 16)];
+}
+
+// Cor (hex) de um TipoSessao -> colorId do Google Calendar mais próximo.
+// Retorna undefined se a cor não estiver definida ou for inválida — nesse
+// caso o evento simplesmente não leva colorId (cor padrão do calendário).
+export function mapearCorParaGoogleColorId(corHex: string | null | undefined): string | undefined {
+  if (!corHex) return undefined;
+  const alvo = hexParaRgb(corHex);
+  if (!alvo) return undefined;
+
+  let melhorId: string | undefined;
+  let menorDistancia = Infinity;
+  for (const [colorId, hex] of Object.entries(PALETA_CORES_GOOGLE)) {
+    const rgb = hexParaRgb(hex)!;
+    const distancia = (rgb[0] - alvo[0]) ** 2 + (rgb[1] - alvo[1]) ** 2 + (rgb[2] - alvo[2]) ** 2;
+    if (distancia < menorDistancia) {
+      menorDistancia = distancia;
+      melhorId = colorId;
+    }
+  }
+  return melhorId;
+}
+
 // Cria o evento no Google Calendar com Meet automático. Retorna os campos
 // prontos para gravar no Agendamento — ou tudo null se a chamada falhar,
 // para nunca impedir a criação/edição da sessão local.
 export async function criarEventoGoogleMeet(
   calendar: calendar_v3.Calendar,
   googleCalendarId: string,
-  dados: { titulo: string; inicio: Date; duracaoMin: number }
+  dados: { titulo: string; inicio: Date; duracaoMin: number; cor?: string | null }
 ): Promise<{ googleEventId: string | null; googleCalendarId: string | null; linkMeet: string | null }> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
+    const colorId = mapearCorParaGoogleColorId(dados.cor);
     const { data: evento } = await calendar.events.insert({
       calendarId: googleCalendarId,
       conferenceDataVersion: 1,
@@ -275,6 +327,7 @@ export async function criarEventoGoogleMeet(
         summary: dados.titulo,
         start: { dateTime: dados.inicio.toISOString(), timeZone: TIMEZONE },
         end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
+        ...(colorId ? { colorId } : {}),
         conferenceData: {
           createRequest: {
             requestId: crypto.randomUUID(),
@@ -292,5 +345,35 @@ export async function criarEventoGoogleMeet(
   } catch (err) {
     console.error("Falha ao criar evento no Google Calendar:", err);
     return { googleEventId: null, googleCalendarId: null, linkMeet: null };
+  }
+}
+
+// Ponto único que sincroniza o evento já existente de uma sessão de volta
+// pro Google Calendar — data/hora (a partir de início + duração), e
+// opcionalmente título e cor (colorId). Usado por toda operação que move,
+// empurra, adia ou muda a duração/tipo/confirmação de uma sessão que já tem
+// googleEventId. Melhor esforço: qualquer falha só é logada, nunca
+// interrompe a operação local que já foi persistida.
+export async function sincronizarEventoGoogle(
+  calendar: calendar_v3.Calendar,
+  googleCalendarId: string,
+  eventId: string,
+  dados: { inicio: Date; duracaoMin: number; titulo?: string; cor?: string | null }
+): Promise<void> {
+  try {
+    const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
+    const colorId = mapearCorParaGoogleColorId(dados.cor);
+    await calendar.events.patch({
+      calendarId: googleCalendarId,
+      eventId,
+      requestBody: {
+        start: { dateTime: dados.inicio.toISOString(), timeZone: TIMEZONE },
+        end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
+        ...(dados.titulo ? { summary: dados.titulo } : {}),
+        ...(colorId ? { colorId } : {}),
+      },
+    });
+  } catch (err) {
+    console.error("Falha ao atualizar evento no Google Calendar:", err);
   }
 }

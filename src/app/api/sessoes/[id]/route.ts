@@ -2,17 +2,39 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
+import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle } from "@/lib/google";
 import { primeiroUltimoNome } from "@/lib/nomes";
-import { componentesSP, criarDataSP, TIMEZONE } from "@/lib/timezone";
+import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
+import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
-import { diaSemanaLabel, statusLabel } from "@/lib/labels";
+import { statusLabel } from "@/lib/labels";
 
-const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
-const DIA_NUM: Record<string, number> = {
-  DOMINGO: 0, SEGUNDA: 1, TERCA: 2, QUARTA: 3, QUINTA: 4, SEXTA: 5, SABADO: 6,
+// Sessões nesses status são somente-leitura — nem data/horário nem tipo de
+// atendimento podem mudar.
+const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
+const DIA_NOME_POR_NUM: Record<number, string> = {
+  0: "DOMINGO", 1: "SEGUNDA", 2: "TERCA", 3: "QUARTA", 4: "QUINTA", 5: "SEXTA", 6: "SABADO",
 };
-const DIA_MS = 24 * 60 * 60 * 1000;
+
+// Mesma regra usada tanto ao mover quanto ao redimensionar uma sessão: um dia
+// sem faixa cadastrada está fechado quando a clínica já configurou algum
+// horário; só cai na grade padrão 08:00–19:30 quando a clínica ainda não
+// configurou horário nenhum.
+function dentroDoExpediente(
+  todosHorarios: { diaSemana: string; horaInicio: string; horaFim: string }[],
+  diaSemanaNome: string,
+  inicioMin: number,
+  fimMin: number
+): boolean {
+  const horariosDia = todosHorarios.filter((hr) => hr.diaSemana === diaSemanaNome);
+  return todosHorarios.length > 0
+    ? horariosDia.some((hr) => {
+        const [hi, mi] = hr.horaInicio.split(":").map(Number);
+        const [hf, mf] = hr.horaFim.split(":").map(Number);
+        return inicioMin >= hi * 60 + mi && fimMin <= hf * 60 + mf;
+      })
+    : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
+}
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
@@ -40,17 +62,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (!motivo) {
         return NextResponse.json({ erro: "motivo do cancelamento é obrigatório" }, { status: 400 });
       }
+      const arquivar = body.arquivar === true;
 
       // Remove o evento do Google Calendar da clínica, se houver um vinculado
       // a esta sessão. Falha na integração nunca deve impedir o cancelamento
       // local — o Google fica "melhor esforço".
       if (sessao.googleEventId) {
-        const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-        const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-        if (calendar) {
-          await calendar.events
+        const google = await obterClinicaECalendar(usuario.clinicaId);
+        if (google) {
+          await google.calendar.events
             .delete({
-              calendarId: sessao.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
+              calendarId: sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
               eventId: sessao.googleEventId,
             })
             .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));
@@ -58,13 +80,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
 
       const atualizada = await prisma.agendamento.update({
-        where: { id }, data: { status: "CANCELADA", motivoCancelamento: motivo },
+        where: { id },
+        data: { status: "CANCELADA", motivoCancelamento: motivo, ...(arquivar ? { arquivada: true } : {}) },
       });
       await registrarLog(
         usuario.clinicaId,
         usuario.id,
         "CANCELAR_SESSAO",
-        `Cancelou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} — motivo: ${motivo}`
+        `Cancelou${arquivar ? " e arquivou" : ""} a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} — motivo: ${motivo}`
       );
       const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
       return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
@@ -83,61 +106,63 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
 
-  if (body.novoDia && body.novoHorario) {
+  if (body.novaData && body.novoHorario) {
     if (STATUS_CONSUMIDOS.includes(sessao.status)) {
       return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
     }
-    const diaAlvo = DIA_NUM[body.novoDia];
-    if (diaAlvo === undefined) return NextResponse.json({ erro: "dia inválido" }, { status: 400 });
 
-    const [h, m] = body.novoHorario.split(":").map(Number);
-    if (isNaN(h) || isNaN(m)) {
-      return NextResponse.json({ erro: "horário inválido" }, { status: 400 });
+    const dataMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(body.novaData);
+    if (!dataMatch) return NextResponse.json({ erro: "data inválida" }, { status: 400 });
+    const [, anoStr, mesStr, diaStr] = dataMatch;
+    const ano = Number(anoStr);
+    const mes = Number(mesStr);
+    const dia = Number(diaStr);
+
+    const horaMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(body.novoHorario);
+    if (!horaMatch) return NextResponse.json({ erro: "horário inválido" }, { status: 400 });
+    const h = Number(horaMatch[1]);
+    const m = Number(horaMatch[2]);
+
+    // Constrói o instante (UTC) a partir do horário de parede em São Paulo, e
+    // confere se os componentes voltam batendo — protege contra datas
+    // inexistentes no calendário (ex.: 31/02).
+    const novaData = criarDataSP(ano, mes, dia, h, m);
+    const confirmacao = componentesSP(novaData);
+    if (confirmacao.ano !== ano || confirmacao.mes !== mes || confirmacao.dia !== dia) {
+      return NextResponse.json({ erro: "data inválida" }, { status: 400 });
     }
 
     // Valida contra o horário de trabalho configurado da clínica. Se a
     // clínica já configurou horários, um dia sem faixa cadastrada está
     // fechado (ex.: fim de semana); só cai na grade padrão 08:00–19:30
     // quando a clínica ainda não configurou horário nenhum.
+    const diaSemanaNome = DIA_NOME_POR_NUM[confirmacao.diaSemana];
     const inicioMin = h * 60 + m;
     const fimMin = inicioMin + sessao.duracaoMin;
     const todosHorarios = await prisma.horarioTrabalho.findMany({
       where: { clinicaId: sessao.paciente.clinicaId },
     });
-    const horariosDia = todosHorarios.filter((hr) => hr.diaSemana === body.novoDia);
-    const dentroExpediente =
-      todosHorarios.length > 0
-        ? horariosDia.some((hr) => {
-            const [hi, mi] = hr.horaInicio.split(":").map(Number);
-            const [hf, mf] = hr.horaFim.split(":").map(Number);
-            return inicioMin >= hi * 60 + mi && fimMin <= hf * 60 + mf;
-          })
-        : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
-    if (!dentroExpediente) {
+    if (!dentroDoExpediente(todosHorarios, diaSemanaNome, inicioMin, fimMin)) {
       return NextResponse.json({ erro: "horário fora do expediente da clínica" }, { status: 400 });
     }
 
-    // Dia/semana calculados no calendário de São Paulo (não no fuso do
-    // processo) — senão, num runtime em UTC, um horário perto da meia-noite
-    // pode cair no dia de calendário errado.
-    const atual = componentesSP(sessao.inicio);
-    const distSeg = atual.diaSemana === 0 ? 6 : atual.diaSemana - 1;
-    const segundaUTC = Date.UTC(atual.ano, atual.mes - 1, atual.dia) - distSeg * DIA_MS;
-
-    // Deslocamento em relação à segunda-feira: DOMINGO (diaAlvo 0) fica no
-    // fim da semana (segunda + 6), os demais dias seguem diaAlvo - 1.
-    const offsetSegunda = diaAlvo === 0 ? 6 : diaAlvo - 1;
-    const diaCalendario = new Date(segundaUTC + offsetSegunda * DIA_MS);
-    const novaData = criarDataSP(
-      diaCalendario.getUTCFullYear(),
-      diaCalendario.getUTCMonth() + 1,
-      diaCalendario.getUTCDate(),
-      h,
-      m
-    );
-
     if (novaData.getTime() < Date.now()) {
       return NextResponse.json({ erro: "não é possível mover a sessão para o passado" }, { status: 400 });
+    }
+
+    // Conflito de semana: nenhuma outra sessão (não cancelada) deste mesmo
+    // paciente pode cair na mesma semana (segunda a domingo, calendário de
+    // São Paulo) da nova data. Validado aqui no backend — não confiamos
+    // apenas na checagem já feita no front.
+    const outrasSessoesPaciente = await prisma.agendamento.findMany({
+      where: { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
+      select: { id: true, inicio: true, status: true },
+    });
+    if (existeConflitoDeSemana(novaData, outrasSessoesPaciente)) {
+      return NextResponse.json(
+        { erro: "Não é possível: já existe uma sessão deste paciente nesta semana." },
+        { status: 409 }
+      );
     }
 
     const atualizada = await prisma.agendamento.update({
@@ -148,26 +173,74 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       usuario.clinicaId,
       usuario.id,
       "EDITAR_SESSAO",
-      `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} para ${diaSemanaLabel(body.novoDia)} às ${body.novoHorario}`
+      `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} para ${formatarDataHoraSP(novaData)}`
     );
 
     // Reflete o novo horário no Google Calendar, se a sessão tiver evento
     // vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
     if (sessao.googleEventId) {
-      const clinica = await prisma.clinica.findUnique({ where: { id: sessao.paciente.clinicaId } });
-      const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-      if (calendar) {
-        const fimEvento = new Date(novaData.getTime() + sessao.duracaoMin * 60_000);
-        await calendar.events
-          .patch({
-            calendarId: sessao.googleCalendarId ?? clinica?.googleCalendarId ?? "primary",
-            eventId: sessao.googleEventId,
-            requestBody: {
-              start: { dateTime: novaData.toISOString(), timeZone: TIMEZONE },
-              end: { dateTime: fimEvento.toISOString(), timeZone: TIMEZONE },
-            },
-          })
-          .catch((err) => console.error("Falha ao atualizar evento no Google Calendar:", err));
+      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      if (google) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: novaData, duracaoMin: sessao.duracaoMin }
+        );
+      }
+    }
+
+    return NextResponse.json(atualizada);
+  }
+
+  if (typeof body.duracaoMin === "number") {
+    if (STATUS_CONSUMIDOS.includes(sessao.status)) {
+      return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
+    }
+
+    const novaDuracaoMin = body.duracaoMin;
+    if (!Number.isInteger(novaDuracaoMin) || novaDuracaoMin < 15 || novaDuracaoMin % 15 !== 0) {
+      return NextResponse.json(
+        { erro: "duracaoMin deve ser um número inteiro múltiplo de 15, de no mínimo 15" },
+        { status: 400 }
+      );
+    }
+
+    // Expediente é checado contra o início já existente da sessão — só a
+    // duração está mudando, o dia/horário de início continuam os mesmos.
+    const inicioComponentes = componentesSP(sessao.inicio);
+    const diaSemanaNome = DIA_NOME_POR_NUM[inicioComponentes.diaSemana];
+    const inicioMin = inicioComponentes.hora * 60 + inicioComponentes.minuto;
+    const fimMin = inicioMin + novaDuracaoMin;
+    const todosHorarios = await prisma.horarioTrabalho.findMany({
+      where: { clinicaId: sessao.paciente.clinicaId },
+    });
+    if (!dentroDoExpediente(todosHorarios, diaSemanaNome, inicioMin, fimMin)) {
+      return NextResponse.json({ erro: "duração ultrapassa o expediente da clínica" }, { status: 400 });
+    }
+
+    const atualizada = await prisma.agendamento.update({
+      where: { id }, data: { duracaoMin: novaDuracaoMin },
+    });
+
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "ALTERAR_DURACAO_SESSAO",
+      `Alterou a duração da sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} de ${sessao.duracaoMin} para ${novaDuracaoMin} minutos`
+    );
+
+    // Reflete o novo fim do evento no Google Calendar, se a sessão tiver
+    // evento vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
+    if (sessao.googleEventId) {
+      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      if (google) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: sessao.inicio, duracaoMin: novaDuracaoMin }
+        );
       }
     }
 
@@ -190,18 +263,29 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     // gravado; entre dois tipos de mesmo caráter não mexe em nada disso.
     const eraOnline = sessao.tipoSessao?.ehOnline ?? false;
     const ficaOnline = novoTipo.ehOnline;
+    // A duração da sessão segue o padrão do tipo escolhido (mesma regra da
+    // criação do atendimento) — o Google precisa refletir isso no fim do
+    // evento, mesmo quando o Meet em si não muda.
+    const novaDuracaoMin = novoTipo.duracaoPadraoMin;
 
     let dadosGoogle: { googleEventId?: string | null; googleCalendarId?: string | null; linkMeet?: string | null } = {};
     let avisoMeet: string | null = null;
 
+    const precisaGoogle = (!eraOnline && ficaOnline && !sessao.linkMeet) || Boolean(sessao.googleEventId);
+    const google = precisaGoogle ? await obterClinicaECalendar(sessao.paciente.clinicaId) : null;
+
+    // Título independe do tipo — a troca nunca deve alterar o nome/numeração
+    // já usados na criação, só recompomos aqui pra garantir consistência
+    // caso o evento precise ser (re)criado ou tenha o fim atualizado abaixo.
+    const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${sessao.confirmada ? " ✅" : ""}`;
+
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
-      const clinica = await prisma.clinica.findUnique({ where: { id: sessao.paciente.clinicaId } });
-      const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
-      if (calendar && clinica) {
-        const resultado = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
-          titulo: `${primeiroUltimoNome(sessao.paciente.nome)} — sessão ${sessao.numeroSessao}/${sessao.totalPacote}`,
+      if (google) {
+        const resultado = await criarEventoGoogleMeet(google.calendar, google.clinica.googleCalendarId ?? "primary", {
+          titulo,
           inicio: sessao.inicio,
-          duracaoMin: sessao.duracaoMin,
+          duracaoMin: novaDuracaoMin,
+          cor: novoTipo.cor,
         });
         if (resultado.linkMeet) {
           dadosGoogle = resultado;
@@ -215,11 +299,49 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const atualizada = await prisma.agendamento.update({
       where: { id },
-      data: { tipoSessaoId: novoTipo.id, ...dadosGoogle },
+      data: { tipoSessaoId: novoTipo.id, duracaoMin: novaDuracaoMin, ...dadosGoogle },
       include: { tipoSessao: true },
     });
 
+    // Evento que já existia antes desta troca (não foi criado agora pelo
+    // bloco acima) — sincroniza duração, título e cor do novo tipo. Sempre
+    // dispara (não só quando a duração muda): a cor pode ser diferente entre
+    // dois tipos com a mesma duração.
+    if (!dadosGoogle.googleEventId && sessao.googleEventId && google) {
+      await sincronizarEventoGoogle(
+        google.calendar,
+        sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+        sessao.googleEventId,
+        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin, titulo, cor: novoTipo.cor }
+      );
+    }
+
     return NextResponse.json({ ...atualizada, avisoMeet });
+  }
+
+  if (typeof body.confirmada === "boolean") {
+    // Confirmação de presença é independente do status — não interfere na
+    // máquina de status da sessão, mas replica o mesmo ✅ do bloco na agenda
+    // no título do evento do Google, já que é por lá que a Pâmela acompanha.
+    const atualizada = await prisma.agendamento.update({
+      where: { id },
+      data: { confirmada: body.confirmada },
+    });
+
+    if (sessao.googleEventId) {
+      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      if (google) {
+        const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${body.confirmada ? " ✅" : ""}`;
+        await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo }
+        );
+      }
+    }
+
+    return NextResponse.json(atualizada);
   }
 
   return NextResponse.json({ erro: "nada para atualizar" }, { status: 400 });

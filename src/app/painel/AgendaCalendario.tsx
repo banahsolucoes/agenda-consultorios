@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -13,6 +13,9 @@ import {
 import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
+import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
+import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import DatePickerSP from "./DatePickerSP";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -27,6 +30,8 @@ const ALTURA_CABECALHO_DIA = 40; // h-10
 const DIA_MS = 24 * 60 * 60 * 1000;
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 const STATUS_SESSAO_OPCOES = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA"] as const;
+const DURACAO_OPCOES_MIN = [30, 45, 60, 90, 120];
+const DURACAO_SNAP_MIN = 15;
 const DIA_SEMANA_POR_INDICE = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
 
 interface SessaoAgenda {
@@ -42,6 +47,7 @@ interface SessaoAgenda {
   tipoSessao: { id: string; nome: string; cor: string | null } | null;
   linkMeet: string | null;
   motivoCancelamento: string | null;
+  confirmada: boolean;
 }
 
 interface HorarioTrabalho {
@@ -61,11 +67,29 @@ interface TipoSessaoOpcao {
 interface ClinicaAgenda {
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
+  templateConfirmacao: string;
+  templateMeet: string;
 }
 
 function horaParaMinutos(hora: string) {
   const [h, m] = hora.split(":").map(Number);
   return h * 60 + m;
+}
+
+// Mesma regra do servidor: um dia sem faixa cadastrada está fechado quando a
+// clínica já configurou algum horário; só cai na grade padrão 08:00–19:30
+// quando a clínica ainda não configurou horário nenhum. Usada tanto ao
+// arrastar (mudar dia/horário) quanto ao redimensionar (mudar duração).
+function estaDentroExpediente(
+  horarios: HorarioTrabalho[],
+  diaSemanaNome: string,
+  inicioMin: number,
+  fimMin: number
+): boolean {
+  const horariosDia = horarios.filter((h) => h.diaSemana === diaSemanaNome);
+  return horarios.length > 0
+    ? horariosDia.some((hr) => inicioMin >= horaParaMinutos(hr.horaInicio) && fimMin <= horaParaMinutos(hr.horaFim))
+    : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
 }
 
 function minutosParaHora(min: number) {
@@ -108,6 +132,12 @@ function formatarHorario(d: Date) {
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE });
 }
 
+// "YYYY-MM-DD" de `d` no calendário de São Paulo, formato aceito pelo DatePickerSP
+function dataISODeData(d: Date) {
+  const c = componentesSP(d);
+  return `${c.ano}-${String(c.mes).padStart(2, "0")}-${String(c.dia).padStart(2, "0")}`;
+}
+
 // Soma `dias` dias de calendário a `d`, preservando o horário de parede em
 // São Paulo (aritmética em ms é segura aqui: o Brasil não observa horário de
 // verão desde 2019, então o deslocamento UTC-3 é sempre fixo).
@@ -125,21 +155,28 @@ async function copiarParaClipboard(texto: string): Promise<boolean> {
   }
 }
 
-// Mesma mensagem de confirmação já usada no painel do paciente
+// Mesmo template configurável por clínica usado no painel do paciente
 function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
-  const primeiroNome = sessao.paciente.nome.split(" ")[0];
   const inicio = new Date(sessao.inicio);
-  return (
-    `Olá, ${primeiroNome}! Passando para confirmar sua sessão no dia ${formatarDiaMes(inicio)} às ${formatarHorario(inicio)}. ` +
-    `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}. Até lá!\n— ${clinica.nomeAssistente}`
-  );
+  return renderizarTemplateMensagem(clinica.templateConfirmacao, {
+    saudacao: saudacaoAtual(),
+    paciente: sessao.paciente.nome.split(" ")[0],
+    data: formatarDiaMes(inicio),
+    hora: formatarHorario(inicio),
+    horarioLimite: clinica.horarioLimiteConfirmacao,
+    assistente: clinica.nomeAssistente,
+  });
 }
 
-// Texto do link do Meet específico do calendário (Tarefa 17)
-function montarMensagemMeetCalendario(sessao: SessaoAgenda) {
-  const primeiroNome = sessao.paciente.nome.split(" ")[0];
-  const inicio = new Date(sessao.inicio);
-  return `Olá ${primeiroNome}, segue o link da sua sessão de hoje, às ${formatarHorario(inicio)}: ${sessao.linkMeet}`;
+// Texto do link do Meet — só é chamado quando sessao.linkMeet já existe (os
+// botões de copiar ficam desabilitados sem link).
+function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
+  return renderizarTemplateMensagem(clinica.templateMeet, {
+    saudacao: saudacaoAtual(),
+    paciente: sessao.paciente.nome.split(" ")[0],
+    linkMeet: sessao.linkMeet ?? "",
+    assistente: clinica.nomeAssistente,
+  });
 }
 
 // Cor sólida usada no ponto do menu de status (mesma paleta do painel principal)
@@ -229,7 +266,16 @@ export default function AgendaCalendario() {
       .then(setHorarios);
     fetch("/api/clinica")
       .then((r) => (r.ok ? r.json() : null))
-      .then((c) => c && setClinica({ nomeAssistente: c.nomeAssistente, horarioLimiteConfirmacao: c.horarioLimiteConfirmacao }));
+      .then(
+        (c) =>
+          c &&
+          setClinica({
+            nomeAssistente: c.nomeAssistente,
+            horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
+            templateConfirmacao: c.templateConfirmacao,
+            templateMeet: c.templateMeet,
+          })
+      );
     fetch("/api/clinica/tipos-sessao")
       .then((r) => (r.ok ? r.json() : []))
       .then(setTiposSessao);
@@ -267,10 +313,6 @@ export default function AgendaCalendario() {
   }, [recalcularRowPx, carregando]);
 
   const gridHeightPx = ((janela.fimMin - janela.inicioMin) / ROW_MIN) * rowPx;
-
-  const setColRef = useCallback((index: number, node: HTMLDivElement | null) => {
-    colRefs.current[index] = node;
-  }, []);
 
   const marcadores = useMemo(() => {
     const lista: number[] = [];
@@ -314,7 +356,7 @@ export default function AgendaCalendario() {
 
   // Move a sessão localmente (otimista) e confirma no servidor; em caso de
   // falha (regra de negócio violada ou erro de rede), desfaz e avisa.
-  async function moverSessao(sessao: SessaoAgenda, novaData: Date, novoDia: string, novoHorario: string) {
+  async function moverSessao(sessao: SessaoAgenda, novaData: Date, novoHorario: string) {
     const anteriores = sessoes;
     setSessoes((prev) =>
       prev.map((s) => (s.id === sessao.id ? { ...s, inicio: novaData.toISOString(), status: "AGENDADA" } : s))
@@ -323,7 +365,7 @@ export default function AgendaCalendario() {
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novoDia, novoHorario }),
+        body: JSON.stringify({ novaData: dataISODeData(novaData), novoHorario }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -335,6 +377,30 @@ export default function AgendaCalendario() {
     } catch {
       setSessoes(anteriores);
       mostrarAviso("não foi possível mover a sessão");
+    }
+  }
+
+  // Redimensiona a sessão localmente (otimista) e confirma no servidor; em
+  // caso de falha desfaz e avisa — mesmo padrão de moverSessao.
+  async function redimensionarSessao(sessao: SessaoAgenda, novaDuracaoMin: number) {
+    const anteriores = sessoes;
+    setSessoes((prev) => prev.map((s) => (s.id === sessao.id ? { ...s, duracaoMin: novaDuracaoMin } : s)));
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duracaoMin: novaDuracaoMin }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setSessoes(anteriores);
+        mostrarAviso(data?.erro ?? "não foi possível alterar a duração");
+        return;
+      }
+      await carregarSessoes();
+    } catch {
+      setSessoes(anteriores);
+      mostrarAviso("não foi possível alterar a duração");
     }
   }
 
@@ -371,22 +437,12 @@ export default function AgendaCalendario() {
 
     const diaSemanaAlvo = diaSemanaDeData(diaAlvo);
     const fimMin = novoMinutoAbsoluto + sessao.duracaoMin;
-    const horariosDoDia = horarios.filter((h) => h.diaSemana === diaSemanaAlvo);
-    // Mesma regra do servidor: dia sem faixa configurada está fechado quando
-    // a clínica já tem horários definidos; só usa a grade padrão se a
-    // clínica ainda não configurou horário nenhum.
-    const dentroExpediente =
-      horarios.length > 0
-        ? horariosDoDia.some(
-            (hr) => novoMinutoAbsoluto >= horaParaMinutos(hr.horaInicio) && fimMin <= horaParaMinutos(hr.horaFim)
-          )
-        : novoMinutoAbsoluto >= 8 * 60 && fimMin <= 19 * 60 + 30;
-    if (!dentroExpediente) {
+    if (!estaDentroExpediente(horarios, diaSemanaAlvo, novoMinutoAbsoluto, fimMin)) {
       mostrarAviso("Esse horário está fora do expediente da clínica.");
       return;
     }
 
-    moverSessao(sessao, novaData, diaSemanaAlvo, novoHorario);
+    moverSessao(sessao, novaData, novoHorario);
   }
 
   const titulo =
@@ -474,10 +530,15 @@ export default function AgendaCalendario() {
                   marcadores={marcadores}
                   gridHeightPx={gridHeightPx}
                   rowPx={rowPx}
+                  colRefCallback={(idx, node) => {
+                    colRefs.current[idx] = node;
+                  }}
                   onAbrirDetalhe={setSessaoDetalhe}
                   clinica={clinica}
                   agora={agora}
-                  setColRef={setColRef}
+                  horarios={horarios}
+                  onRedimensionar={redimensionarSessao}
+                  onAviso={mostrarAviso}
                 />
               ))}
             </div>
@@ -489,6 +550,7 @@ export default function AgendaCalendario() {
         <SessaoDetalheModal
           sessao={sessaoDetalhe}
           tiposSessao={tiposSessao}
+          clinica={clinica}
           onFechar={() => setSessaoDetalhe(null)}
           onAtualizado={() => {
             carregarSessoes();
@@ -501,7 +563,22 @@ export default function AgendaCalendario() {
   );
 }
 
-const DiaColuna = memo(({ index, dia, sessoesDoDia, janela, marcadores, gridHeightPx, rowPx, onAbrirDetalhe, clinica, agora, setColRef }: {
+function DiaColuna({
+  index,
+  dia,
+  sessoesDoDia,
+  janela,
+  marcadores,
+  gridHeightPx,
+  rowPx,
+  colRefCallback,
+  onAbrirDetalhe,
+  clinica,
+  agora,
+  horarios,
+  onRedimensionar,
+  onAviso,
+}: {
   index: number;
   dia: Date;
   sessoesDoDia: SessaoAgenda[];
@@ -509,15 +586,18 @@ const DiaColuna = memo(({ index, dia, sessoesDoDia, janela, marcadores, gridHeig
   marcadores: number[];
   gridHeightPx: number;
   rowPx: number;
+  colRefCallback: (index: number, node: HTMLDivElement | null) => void;
   onAbrirDetalhe: (s: SessaoAgenda) => void;
   clinica: ClinicaAgenda | null;
   agora: number;
-  setColRef: (index: number, node: HTMLDivElement | null) => void;
-}) => {
+  horarios: HorarioTrabalho[];
+  onRedimensionar: (sessao: SessaoAgenda, novaDuracaoMin: number) => void;
+  onAviso: (msg: string) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
   const hoje = mesmoDia(dia, new Date());
 
-  // Sessões que caem no mesmo horário não pueden ficar uma escondendo a
+  // Sessões que caem no mesmo horário não podem ficar uma escondendo a
   // outra — divide o espaço horizontal entre as que se sobrepõem, como um
   // sinal visual de conflito/overbooking a revisar.
   const layoutColunas = useMemo(
@@ -544,7 +624,7 @@ const DiaColuna = memo(({ index, dia, sessoesDoDia, janela, marcadores, gridHeig
       <div
         ref={(node) => {
           setNodeRef(node);
-          setColRef(index, node);
+          colRefCallback(index, node);
         }}
         className={`relative ${isOver ? "bg-gold/5" : ""}`}
         style={{ height: gridHeightPx }}
@@ -566,14 +646,28 @@ const DiaColuna = memo(({ index, dia, sessoesDoDia, janela, marcadores, gridHeig
             clinica={clinica}
             agora={agora}
             layout={layoutColunas.get(s.id) ?? { coluna: 0, totalColunas: 1 }}
+            horarios={horarios}
+            onRedimensionar={onRedimensionar}
+            onAviso={onAviso}
           />
         ))}
       </div>
     </div>
   );
-});
+}
 
-const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agora, layout }: {
+function BlocoSessao({
+  sessao,
+  janela,
+  rowPx,
+  onAbrirDetalhe,
+  clinica,
+  agora,
+  layout,
+  horarios,
+  onRedimensionar,
+  onAviso,
+}: {
   sessao: SessaoAgenda;
   janela: { inicioMin: number; fimMin: number };
   rowPx: number;
@@ -581,8 +675,12 @@ const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agor
   clinica: ClinicaAgenda | null;
   agora: number;
   layout: LayoutColuna;
-}) => {
+  horarios: HorarioTrabalho[];
+  onRedimensionar: (sessao: SessaoAgenda, novaDuracaoMin: number) => void;
+  onAviso: (msg: string) => void;
+}) {
   const travada = STATUS_TRAVADOS.includes(sessao.status);
+  const [previewDuracaoMin, setPreviewDuracaoMin] = useState<number | null>(null);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: sessao.id,
     disabled: travada,
@@ -596,8 +694,11 @@ const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agor
   const cInicio = componentesSP(inicio);
   const minutos = cInicio.hora * 60 + cInicio.minuto;
   const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
+  // Enquanto o mouse está arrastando a borda inferior, a altura reflete a
+  // duração-preview (ainda não confirmada no servidor) em vez da real.
+  const duracaoExibida = previewDuracaoMin ?? sessao.duracaoMin;
   // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
-  const altura = Math.max(46, (sessao.duracaoMin / ROW_MIN) * rowPx - 2);
+  const altura = Math.max(46, (duracaoExibida / ROW_MIN) * rowPx - 2);
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
@@ -638,8 +739,52 @@ const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agor
 
   async function handleCopiarMeet(e: React.SyntheticEvent) {
     e.stopPropagation();
-    if (!sessao.linkMeet) return;
-    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao))) mostrarCopiado("meet");
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  // Redimensiona a duração arrastando a borda inferior do bloco. Evento
+  // tratado fora do dnd-kit (stopPropagation impede que o drag de mover
+  // comece junto) — pointermove/pointerup ficam no window para acompanhar o
+  // ponteiro mesmo saindo da área do bloco.
+  function handleResizePointerDown(e: React.PointerEvent) {
+    if (travada) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startY = e.clientY;
+    const duracaoInicial = sessao.duracaoMin;
+
+    function calcularCandidato(ev: PointerEvent) {
+      const deltaY = ev.clientY - startY;
+      const deltaMin = Math.round((deltaY / rowPx) * ROW_MIN / DURACAO_SNAP_MIN) * DURACAO_SNAP_MIN;
+      return Math.max(DURACAO_SNAP_MIN, duracaoInicial + deltaMin);
+    }
+
+    function onMove(ev: PointerEvent) {
+      setPreviewDuracaoMin(calcularCandidato(ev));
+    }
+
+    function onUp(ev: PointerEvent) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setPreviewDuracaoMin(null);
+
+      const candidato = calcularCandidato(ev);
+      if (candidato === duracaoInicial) return;
+
+      const diaSemanaNome = DIA_SEMANA_POR_INDICE[cInicio.diaSemana];
+      const fimMin = minutos + candidato;
+      if (!estaDentroExpediente(horarios, diaSemanaNome, minutos, fimMin)) {
+        onAviso("Essa duração ultrapassa o expediente da clínica.");
+        return;
+      }
+
+      onRedimensionar(sessao, candidato);
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   return (
@@ -661,7 +806,7 @@ const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agor
       className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm`}
     >
       <p className="truncate text-[11px] font-medium leading-[13px]">
-        {sessao.paciente.nome.split(" ")[0]} {sessao.numeroSessao}/{sessao.totalPacote}
+        {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
       </p>
       <div className="flex items-center justify-between gap-1 leading-none">
         {copiado ? (
@@ -697,9 +842,19 @@ const BlocoSessao = memo(({ sessao, janela, rowPx, onAbrirDetalhe, clinica, agor
           </>
         )}
       </div>
+
+      {!travada && (
+        <div
+          onPointerDown={handleResizePointerDown}
+          onClick={(e) => e.stopPropagation()}
+          title="Arraste para alterar a duração"
+          className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
     </div>
   );
-});
+}
 
 // Ícone de copiar (clipboard), usado nos botões de copiar do bloco de sessão
 function IconCopiar({ className }: { className?: string }) {
@@ -727,12 +882,14 @@ function IconMeet({ className }: { className?: string }) {
 function SessaoDetalheModal({
   sessao,
   tiposSessao,
+  clinica,
   onFechar,
   onAtualizado,
   onAviso,
 }: {
   sessao: SessaoAgenda;
   tiposSessao: TipoSessaoOpcao[];
+  clinica: ClinicaAgenda | null;
   onFechar: () => void;
   onAtualizado: () => void;
   onAviso: (msg: string) => void;
@@ -740,15 +897,56 @@ function SessaoDetalheModal({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [editando, setEditando] = useState(false);
-  const [novoDia, setNovoDia] = useState(diaSemanaDeData(new Date(sessao.inicio)));
+  const [novaData, setNovaData] = useState(dataISODeData(new Date(sessao.inicio)));
   const [novoHorario, setNovoHorario] = useState(formatarHorario(new Date(sessao.inicio)));
   const [cancelando, setCancelando] = useState(false);
   const [motivo, setMotivo] = useState("");
+  const [arquivar, setArquivar] = useState(false);
   const [trocandoTipo, setTrocandoTipo] = useState(false);
   const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
+  const [alterandoDuracao, setAlterandoDuracao] = useState(false);
+  const [novaDuracao, setNovaDuracao] = useState(sessao.duracaoMin);
+  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const inicio = new Date(sessao.inicio);
+
+  function mostrarCopiado(tipo: "conf" | "meet") {
+    setCopiado(tipo);
+    if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
+    copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
+  }
+
+  async function handleCopiarConfirmacao() {
+    if (!clinica) return;
+    if (await copiarParaClipboard(montarMensagemConfirmacao(sessao, clinica))) mostrarCopiado("conf");
+  }
+
+  async function handleCopiarMeet() {
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  async function alternarConfirmacao() {
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmada: !sessao.confirmada }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível atualizar a confirmação");
+        return;
+      }
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
 
   async function mudarStatus(novoStatus: string) {
     setErro("");
@@ -778,7 +976,7 @@ function SessaoDetalheModal({
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novoDia, novoHorario }),
+        body: JSON.stringify({ novaData, novoHorario }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -804,7 +1002,7 @@ function SessaoDetalheModal({
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivoLimpo }),
+        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivoLimpo, arquivar }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -839,6 +1037,27 @@ function SessaoDetalheModal({
     }
   }
 
+  async function salvarDuracao(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duracaoMin: novaDuracao }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível alterar a duração");
+        return;
+      }
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
@@ -863,6 +1082,19 @@ function SessaoDetalheModal({
           <span className="text-sm text-fg">{statusLabel(sessao.status)}</span>
         </div>
 
+        {!travada && (
+          <label className="mb-4 flex items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              checked={sessao.confirmada}
+              disabled={salvando}
+              onChange={alternarConfirmacao}
+              className="h-4 w-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            Sessão confirmada
+          </label>
+        )}
+
         {sessao.status === "CANCELADA" && sessao.motivoCancelamento && (
           <p className="mb-4 rounded-lg bg-bg px-3 py-2 text-xs italic text-muted">
             Motivo: {sessao.motivoCancelamento}
@@ -871,23 +1103,23 @@ function SessaoDetalheModal({
 
         {erro && <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
 
-        {!travada && !editando && !cancelando && !trocandoTipo && (
+        {!travada && !editando && !cancelando && !trocandoTipo && !alterandoDuracao && (
           <div className="space-y-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Status</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 {STATUS_SESSAO_OPCOES.map((st) => (
                   <button
                     key={st}
                     disabled={salvando}
                     onClick={() => mudarStatus(st)}
-                    className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
+                    className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
                       st === sessao.status
                         ? "border-gold bg-gold/10 text-gold"
                         : "border-border text-fg hover:bg-bg"
                     }`}
                   >
-                    <span className={`h-1.5 w-1.5 rounded-full ${corPontoStatus(st)}`} />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${corPontoStatus(st)}`} />
                     {statusLabel(st)}
                   </button>
                 ))}
@@ -899,7 +1131,7 @@ function SessaoDetalheModal({
                 onClick={() => setEditando(true)}
                 className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
               >
-                Editar dia/horário
+                Editar data/horário
               </button>
               <button
                 onClick={() => {
@@ -911,10 +1143,40 @@ function SessaoDetalheModal({
                 Trocar tipo
               </button>
               <button
-                onClick={() => setCancelando(true)}
+                onClick={() => {
+                  setNovaDuracao(sessao.duracaoMin);
+                  setAlterandoDuracao(true);
+                }}
+                className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Duração
+              </button>
+              <button
+                onClick={() => {
+                  setMotivo("");
+                  setArquivar(false);
+                  setCancelando(true);
+                }}
                 className="flex-1 rounded-lg border border-red px-3 py-1.5 text-sm font-medium text-red hover:bg-red/10"
               >
                 Cancelar sessão
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleCopiarConfirmacao}
+                className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10"
+              >
+                {copiado === "conf" ? "Copiado!" : "Copiar confirmação"}
+              </button>
+              <button
+                onClick={handleCopiarMeet}
+                disabled={!sessao.linkMeet}
+                title={!sessao.linkMeet ? "Sessão sem link do Meet" : undefined}
+                className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                {copiado === "meet" ? "Copiado!" : "Copiar link Meet"}
               </button>
             </div>
           </div>
@@ -923,18 +1185,8 @@ function SessaoDetalheModal({
         {editando && (
           <form onSubmit={salvarEdicao} className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-fg">Novo dia (mesma semana)</label>
-              <select
-                value={novoDia}
-                onChange={(e) => setNovoDia(e.target.value)}
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-              >
-                {["SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO", "DOMINGO"].map((d) => (
-                  <option key={d} value={d}>
-                    {diaSemanaLabel(d)}
-                  </option>
-                ))}
-              </select>
+              <label className="mb-1 block text-sm font-medium text-fg">Nova data</label>
+              <DatePickerSP value={novaData} onChange={setNovaData} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-fg">Novo horário (HH:MM)</label>
@@ -948,6 +1200,9 @@ function SessaoDetalheModal({
                 className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
             </div>
+            <p className="text-xs text-muted">
+              Qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente.
+            </p>
             <div className="flex justify-end gap-3">
               <button
                 type="button"
@@ -959,7 +1214,7 @@ function SessaoDetalheModal({
               </button>
               <button
                 type="submit"
-                disabled={salvando}
+                disabled={salvando || !novaData || !novoHorario}
                 className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {salvando ? "Salvando..." : "Salvar"}
@@ -1008,6 +1263,62 @@ function SessaoDetalheModal({
           </form>
         )}
 
+        {alterandoDuracao && (
+          <form onSubmit={salvarDuracao} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Duração (minutos)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DURACAO_OPCOES_MIN.map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    onClick={() => setNovaDuracao(min)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs ${
+                      min === novaDuracao ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                    }`}
+                  >
+                    {min} min
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number"
+                min={DURACAO_SNAP_MIN}
+                step={DURACAO_SNAP_MIN}
+                value={novaDuracao}
+                onChange={(e) => setNovaDuracao(Number(e.target.value))}
+                className="mt-2 w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+            </div>
+            <p className="text-xs text-muted">
+              Múltiplo de {DURACAO_SNAP_MIN} minutos, sem ultrapassar o expediente da clínica.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setAlterandoDuracao(false)}
+                disabled={salvando}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  salvando ||
+                  !Number.isInteger(novaDuracao) ||
+                  novaDuracao < DURACAO_SNAP_MIN ||
+                  novaDuracao % DURACAO_SNAP_MIN !== 0 ||
+                  novaDuracao === sessao.duracaoMin
+                }
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </form>
+        )}
+
         {cancelando && (
           <form onSubmit={confirmarCancelamento} className="space-y-4">
             <div>
@@ -1021,6 +1332,15 @@ function SessaoDetalheModal({
                 className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-fg">
+              <input
+                type="checkbox"
+                checked={arquivar}
+                onChange={(e) => setArquivar(e.target.checked)}
+                className="h-4 w-4 rounded border-border"
+              />
+              Arquivar sessão (some do cadastro e da agenda)
+            </label>
             <div className="flex justify-end gap-3">
               <button
                 type="button"

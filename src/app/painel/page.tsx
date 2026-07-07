@@ -8,8 +8,9 @@ import {
   statusLabel,
   origemCadastroLabel,
 } from "@/lib/labels";
-import { TIMEZONE } from "@/lib/timezone";
+import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
+import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
@@ -111,6 +112,8 @@ interface Clinica {
   horarioLimiteConfirmacao: string;
   emailBoasVindasAssunto: string;
   emailBoasVindasCorpo: string;
+  templateConfirmacao: string;
+  templateMeet: string;
 }
 
 interface GoogleStatus {
@@ -163,6 +166,16 @@ function normalizar(texto: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+// Data ("YYYY-MM-DD") e horário ("HH:MM") de um ISO no calendário de São
+// Paulo, para pré-preencher o form de edição a partir do valor atual da sessão
+function dataHoraCamposSP(iso: string): { novaData: string; novoHorario: string } {
+  const c = componentesSP(new Date(iso));
+  return {
+    novaData: `${c.ano}-${String(c.mes).padStart(2, "0")}-${String(c.dia).padStart(2, "0")}`,
+    novoHorario: `${String(c.hora).padStart(2, "0")}:${String(c.minuto).padStart(2, "0")}`,
+  };
 }
 
 // Formata a data/hora da sessão no padrão pt-BR, sempre no fuso de São Paulo
@@ -360,9 +373,9 @@ export default function PainelPage() {
   const [salvandoPacote, setSalvandoPacote] = useState(false);
   const [erroPacote, setErroPacote] = useState("");
 
-  // Modal: editar sessão pontual (novo dia + novo horário)
+  // Modal: editar sessão pontual (nova data completa + novo horário)
   const [sessaoEditando, setSessaoEditando] = useState<Sessao | null>(null);
-  const [formEditar, setFormEditar] = useState({ novoDia: DIAS_SEMANA[0] as string, novoHorario: "" });
+  const [formEditar, setFormEditar] = useState({ novaData: "", novoHorario: "" });
   const [salvandoEditar, setSalvandoEditar] = useState(false);
   const [erroEditar, setErroEditar] = useState("");
 
@@ -384,8 +397,20 @@ export default function PainelPage() {
   // Modal: cancelar sessão com motivo obrigatório
   const [sessaoCancelando, setSessaoCancelando] = useState<Sessao | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
+  const [arquivarCancelamento, setArquivarCancelamento] = useState(false);
   const [salvandoCancelar, setSalvandoCancelar] = useState(false);
   const [erroCancelar, setErroCancelar] = useState("");
+
+  // Seleção múltipla de sessões + barra de ações em lote
+  const [sessoesSelecionadas, setSessoesSelecionadas] = useState<Set<string>>(new Set());
+  const [aplicandoLote, setAplicandoLote] = useState(false);
+  const [erroLote, setErroLote] = useState("");
+  const [feedbackLote, setFeedbackLote] = useState<string | null>(null);
+
+  // Modal: cancelar em lote — mesmo motivo aplicado a todas as selecionadas
+  const [modalCancelarLote, setModalCancelarLote] = useState(false);
+  const [motivoCancelamentoLote, setMotivoCancelamentoLote] = useState("");
+  const [arquivarCancelamentoLote, setArquivarCancelamentoLote] = useState(false);
 
   // Modal: excluir paciente — trava exige digitar o nome do paciente
   const [pacienteExcluindo, setPacienteExcluindo] = useState<Paciente | null>(null);
@@ -555,7 +580,18 @@ export default function PainelPage() {
     try {
       const res = await fetch(`/api/agendamentos?pacienteId=${pacienteId}`);
       if (res.ok) {
-        setSessoes(await res.json());
+        const dados: Sessao[] = await res.json();
+        setSessoes(dados);
+        // Remove da seleção qualquer sessão que tenha virado consumida (ou
+        // deixado de existir) nesse recarregamento, sem descartar o resto.
+        setSessoesSelecionadas((atual) => {
+          if (atual.size === 0) return atual;
+          const elegiveis = new Set(
+            dados.filter((s) => !STATUS_TRAVADOS.includes(s.status)).map((s) => s.id)
+          );
+          const novo = new Set(Array.from(atual).filter((id) => elegiveis.has(id)));
+          return novo.size === atual.size ? atual : novo;
+        });
       }
     } finally {
       setCarregandoSessoes(false);
@@ -565,12 +601,18 @@ export default function PainelPage() {
   function abrirPainelPaciente(p: Paciente) {
     setPacienteSelecionado(p);
     setSessoes([]);
+    setSessoesSelecionadas(new Set());
+    setErroLote("");
+    setFeedbackLote(null);
     carregarSessoes(p.id);
   }
 
   function fecharPainelPaciente() {
     setPacienteSelecionado(null);
     setSessoes([]);
+    setSessoesSelecionadas(new Set());
+    setErroLote("");
+    setFeedbackLote(null);
   }
 
   // Ao clicar numa pendência do sino, fecha o dropdown e abre o painel do paciente
@@ -671,10 +713,12 @@ export default function PainelPage() {
     }
   }
 
-  // Edição pontual de dia/horário de uma sessão
+  // Edição pontual de data/horário de uma sessão — pré-preenche com o valor
+  // atual, já que agora qualquer data pode ser escolhida (não só a semana
+  // original)
   function abrirModalEditar(s: Sessao) {
     setSessaoEditando(s);
-    setFormEditar({ novoDia: DIAS_SEMANA[0], novoHorario: "" });
+    setFormEditar(dataHoraCamposSP(s.inicio));
     setErroEditar("");
   }
 
@@ -793,6 +837,7 @@ export default function PainelPage() {
   function abrirModalCancelar(s: Sessao) {
     setSessaoCancelando(s);
     setMotivoCancelamento("");
+    setArquivarCancelamento(false);
     setErroCancelar("");
   }
 
@@ -811,7 +856,7 @@ export default function PainelPage() {
       const res = await fetch(`/api/sessoes/${sessaoCancelando.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivo }),
+        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivo, arquivar: arquivarCancelamento }),
       });
 
       if (!res.ok) {
@@ -829,6 +874,95 @@ export default function PainelPage() {
     } finally {
       setSalvandoCancelar(false);
     }
+  }
+
+  // Seleção múltipla de sessões para ações em lote — sessões travadas
+  // (já consumidas) nunca entram na lista de elegíveis.
+  const sessoesSelecionaveis = sessoes.filter((s) => !STATUS_TRAVADOS.includes(s.status));
+  const todasSelecionadas =
+    sessoesSelecionaveis.length > 0 && sessoesSelecionaveis.every((s) => sessoesSelecionadas.has(s.id));
+
+  function toggleSelecaoSessao(id: string) {
+    setSessoesSelecionadas((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
+  }
+
+  function toggleSelecionarTodas() {
+    setSessoesSelecionadas(todasSelecionadas ? new Set() : new Set(sessoesSelecionaveis.map((s) => s.id)));
+  }
+
+  // Aplica uma ação em lote (status ou cancelamento) às sessões selecionadas.
+  // Retorna true em caso de sucesso, para o chamador (ex.: modal de
+  // cancelamento em lote) decidir se fecha o modal.
+  async function handleAplicarLote(status: string, motivo?: string, arquivar?: boolean): Promise<boolean> {
+    if (!pacienteSelecionado || sessoesSelecionadas.size === 0) return false;
+    setAplicandoLote(true);
+    setErroLote("");
+    setFeedbackLote(null);
+
+    try {
+      const res = await fetch("/api/sessoes/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: Array.from(sessoesSelecionadas),
+          status,
+          ...(motivo ? { motivoCancelamento: motivo, arquivar: Boolean(arquivar) } : {}),
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroLote(data?.erro ?? "não foi possível aplicar a ação em lote");
+        return false;
+      }
+      if (!data.aplicadas) {
+        setErroLote("nenhuma das sessões selecionadas pôde receber essa ação");
+        return false;
+      }
+
+      const sessaoOuSessoes = data.aplicadas === 1 ? "sessão" : "sessões";
+      let mensagem =
+        status === "CANCELADA"
+          ? `${data.aplicadas} ${sessaoOuSessoes} ${data.aplicadas === 1 ? "cancelada" : "canceladas"}`
+          : `${data.aplicadas} ${sessaoOuSessoes} ${data.aplicadas === 1 ? "marcada" : "marcadas"} como ${statusLabel(status)}`;
+      if (data.puladas > 0) {
+        mensagem += ` (${data.puladas} ${data.puladas === 1 ? "ignorada" : "ignoradas"})`;
+      }
+      setFeedbackLote(mensagem);
+
+      await carregarSessoes(pacienteSelecionado.id);
+      await recarregarPacienteSelecionado();
+      await carregarNotificacoes();
+      return true;
+    } catch {
+      setErroLote("não foi possível aplicar a ação em lote");
+      return false;
+    } finally {
+      setAplicandoLote(false);
+    }
+  }
+
+  function abrirModalCancelarLote() {
+    setMotivoCancelamentoLote("");
+    setArquivarCancelamentoLote(false);
+    setErroLote("");
+    setModalCancelarLote(true);
+  }
+
+  async function handleConfirmarCancelamentoLote(e: React.FormEvent) {
+    e.preventDefault();
+    const motivo = motivoCancelamentoLote.trim();
+    if (!motivo) {
+      setErroLote("informe o motivo do cancelamento");
+      return;
+    }
+    const ok = await handleAplicarLote("CANCELADA", motivo, arquivarCancelamentoLote);
+    if (ok) setModalCancelarLote(false);
   }
 
   // Exclusão definitiva de paciente — trava exige digitar o nome do paciente
@@ -919,25 +1053,28 @@ export default function PainelPage() {
   }
 
   // Monta a mensagem de confirmação de sessão, pronta para copiar e colar
+  // (mesmo template configurável usado no popup da agenda)
   function montarMensagemConfirmacao(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
-    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
-    return (
-      `Olá, ${primeiroNome}! Passando para confirmar sua sessão no dia ${formatarDataCurta(s.inicio)} às ${formatarHorario(s.inicio)}. ` +
-      `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}. Até lá!\n— ${clinica.nomeAssistente}`
-    );
+    return renderizarTemplateMensagem(clinica.templateConfirmacao, {
+      saudacao: saudacaoAtual(),
+      paciente: pacienteSelecionado.nome.split(" ")[0],
+      data: formatarDataCurta(s.inicio),
+      hora: formatarHorario(s.inicio),
+      horarioLimite: clinica.horarioLimiteConfirmacao,
+      assistente: clinica.nomeAssistente,
+    });
   }
 
   // Monta a mensagem com o link do Meet, pronta para copiar e colar
   function montarMensagemMeet(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
-    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
-    const link = s.linkMeet ?? "(link ainda não gerado)";
-    return (
-      `Olá, ${primeiroNome}! Sua sessão é no dia ${formatarDataCurta(s.inicio)} às ${formatarHorario(s.inicio)}. ` +
-      `Link de acesso: ${link}\n` +
-      `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}.\n— ${clinica.nomeAssistente}`
-    );
+    return renderizarTemplateMensagem(clinica.templateMeet, {
+      saudacao: saudacaoAtual(),
+      paciente: pacienteSelecionado.nome.split(" ")[0],
+      linkMeet: s.linkMeet ?? "(link ainda não gerado)",
+      assistente: clinica.nomeAssistente,
+    });
   }
 
   async function copiar(texto: string, chave: string) {
@@ -1312,10 +1449,11 @@ export default function PainelPage() {
       {pacienteSelecionado && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-40 flex justify-end bg-black/60">
           <div
-            className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-6 shadow-lg"
+            className="flex h-full w-full max-w-md flex-col border-l border-border bg-surface shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-6 flex items-center justify-between">
+          <div className="flex-shrink-0 border-b border-border p-6 pb-4">
+            <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-serif text-lg font-semibold text-fg">
                   {pacienteSelecionado.nome}
@@ -1362,6 +1500,44 @@ export default function PainelPage() {
                 </button>
               </div>
             </div>
+
+            {sessoesSelecionadas.size > 0 && (
+              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/5 p-3">
+                <span className="text-sm font-medium text-fg">
+                  {sessoesSelecionadas.size}{" "}
+                  {sessoesSelecionadas.size === 1 ? "sessão selecionada" : "sessões selecionadas"}
+                </span>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAplicarLote("REALIZADA")}
+                    disabled={aplicandoLote}
+                    className="rounded-lg border border-green px-2 py-1 text-sm font-medium text-green hover:bg-green/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Marcar como Realizada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAplicarLote("NAO_REALIZADA")}
+                    disabled={aplicandoLote}
+                    className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Marcar como Não realizada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={abrirModalCancelarLote}
+                    disabled={aplicandoLote}
+                    className="rounded-lg border border-red px-2 py-1 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar selecionadas
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 pt-4">
 
             {/* Link das sessões: pasta do Drive com as gravações do paciente */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
@@ -1453,7 +1629,28 @@ export default function PainelPage() {
                 </p>
               </div>
             ) : (
-              <ul className="space-y-3">
+              <>
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm text-muted">
+                    <input
+                      type="checkbox"
+                      checked={todasSelecionadas}
+                      onChange={toggleSelecionarTodas}
+                      disabled={sessoesSelecionaveis.length === 0}
+                      className="h-4 w-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                    Selecionar todas
+                  </label>
+                </div>
+
+                {erroLote && (
+                  <p className="mb-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroLote}</p>
+                )}
+                {feedbackLote && (
+                  <p className="mb-3 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">{feedbackLote}</p>
+                )}
+
+                <ul className="space-y-3">
                 {sessoes.map((s) => {
                   const travada = STATUS_TRAVADOS.includes(s.status);
                   return (
@@ -1462,13 +1659,23 @@ export default function PainelPage() {
                     className={`rounded-lg border border-border p-3 ${travada ? "opacity-70" : ""}`}
                   >
                     <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-fg">
-                          Sessão {s.numeroSessao}/{s.totalPacote}
-                        </p>
-                        <p className="text-sm text-muted">
-                          {formatarDataHora(s.inicio)}
-                        </p>
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sessoesSelecionadas.has(s.id)}
+                          onChange={() => toggleSelecaoSessao(s.id)}
+                          disabled={travada}
+                          title={travada ? "Sessão consumida — não pode ser selecionada" : undefined}
+                          className="mt-1 h-4 w-4 rounded border-border disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-fg">
+                            Sessão {s.numeroSessao}/{s.totalPacote}
+                          </p>
+                          <p className="text-sm text-muted">
+                            {formatarDataHora(s.inicio)}
+                          </p>
+                        </div>
                       </div>
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(s.status)}`}
@@ -1495,7 +1702,7 @@ export default function PainelPage() {
                       <button
                         onClick={() => abrirModalEditar(s)}
                         disabled={travada}
-                        title={travada ? "Sessão consumida — somente leitura" : "Editar dia e horário"}
+                        title={travada ? "Sessão consumida — somente leitura" : "Editar data e horário"}
                         className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-sm text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <IconLapis className="h-3.5 w-3.5" />
@@ -1533,8 +1740,10 @@ export default function PainelPage() {
                   </li>
                   );
                 })}
-              </ul>
+                </ul>
+              </>
             )}
+          </div>
           </div>
         </div>
       )}
@@ -1670,19 +1879,12 @@ export default function PainelPage() {
             <form onSubmit={handleSalvarEdicao} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
-                  Novo dia (mesma semana)
+                  Nova data
                 </label>
-                <select
-                  value={formEditar.novoDia}
-                  onChange={(e) => setFormEditar((f) => ({ ...f, novoDia: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
-                  {DIAS_SEMANA.map((dia) => (
-                    <option key={dia} value={dia}>
-                      {diaSemanaLabel(dia)}
-                    </option>
-                  ))}
-                </select>
+                <DatePickerSP
+                  value={formEditar.novaData}
+                  onChange={(valor) => setFormEditar((f) => ({ ...f, novaData: valor }))}
+                />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
@@ -1694,10 +1896,13 @@ export default function PainelPage() {
                   placeholder="14:00"
                   pattern="^([01]\d|2[0-3]):[0-5]\d$"
                   value={formEditar.novoHorario}
-                  onChange={(e) => setFormEditar((f) => ({ ...f, novoHorario: e.target.value }))}
+                  onChange={(e) => setFormEditar((f) => ({ ...f, novoHorario: mascararHorario(e.target.value) }))}
                   className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
               </div>
+              <p className="text-xs text-muted">
+                A sessão pode ir para qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente.
+              </p>
 
               {erroEditar && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
@@ -1716,7 +1921,7 @@ export default function PainelPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={salvandoEditar}
+                  disabled={salvandoEditar || !formEditar.novaData || !formEditar.novoHorario}
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoEditar ? "Salvando..." : "Salvar"}
@@ -1749,6 +1954,16 @@ export default function PainelPage() {
                 />
               </div>
 
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  checked={arquivarCancelamento}
+                  onChange={(e) => setArquivarCancelamento(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Arquivar sessão (some do cadastro e da agenda)
+              </label>
+
               {erroCancelar && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
                   {erroCancelar}
@@ -1770,6 +1985,67 @@ export default function PainelPage() {
                   className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoCancelar ? "Cancelando..." : "Confirmar cancelamento"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: cancelar em lote — um único motivo aplicado a todas as selecionadas */}
+      {modalCancelarLote && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Cancelar {sessoesSelecionadas.size}{" "}
+              {sessoesSelecionadas.size === 1 ? "sessão" : "sessões"}
+            </h2>
+            <form onSubmit={handleConfirmarCancelamentoLote} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Motivo do cancelamento
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={motivoCancelamentoLote}
+                  onChange={(e) => setMotivoCancelamentoLote(e.target.value)}
+                  placeholder="Descreva o motivo do cancelamento..."
+                  className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  checked={arquivarCancelamentoLote}
+                  onChange={(e) => setArquivarCancelamentoLote(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Arquivar sessões (somem do cadastro e da agenda)
+              </label>
+
+              {erroLote && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroLote}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalCancelarLote(false)}
+                  disabled={aplicandoLote}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={aplicandoLote || !motivoCancelamentoLote.trim()}
+                  className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {aplicandoLote ? "Cancelando..." : "Confirmar cancelamento"}
                 </button>
               </div>
             </form>

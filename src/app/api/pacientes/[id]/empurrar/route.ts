@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
+import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -38,12 +39,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const body = await req.json();
   const semanas = Math.max(0, Math.min(10, Number(body.semanas) || 0));
-  if (semanas === 0) {
-    return NextResponse.json({ erro: "informe semanas entre 1 e 10" }, { status: 400 });
-  }
 
-  // novoDia/novoHorario são opcionais — quando informados, além de empurrar N
-  // semanas, o dia da semana e o horário de cada sessão também são trocados.
+  // novoDia/novoHorario são opcionais — quando informados, além de (opcionalmente)
+  // empurrar N semanas, o dia da semana e o horário de cada sessão também são
+  // trocados, mantendo a semana (segunda-domingo) de cada sessão.
   let diaAlvo: number | null = null;
   let horaAlvo: { h: number; m: number } | null = null;
   if (body.novoDia || body.novoHorario) {
@@ -58,6 +57,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     horaAlvo = { h, m };
   }
 
+  // Com semanas=0 é preciso ao menos mudar dia/horário — senão não há o que fazer.
+  if (semanas === 0 && diaAlvo === null) {
+    return NextResponse.json({ erro: "informe semanas entre 1 e 10" }, { status: 400 });
+  }
+
   const agora = new Date();
   const hojeSP = componentesSP(agora);
   const hojeZero = criarDataSP(hojeSP.ano, hojeSP.mes, hojeSP.dia, 0, 0, 0);
@@ -67,7 +71,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     orderBy: { numeroSessao: "asc" },
   });
 
-  const movimentos: { id: string; novaData: Date }[] = [];
+  const movimentos: {
+    id: string;
+    novaData: Date;
+    googleEventId: string | null;
+    googleCalendarId: string | null;
+    duracaoMin: number;
+  }[] = [];
   for (const s of sessoes) {
     if (s.inicio < agora) continue;
     let novaData = new Date(s.inicio.getTime() + semanas * 7 * DIA_MS);
@@ -90,21 +100,66 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         { status: 400 }
       );
     }
-    movimentos.push({ id: s.id, novaData });
+    movimentos.push({
+      id: s.id,
+      novaData,
+      googleEventId: s.googleEventId,
+      googleCalendarId: s.googleCalendarId,
+      duracaoMin: s.duracaoMin,
+    });
   }
 
   if (movimentos.length === 0) {
     return NextResponse.json({ erro: "nenhuma sessão futura para mover" }, { status: 400 });
   }
 
-  await prisma.$transaction(
-    movimentos.map((mov) =>
+  // Regra de conflito: nenhuma sessão movida pode cair na mesma semana
+  // (segunda a domingo) de uma sessão do mesmo paciente que não será movida
+  // (sessões passadas). Se colidir, bloqueia a operação inteira — tudo ou nada.
+  const naoMovidas = sessoes.filter((s) => s.inicio < agora);
+  const semanasNaoMovidas = new Set(naoMovidas.map((s) => inicioDaSemana(s.inicio).getTime()));
+  const colisao = movimentos.some((mov) => semanasNaoMovidas.has(inicioDaSemana(mov.novaData).getTime()));
+  if (colisao) {
+    return NextResponse.json(
+      { erro: "Não é possível empurrar: já existe uma sessão nesta semana. Nada foi movido." },
+      { status: 400 }
+    );
+  }
+
+  await prisma.$transaction([
+    ...movimentos.map((mov) =>
       prisma.agendamento.update({
         where: { id: mov.id },
         data: { inicio: mov.novaData, status: "AGENDADA" },
       })
-    )
-  );
+    ),
+    ...(body.novoDia && body.novoHorario
+      ? [
+          prisma.paciente.update({
+            where: { id: pacienteId },
+            data: { diaPreferido: body.novoDia, horarioFixo: body.novoHorario },
+          }),
+        ]
+      : []),
+  ]);
+
+  // Reflete a nova data/hora no Google Calendar de cada sessão movida que
+  // tenha evento vinculado. Melhor esforço — busca o client uma única vez
+  // para o lote todo, e falha na integração nunca desfaz o que já foi movido.
+  const movimentosComEvento = movimentos.filter((mov) => mov.googleEventId);
+  if (movimentosComEvento.length > 0) {
+    const google = await obterClinicaECalendar(usuario.clinicaId);
+    if (google) {
+      for (const mov of movimentosComEvento) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          mov.googleEventId!,
+          { inicio: mov.novaData, duracaoMin: mov.duracaoMin }
+        );
+      }
+    }
+  }
 
   const sessaoOuSessoes = movimentos.length === 1 ? "sessão" : "sessões";
   const semanaOuSemanas = semanas === 1 ? "semana" : "semanas";

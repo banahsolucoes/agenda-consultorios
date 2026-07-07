@@ -24,6 +24,7 @@ model Clinica {
   duracaoPadraoMin          Int               @default(45)
   nomeAssistente            String            @default("Assistente")
   horarioLimiteConfirmacao  String            @default("17:00")
+  permitirResizeSessao   Boolean           @default(false)
   criadoEm                  DateTime          @default(now())
 
   // Integração Google Calendar/Meet (OAuth por clínica, Tarefa 13)
@@ -45,6 +46,12 @@ model Clinica {
   // primeiro nome do paciente, {link_pasta} vira o botão com o link da pasta.
   emailBoasVindasAssunto    String            @default("Acesso a Gravações com a Fono Pâmela Rachid")
   emailBoasVindasCorpo      String            @default("Olá {nome}, tudo bem?\n\nSuas sessões ficam gravadas e disponíveis através do acesso por esse e-mail. É só clicar e acionar seu conteúdo.\n\n{link_pasta}\n\nVale muito a pena ir praticando durante a semana, nos intervalos do dia mesmo… no banho, arrumando a casa, caminhando. Esses pequenos momentos fazem diferença de verdade no seu resultado.\n\nQualquer dúvida, me chama 😊\n\nAtenciosamente\nFono Pâmela Rachid")
+
+  // Templates das mensagens de copiar-colar (popup da agenda + painel do
+  // paciente). Variáveis: {saudacao} {paciente} {data} {hora}
+  // {horarioLimite} {linkMeet} {assistente} — ver src/lib/templatesMensagem.ts.
+  templateConfirmacao       String            @default("{saudacao} {paciente}, tudo bem?! \n🌸 Passando para confirmar sua sessão no dia {data} às {hora}hr. 🗓\n👉 Podemos confirmar? ✅\n⸻\n⚠️ Importante\nCaso não haja confirmação até hoje, às {horarioLimite}hr, o horário será automaticamente cancelado.\nUm abraço\n\n{assistente} 🥰")
+  templateMeet              String            @default("{saudacao} {paciente}, tudo bem? ☀️\n\nSegue o link da sua sessão de hoje.\n🔗 {linkMeet} 🔗\n\nQualquer coisa, estou por aqui.\n\n{assistente} 🥰")
 
   usuarios                  Usuario[]
   pacientes                 Paciente[]
@@ -176,6 +183,8 @@ model Agendamento {
   linkMeet          String?
   tipoSessaoId      String?
   motivoCancelamento String?
+  confirmada        Boolean        @default(false)
+  arquivada         Boolean        @default(false)
   criadoEm          DateTime       @default(now())
 
   pacote            Pacote         @relation(fields: [pacoteId], references: [id])

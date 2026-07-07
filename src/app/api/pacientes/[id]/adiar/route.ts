@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { componentesSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
+import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -56,15 +57,34 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
+  const movimentos = aMover.map((s) => ({ sessao: s, novaData: new Date(s.inicio.getTime() - 7 * DIA_MS) }));
+
   await prisma.$transaction(
-    aMover.map((s) => {
-      const novaData = new Date(s.inicio.getTime() - 7 * DIA_MS);
-      return prisma.agendamento.update({
-        where: { id: s.id },
-        data: { inicio: novaData, status: "AGENDADA" },
-      });
-    })
+    movimentos.map((mov) =>
+      prisma.agendamento.update({
+        where: { id: mov.sessao.id },
+        data: { inicio: mov.novaData, status: "AGENDADA" },
+      })
+    )
   );
+
+  // Reflete a nova data/hora no Google Calendar de cada sessão movida que
+  // tenha evento vinculado. Melhor esforço — busca o client uma única vez
+  // para o lote todo, e falha na integração nunca desfaz o que já foi movido.
+  const movimentosComEvento = movimentos.filter((mov) => mov.sessao.googleEventId);
+  if (movimentosComEvento.length > 0) {
+    const google = await obterClinicaECalendar(usuario.clinicaId);
+    if (google) {
+      for (const mov of movimentosComEvento) {
+        await sincronizarEventoGoogle(
+          google.calendar,
+          mov.sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          mov.sessao.googleEventId!,
+          { inicio: mov.novaData, duracaoMin: mov.sessao.duracaoMin }
+        );
+      }
+    }
+  }
 
   const sessaoOuSessoes = aMover.length === 1 ? "sessão" : "sessões";
   await registrarLog(
