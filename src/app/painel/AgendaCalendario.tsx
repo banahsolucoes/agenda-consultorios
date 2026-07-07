@@ -774,6 +774,7 @@ function SessaoDetalheModal({
   const [novoHorario, setNovoHorario] = useState(formatarHorario(new Date(sessao.inicio)));
   const [cancelando, setCancelando] = useState(false);
   const [motivo, setMotivo] = useState("");
+  const [arquivar, setArquivar] = useState(false);
   const [trocandoTipo, setTrocandoTipo] = useState(false);
   const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
   const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
@@ -872,7 +873,7 @@ function SessaoDetalheModal({
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivoLimpo }),
+        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivoLimpo, arquivar }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -992,7 +993,11 @@ function SessaoDetalheModal({
                 Trocar tipo
               </button>
               <button
-                onClick={() => setCancelando(true)}
+                onClick={() => {
+                  setMotivo("");
+                  setArquivar(false);
+                  setCancelando(true);
+                }}
                 className="flex-1 rounded-lg border border-red px-3 py-1.5 text-sm font-medium text-red hover:bg-red/10"
               >
                 Cancelar sessão
@@ -1112,6 +1117,15 @@ function SessaoDetalheModal({
                 className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-fg">
+              <input
+                type="checkbox"
+                checked={arquivar}
+                onChange={(e) => setArquivar(e.target.checked)}
+                className="h-4 w-4 rounded border-border"
+              />
+              Arquivar sessão (some do cadastro e da agenda)
+            </label>
             <div className="flex justify-end gap-3">
               <button
                 type="button"

@@ -28,11 +28,13 @@ export async function POST(req: NextRequest) {
   const status = statusBruto;
 
   let motivo = "";
+  let arquivar = false;
   if (status === "CANCELADA") {
     motivo = typeof body.motivoCancelamento === "string" ? body.motivoCancelamento.trim() : "";
     if (!motivo) {
       return NextResponse.json({ erro: "motivo do cancelamento é obrigatório" }, { status: 400 });
     }
+    arquivar = body.arquivar === true;
   }
 
   const sessoes = await prisma.agendamento.findMany({
@@ -72,7 +74,10 @@ export async function POST(req: NextRequest) {
     validas.map((s) =>
       prisma.agendamento.update({
         where: { id: s.id },
-        data: status === "CANCELADA" ? { status, motivoCancelamento: motivo } : { status },
+        data:
+          status === "CANCELADA"
+            ? { status, motivoCancelamento: motivo, ...(arquivar ? { arquivada: true } : {}) }
+            : { status },
       })
     )
   );
@@ -88,7 +93,7 @@ export async function POST(req: NextRequest) {
 
   const nomePaciente = resolverNomePaciente(validas.map((s) => s.paciente.nome));
   const acao = status === "CANCELADA" ? "LOTE_CANCELAR" : "LOTE_STATUS";
-  const detalhe = montarDetalheLote(status, validas.length, nomePaciente, motivo);
+  const detalhe = montarDetalheLote(status, validas.length, nomePaciente, motivo, arquivar);
 
   await registrarLog(usuario.clinicaId, usuario.id, acao, detalhe);
 

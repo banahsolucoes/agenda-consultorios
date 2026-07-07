@@ -394,6 +394,7 @@ export default function PainelPage() {
   // Modal: cancelar sessão com motivo obrigatório
   const [sessaoCancelando, setSessaoCancelando] = useState<Sessao | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
+  const [arquivarCancelamento, setArquivarCancelamento] = useState(false);
   const [salvandoCancelar, setSalvandoCancelar] = useState(false);
   const [erroCancelar, setErroCancelar] = useState("");
 
@@ -406,6 +407,7 @@ export default function PainelPage() {
   // Modal: cancelar em lote — mesmo motivo aplicado a todas as selecionadas
   const [modalCancelarLote, setModalCancelarLote] = useState(false);
   const [motivoCancelamentoLote, setMotivoCancelamentoLote] = useState("");
+  const [arquivarCancelamentoLote, setArquivarCancelamentoLote] = useState(false);
 
   // Modal: excluir paciente — trava exige digitar o nome do paciente
   const [pacienteExcluindo, setPacienteExcluindo] = useState<Paciente | null>(null);
@@ -832,6 +834,7 @@ export default function PainelPage() {
   function abrirModalCancelar(s: Sessao) {
     setSessaoCancelando(s);
     setMotivoCancelamento("");
+    setArquivarCancelamento(false);
     setErroCancelar("");
   }
 
@@ -850,7 +853,7 @@ export default function PainelPage() {
       const res = await fetch(`/api/sessoes/${sessaoCancelando.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivo }),
+        body: JSON.stringify({ status: "CANCELADA", motivoCancelamento: motivo, arquivar: arquivarCancelamento }),
       });
 
       if (!res.ok) {
@@ -892,7 +895,7 @@ export default function PainelPage() {
   // Aplica uma ação em lote (status ou cancelamento) às sessões selecionadas.
   // Retorna true em caso de sucesso, para o chamador (ex.: modal de
   // cancelamento em lote) decidir se fecha o modal.
-  async function handleAplicarLote(status: string, motivo?: string): Promise<boolean> {
+  async function handleAplicarLote(status: string, motivo?: string, arquivar?: boolean): Promise<boolean> {
     if (!pacienteSelecionado || sessoesSelecionadas.size === 0) return false;
     setAplicandoLote(true);
     setErroLote("");
@@ -905,7 +908,7 @@ export default function PainelPage() {
         body: JSON.stringify({
           ids: Array.from(sessoesSelecionadas),
           status,
-          ...(motivo ? { motivoCancelamento: motivo } : {}),
+          ...(motivo ? { motivoCancelamento: motivo, arquivar: Boolean(arquivar) } : {}),
         }),
       });
 
@@ -943,6 +946,7 @@ export default function PainelPage() {
 
   function abrirModalCancelarLote() {
     setMotivoCancelamentoLote("");
+    setArquivarCancelamentoLote(false);
     setErroLote("");
     setModalCancelarLote(true);
   }
@@ -954,7 +958,7 @@ export default function PainelPage() {
       setErroLote("informe o motivo do cancelamento");
       return;
     }
-    const ok = await handleAplicarLote("CANCELADA", motivo);
+    const ok = await handleAplicarLote("CANCELADA", motivo, arquivarCancelamentoLote);
     if (ok) setModalCancelarLote(false);
   }
 
@@ -1944,6 +1948,16 @@ export default function PainelPage() {
                 />
               </div>
 
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  checked={arquivarCancelamento}
+                  onChange={(e) => setArquivarCancelamento(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Arquivar sessão (some do cadastro e da agenda)
+              </label>
+
               {erroCancelar && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
                   {erroCancelar}
@@ -1994,6 +2008,16 @@ export default function PainelPage() {
                   className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  checked={arquivarCancelamentoLote}
+                  onChange={(e) => setArquivarCancelamentoLote(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Arquivar sessões (somem do cadastro e da agenda)
+              </label>
 
               {erroLote && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">

@@ -34,11 +34,12 @@ export function montarDetalheLote(
   status: StatusLoteValido,
   quantidade: number,
   nomePaciente: string,
-  motivo: string
+  motivo: string,
+  arquivar = false
 ): string {
   const sessaoOuSessoes = quantidade === 1 ? "sessão" : "sessões";
   if (status === "CANCELADA") {
-    return `Cancelou ${quantidade} ${sessaoOuSessoes} de ${nomePaciente} — motivo: ${motivo}`;
+    return `Cancelou${arquivar ? " e arquivou" : ""} ${quantidade} ${sessaoOuSessoes} de ${nomePaciente} — motivo: ${motivo}`;
   }
   return `Marcou ${quantidade} ${sessaoOuSessoes} de ${nomePaciente} como ${statusLabel(status)}`;
 }

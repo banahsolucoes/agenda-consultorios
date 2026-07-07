@@ -17,7 +17,9 @@ export async function GET(req: NextRequest) {
   }
 
   const sessoes = await prisma.agendamento.findMany({
-    where: { pacienteId },
+    // Sessão arquivada some do cadastro do paciente — continua no banco
+    // para histórico/auditoria, só não é mais exibida.
+    where: { pacienteId, arquivada: false },
     orderBy: { numeroSessao: "asc" },
   });
   return NextResponse.json(sessoes);

@@ -42,6 +42,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (!motivo) {
         return NextResponse.json({ erro: "motivo do cancelamento é obrigatório" }, { status: 400 });
       }
+      const arquivar = body.arquivar === true;
 
       // Remove o evento do Google Calendar da clínica, se houver um vinculado
       // a esta sessão. Falha na integração nunca deve impedir o cancelamento
@@ -59,13 +60,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
 
       const atualizada = await prisma.agendamento.update({
-        where: { id }, data: { status: "CANCELADA", motivoCancelamento: motivo },
+        where: { id },
+        data: { status: "CANCELADA", motivoCancelamento: motivo, ...(arquivar ? { arquivada: true } : {}) },
       });
       await registrarLog(
         usuario.clinicaId,
         usuario.id,
         "CANCELAR_SESSAO",
-        `Cancelou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} — motivo: ${motivo}`
+        `Cancelou${arquivar ? " e arquivou" : ""} a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} — motivo: ${motivo}`
       );
       const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
       return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });

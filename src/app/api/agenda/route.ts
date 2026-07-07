@@ -28,6 +28,9 @@ export async function GET(req: NextRequest) {
       // pelo Google Agenda no celular, que só deve refletir sessões ativas);
       // o histórico continua no banco e visível no painel do paciente.
       status: { not: "CANCELADA" },
+      // Arquivada some do calendário e do painel do paciente também — mas
+      // continua no banco.
+      arquivada: false,
     },
     include: {
       paciente: { select: { id: true, nome: true } },
