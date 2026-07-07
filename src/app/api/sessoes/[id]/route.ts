@@ -274,12 +274,18 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const precisaGoogle = (!eraOnline && ficaOnline && !sessao.linkMeet) || Boolean(sessao.googleEventId);
     const google = precisaGoogle ? await obterClinicaECalendar(sessao.paciente.clinicaId) : null;
 
+    // Título independe do tipo — a troca nunca deve alterar o nome/numeração
+    // já usados na criação, só recompomos aqui pra garantir consistência
+    // caso o evento precise ser (re)criado ou tenha o fim atualizado abaixo.
+    const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${sessao.confirmada ? " ✅" : ""}`;
+
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
       if (google) {
         const resultado = await criarEventoGoogleMeet(google.calendar, google.clinica.googleCalendarId ?? "primary", {
-          titulo: `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
+          titulo,
           inicio: sessao.inicio,
           duracaoMin: novaDuracaoMin,
+          cor: novoTipo.cor,
         });
         if (resultado.linkMeet) {
           dadosGoogle = resultado;
@@ -298,13 +304,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     });
 
     // Evento que já existia antes desta troca (não foi criado agora pelo
-    // bloco acima) e cuja duração mudou — só falta corrigir o fim no Google.
-    if (!dadosGoogle.googleEventId && sessao.googleEventId && google && novaDuracaoMin !== sessao.duracaoMin) {
+    // bloco acima) — sincroniza duração, título e cor do novo tipo. Sempre
+    // dispara (não só quando a duração muda): a cor pode ser diferente entre
+    // dois tipos com a mesma duração.
+    if (!dadosGoogle.googleEventId && sessao.googleEventId && google) {
       await sincronizarEventoGoogle(
         google.calendar,
         sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
         sessao.googleEventId,
-        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin }
+        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin, titulo, cor: novoTipo.cor }
       );
     }
 
