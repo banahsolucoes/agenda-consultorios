@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
   let tipoSessaoEhOnline = paciente.tipoSessao?.ehOnline ?? false;
   let tipoSessaoEhAtendimentoUnico = paciente.tipoSessao?.ehAtendimentoUnico ?? false;
   let tipoSessaoNome = paciente.tipoSessao?.nome ?? null;
+  let tipoSessaoDuracaoMin = paciente.tipoSessao?.duracaoPadraoMin ?? 45;
   if (body.tipoSessaoId !== undefined) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
@@ -80,6 +81,7 @@ export async function POST(req: NextRequest) {
     tipoSessaoEhOnline = tipoSessao.ehOnline;
     tipoSessaoEhAtendimentoUnico = tipoSessao.ehAtendimentoUnico;
     tipoSessaoNome = tipoSessao.nome;
+    tipoSessaoDuracaoMin = tipoSessao.duracaoPadraoMin;
   }
 
   // Tipo de sessão de atendimento único (ex.: avaliação) só pode ser usado
@@ -110,7 +112,7 @@ export async function POST(req: NextRequest) {
     sessoes.push({
       pacoteId: pacote.id, pacienteId,
       numeroSessao: i + 1, totalPacote: total,
-      inicio, duracaoMin: 45,
+      inicio, duracaoMin: tipoSessaoDuracaoMin,
       tipoSessaoId,
     });
   }
