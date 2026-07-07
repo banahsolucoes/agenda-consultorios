@@ -19,6 +19,8 @@ const CAMPOS_EDITAVEIS = [
   "pastaRaizDriveId",
   "emailBoasVindasAssunto",
   "emailBoasVindasCorpo",
+  "templateConfirmacao",
+  "templateMeet",
   "fundoOpacidade",
   "fundoAjuste",
 ] as const;
@@ -43,6 +45,8 @@ const SELECT_CLINICA = {
   pastaRaizDriveId: true,
   emailBoasVindasAssunto: true,
   emailBoasVindasCorpo: true,
+  templateConfirmacao: true,
+  templateMeet: true,
 } as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado
@@ -102,6 +106,12 @@ export async function PATCH(req: NextRequest) {
   }
   if (data.emailBoasVindasCorpo !== undefined && !data.emailBoasVindasCorpo) {
     return NextResponse.json({ erro: "emailBoasVindasCorpo não pode ser vazio" }, { status: 400 });
+  }
+  if (data.templateConfirmacao !== undefined && !data.templateConfirmacao) {
+    return NextResponse.json({ erro: "templateConfirmacao não pode ser vazio" }, { status: 400 });
+  }
+  if (data.templateMeet !== undefined && !data.templateMeet) {
+    return NextResponse.json({ erro: "templateMeet não pode ser vazio" }, { status: 400 });
   }
 
   // Aceita o operador colar tanto um link do Drive quanto já o próprio ID da

@@ -14,6 +14,7 @@ import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
 import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
+import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import DatePickerSP from "./DatePickerSP";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
@@ -64,6 +65,8 @@ interface TipoSessaoOpcao {
 interface ClinicaAgenda {
   nomeAssistente: string;
   horarioLimiteConfirmacao: string;
+  templateConfirmacao: string;
+  templateMeet: string;
 }
 
 function horaParaMinutos(hora: string) {
@@ -134,21 +137,28 @@ async function copiarParaClipboard(texto: string): Promise<boolean> {
   }
 }
 
-// Mesma mensagem de confirmação já usada no painel do paciente
+// Mesmo template configurável por clínica usado no painel do paciente
 function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
-  const primeiroNome = sessao.paciente.nome.split(" ")[0];
   const inicio = new Date(sessao.inicio);
-  return (
-    `Olá, ${primeiroNome}! Passando para confirmar sua sessão no dia ${formatarDiaMes(inicio)} às ${formatarHorario(inicio)}. ` +
-    `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}. Até lá!\n— ${clinica.nomeAssistente}`
-  );
+  return renderizarTemplateMensagem(clinica.templateConfirmacao, {
+    saudacao: saudacaoAtual(),
+    paciente: sessao.paciente.nome.split(" ")[0],
+    data: formatarDiaMes(inicio),
+    hora: formatarHorario(inicio),
+    horarioLimite: clinica.horarioLimiteConfirmacao,
+    assistente: clinica.nomeAssistente,
+  });
 }
 
-// Texto do link do Meet específico do calendário (Tarefa 17)
-function montarMensagemMeetCalendario(sessao: SessaoAgenda) {
-  const primeiroNome = sessao.paciente.nome.split(" ")[0];
-  const inicio = new Date(sessao.inicio);
-  return `Olá ${primeiroNome}, segue o link da sua sessão de hoje, às ${formatarHorario(inicio)}: ${sessao.linkMeet}`;
+// Texto do link do Meet — só é chamado quando sessao.linkMeet já existe (os
+// botões de copiar ficam desabilitados sem link).
+function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
+  return renderizarTemplateMensagem(clinica.templateMeet, {
+    saudacao: saudacaoAtual(),
+    paciente: sessao.paciente.nome.split(" ")[0],
+    linkMeet: sessao.linkMeet ?? "",
+    assistente: clinica.nomeAssistente,
+  });
 }
 
 // Cor sólida usada no ponto do menu de status (mesma paleta do painel principal)
@@ -238,7 +248,16 @@ export default function AgendaCalendario() {
       .then(setHorarios);
     fetch("/api/clinica")
       .then((r) => (r.ok ? r.json() : null))
-      .then((c) => c && setClinica({ nomeAssistente: c.nomeAssistente, horarioLimiteConfirmacao: c.horarioLimiteConfirmacao }));
+      .then(
+        (c) =>
+          c &&
+          setClinica({
+            nomeAssistente: c.nomeAssistente,
+            horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
+            templateConfirmacao: c.templateConfirmacao,
+            templateMeet: c.templateMeet,
+          })
+      );
     fetch("/api/clinica/tipos-sessao")
       .then((r) => (r.ok ? r.json() : []))
       .then(setTiposSessao);
@@ -666,8 +685,8 @@ function BlocoSessao({
 
   async function handleCopiarMeet(e: React.SyntheticEvent) {
     e.stopPropagation();
-    if (!sessao.linkMeet) return;
-    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao))) mostrarCopiado("meet");
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
   }
 
   return (
@@ -795,8 +814,8 @@ function SessaoDetalheModal({
   }
 
   async function handleCopiarMeet() {
-    if (!sessao.linkMeet) return;
-    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao))) mostrarCopiado("meet");
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
   }
 
   async function alternarConfirmacao() {

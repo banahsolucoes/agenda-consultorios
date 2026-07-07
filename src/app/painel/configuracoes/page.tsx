@@ -31,6 +31,8 @@ interface Clinica {
   pastaRaizDriveId: string | null;
   emailBoasVindasAssunto: string;
   emailBoasVindasCorpo: string;
+  templateConfirmacao: string;
+  templateMeet: string;
 }
 
 interface FaixaHorario {
@@ -79,6 +81,10 @@ export default function ConfiguracoesPage() {
   const [salvandoEmailBoasVindas, setSalvandoEmailBoasVindas] = useState(false);
   const [erroEmailBoasVindas, setErroEmailBoasVindas] = useState("");
   const [sucessoEmailBoasVindas, setSucessoEmailBoasVindas] = useState(false);
+
+  const [salvandoTemplatesMensagem, setSalvandoTemplatesMensagem] = useState(false);
+  const [erroTemplatesMensagem, setErroTemplatesMensagem] = useState("");
+  const [sucessoTemplatesMensagem, setSucessoTemplatesMensagem] = useState(false);
 
   const [enviandoLogo, setEnviandoLogo] = useState(false);
   const [erroLogo, setErroLogo] = useState("");
@@ -302,6 +308,38 @@ export default function ConfiguracoesPage() {
       setErroEmailBoasVindas("não foi possível salvar");
     } finally {
       setSalvandoEmailBoasVindas(false);
+    }
+  }
+
+  async function handleSalvarTemplatesMensagem(e: React.FormEvent) {
+    e.preventDefault();
+    if (!clinica) return;
+    setErroTemplatesMensagem("");
+    setSucessoTemplatesMensagem(false);
+    setSalvandoTemplatesMensagem(true);
+
+    try {
+      const res = await fetch("/api/clinica", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateConfirmacao: clinica.templateConfirmacao,
+          templateMeet: clinica.templateMeet,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroTemplatesMensagem(data?.erro ?? "não foi possível salvar");
+        return;
+      }
+
+      setClinica(await res.json());
+      setSucessoTemplatesMensagem(true);
+    } catch {
+      setErroTemplatesMensagem("não foi possível salvar");
+    } finally {
+      setSalvandoTemplatesMensagem(false);
     }
   }
 
@@ -1013,6 +1051,77 @@ export default function ConfiguracoesPage() {
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoEmailBoasVindas ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        {/* Mensagens de copiar-colar (confirmação e link do Meet) */}
+        <section className="rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
+            Mensagens de copiar-colar
+          </h2>
+          <p className="mb-4 text-sm text-muted">
+            Textos usados nos botões &quot;Copiar confirmação&quot; e &quot;Copiar link do Meet&quot;, na agenda e
+            no painel do paciente. Variáveis disponíveis:{" "}
+            <strong>{"{saudacao}"}</strong> (Bom dia/Boa tarde/Boa noite, conforme o horário atual),{" "}
+            <strong>{"{paciente}"}</strong> (primeiro nome), <strong>{"{data}"}</strong> (dd/mm),{" "}
+            <strong>{"{hora}"}</strong> (HH:MM), <strong>{"{horarioLimite}"}</strong> (limite de confirmação da
+            clínica), <strong>{"{linkMeet}"}</strong> (link da sessão) e <strong>{"{assistente}"}</strong> (nome
+            do assistente).
+          </p>
+
+          {carregandoClinica ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : erroCarregarClinica || !clinica ? (
+            <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Não foi possível carregar os dados da clínica.
+            </p>
+          ) : (
+            <form onSubmit={handleSalvarTemplatesMensagem} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Texto de confirmação</label>
+                <textarea
+                  name="templateConfirmacao"
+                  value={clinica.templateConfirmacao}
+                  onChange={handleChangeClinica}
+                  required
+                  rows={10}
+                  className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Texto do link do Meet</label>
+                <textarea
+                  name="templateMeet"
+                  value={clinica.templateMeet}
+                  onChange={handleChangeClinica}
+                  required
+                  rows={8}
+                  className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              {erroTemplatesMensagem && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroTemplatesMensagem}
+                </p>
+              )}
+              {sucessoTemplatesMensagem && (
+                <p className="rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  Template salvo.
+                </p>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={salvandoTemplatesMensagem}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoTemplatesMensagem ? "Salvando..." : "Salvar"}
                 </button>
               </div>
             </form>

@@ -10,6 +10,7 @@ import {
 } from "@/lib/labels";
 import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
+import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
@@ -111,6 +112,8 @@ interface Clinica {
   horarioLimiteConfirmacao: string;
   emailBoasVindasAssunto: string;
   emailBoasVindasCorpo: string;
+  templateConfirmacao: string;
+  templateMeet: string;
 }
 
 interface GoogleStatus {
@@ -1050,25 +1053,28 @@ export default function PainelPage() {
   }
 
   // Monta a mensagem de confirmação de sessão, pronta para copiar e colar
+  // (mesmo template configurável usado no popup da agenda)
   function montarMensagemConfirmacao(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
-    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
-    return (
-      `Olá, ${primeiroNome}! Passando para confirmar sua sessão no dia ${formatarDataCurta(s.inicio)} às ${formatarHorario(s.inicio)}. ` +
-      `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}. Até lá!\n— ${clinica.nomeAssistente}`
-    );
+    return renderizarTemplateMensagem(clinica.templateConfirmacao, {
+      saudacao: saudacaoAtual(),
+      paciente: pacienteSelecionado.nome.split(" ")[0],
+      data: formatarDataCurta(s.inicio),
+      hora: formatarHorario(s.inicio),
+      horarioLimite: clinica.horarioLimiteConfirmacao,
+      assistente: clinica.nomeAssistente,
+    });
   }
 
   // Monta a mensagem com o link do Meet, pronta para copiar e colar
   function montarMensagemMeet(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
-    const primeiroNome = pacienteSelecionado.nome.split(" ")[0];
-    const link = s.linkMeet ?? "(link ainda não gerado)";
-    return (
-      `Olá, ${primeiroNome}! Sua sessão é no dia ${formatarDataCurta(s.inicio)} às ${formatarHorario(s.inicio)}. ` +
-      `Link de acesso: ${link}\n` +
-      `Caso precise remarcar, nos avise até às ${clinica.horarioLimiteConfirmacao}.\n— ${clinica.nomeAssistente}`
-    );
+    return renderizarTemplateMensagem(clinica.templateMeet, {
+      saudacao: saudacaoAtual(),
+      paciente: pacienteSelecionado.nome.split(" ")[0],
+      linkMeet: s.linkMeet ?? "(link ainda não gerado)",
+      assistente: clinica.nomeAssistente,
+    });
   }
 
   async function copiar(texto: string, chave: string) {
