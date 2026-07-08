@@ -129,6 +129,10 @@ export default function ConfiguracoesPage() {
   const [salvandoConfigSheets, setSalvandoConfigSheets] = useState(false);
   const [erroConfigSheets, setErroConfigSheets] = useState("");
   const [sucessoConfigSheets, setSucessoConfigSheets] = useState(false);
+  const [editandoSheets, setEditandoSheets] = useState(false);
+  const [confirmandoSheets, setConfirmandoSheets] = useState(false);
+  const [sheetsPlanilhaIdInput, setSheetsPlanilhaIdInput] = useState("");
+  const [sheetsAbaInput, setSheetsAbaInput] = useState("");
 
   function extractSheetIdFromUrl(urlOrId: string): string {
     const match = urlOrId.match(/\/d\/([^\/]+)/);
@@ -281,8 +285,6 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
           nomeAssistente: clinica.nomeAssistente,
           horarioLimiteConfirmacao: clinica.horarioLimiteConfirmacao,
           permitirResizeSessao: clinica.permitirResizeSessao,
-          sheetsPlanilhaId: clinica.sheetsPlanilhaId,
-          sheetsAba: clinica.sheetsAba,
         }),
       });
 
@@ -500,6 +502,63 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
       setConfirmandoPastaRaiz(false);
     } finally {
       setSalvandoPastaRaiz(false);
+    }
+  }
+
+  function abrirEdicaoSheets() {
+    setSheetsPlanilhaIdInput(clinica?.sheetsPlanilhaId ?? "");
+    setSheetsAbaInput(clinica?.sheetsAba ?? "");
+    setErroConfigSheets("");
+    setSucessoConfigSheets(false);
+    setEditandoSheets(true);
+  }
+
+  function cancelarEdicaoSheets() {
+    setEditandoSheets(false);
+    setConfirmandoSheets(false);
+    setErroConfigSheets("");
+  }
+
+  function pedirConfirmacaoSheets(e: React.FormEvent) {
+    e.preventDefault();
+    setErroConfigSheets("");
+    setConfirmandoSheets(true);
+  }
+
+  async function handleSalvarSheets() {
+    setErroConfigSheets("");
+    setSucessoConfigSheets(false);
+    setSalvandoConfigSheets(true);
+
+    try {
+      const res = await fetch("/api/clinica", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetsPlanilhaId: sheetsPlanilhaIdInput || null,
+          sheetsAba: sheetsAbaInput || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroConfigSheets(data?.erro ?? "não foi possível salvar");
+        setConfirmandoSheets(false);
+        return;
+      }
+
+      const atualizada = await res.json();
+      setClinica(atualizada);
+      setSheetsPlanilhaIdInput(atualizada.sheetsPlanilhaId ?? "");
+      setSheetsAbaInput(atualizada.sheetsAba ?? "");
+      setSucessoConfigSheets(true);
+      setConfirmandoSheets(false);
+      setEditandoSheets(false);
+    } catch {
+      setErroConfigSheets("não foi possível salvar");
+      setConfirmandoSheets(false);
+    } finally {
+      setSalvandoConfigSheets(false);
     }
   }
 
@@ -1072,64 +1131,105 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
               Não foi possível carregar os dados da clínica.
             </p>
           ) : (
-            <form onSubmit={handleSalvarConfigSheets} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">ID ou link da planilha</label>
-                <input
-                  type="text"
-                  name="sheetsPlanilhaId"
-                  value={clinica.sheetsPlanilhaId || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const id = extractSheetIdFromUrl(value);
-                    setClinica(c => c ? {...c, sheetsPlanilhaId: id} : c);
-                    setErroConfigSheets("");
-                    setSucessoConfigSheets(false);
-                  }}
-                  placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-                <p className="mt-1 text-xs text-muted">
-                  Cole o ID da planilha ou o link completo. O ID é a parte entre /d/ e /edit na URL.
-                </p>
-              </div>
+            <>
+              {!editandoSheets ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="text-xs text-muted">Planilha</span>
+                      {clinica.sheetsPlanilhaId ? (
+                        <p className="truncate font-mono text-sm text-fg">{clinica.sheetsPlanilhaId}</p>
+                      ) : (
+                        <p className="text-sm text-muted">Nenhuma planilha configurada</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={abrirEdicaoSheets}
+                      className="shrink-0 rounded-lg border border-border px-3 py-1 text-sm font-medium text-fg hover:bg-bg"
+                    >
+                      Alterar
+                    </button>
+                  </div>
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Nome da aba</label>
-                <input
-                  type="text"
-                  name="sheetsAba"
-                  value={clinica.sheetsAba || ""}
-                  onChange={handleChangeClinica}
-                  placeholder="Página1"
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-                <p className="mt-1 text-xs text-muted">
-                  Deixe em branco para usar a primeira aba (padrão: "Página1").
-                </p>
-              </div>
+                  <div className="rounded-lg border border-border bg-bg px-3 py-2">
+                    <span className="text-xs text-muted">Aba</span>
+                    <p className="text-sm text-fg">{clinica.sheetsAba || "Padrão (Página1)"}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">ID ou link da planilha</label>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={sheetsPlanilhaIdInput}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const id = extractSheetIdFromUrl(value);
+                        setSheetsPlanilhaIdInput(id);
+                        setErroConfigSheets("");
+                        setSucessoConfigSheets(false);
+                      }}
+                      placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                    <p className="mt-1 text-xs text-muted">
+                      Cole o ID da planilha ou o link completo. O ID é a parte entre /d/ e /edit na URL.
+                    </p>
+                  </div>
 
-              {erroConfigSheets && (
-                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Nome da aba</label>
+                    <input
+                      type="text"
+                      value={sheetsAbaInput}
+                      onChange={(e) => {
+                        setSheetsAbaInput(e.target.value);
+                        setErroConfigSheets("");
+                        setSucessoConfigSheets(false);
+                      }}
+                      placeholder="Página1"
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                    <p className="mt-1 text-xs text-muted">
+                      Deixe em branco para usar a primeira aba (padrão: "Página1").
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={pedirConfirmacaoSheets}
+                      disabled={salvandoConfigSheets}
+                      className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Salvar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelarEdicaoSheets}
+                      disabled={salvandoConfigSheets}
+                      className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {erroConfigSheets && !confirmandoSheets && (
+                <p className="mt-2 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
                   {erroConfigSheets}
                 </p>
               )}
               {sucessoConfigSheets && (
-                <p className="rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                <p className="mt-2 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
                   Configurações salvas.
                 </p>
               )}
-
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={salvandoConfigSheets}
-                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvandoConfigSheets ? "Salvando..." : "Salvar"}
-                </button>
-              </div>
-            </form>
+            </>
           )}
         </section>
 
@@ -1615,6 +1715,43 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                 className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {salvandoPastaRaiz ? "Salvando..." : "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar alteração da configuração do Sheets */}
+      {confirmandoSheets && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Alterar configuração da planilha
+            </h2>
+            <p className="mb-4 rounded-lg bg-gold/10 px-3 py-2 text-sm text-fg">
+              Alterar a planilha ou aba afeta onde os dados dos pacientes serão importados. Confirmar?
+            </p>
+
+            {erroConfigSheets && (
+              <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroConfigSheets}</p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmandoSheets(false)}
+                disabled={salvandoConfigSheets}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSalvarSheets}
+                disabled={salvandoConfigSheets}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvandoConfigSheets ? "Salvando..." : "Confirmar"}
               </button>
             </div>
           </div>
