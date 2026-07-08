@@ -69,6 +69,7 @@ interface ClinicaAgenda {
   horarioLimiteConfirmacao: string;
   templateConfirmacao: string;
   templateMeet: string;
+  permitirResizeSessao: boolean;
 }
 
 function horaParaMinutos(hora: string) {
@@ -274,6 +275,7 @@ export default function AgendaCalendario() {
             horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
             templateConfirmacao: c.templateConfirmacao,
             templateMeet: c.templateMeet,
+            permitirResizeSessao: c.permitirResizeSessao,
           })
       );
     fetch("/api/clinica/tipos-sessao")
@@ -857,7 +859,7 @@ function BlocoSessao({
         )}
       </div>
 
-      {!travada && (
+      {!travada && clinica?.permitirResizeSessao && (
         <div
           onPointerDown={handleResizePointerDown}
           onClick={(e) => e.stopPropagation()}
