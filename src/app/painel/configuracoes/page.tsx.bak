@@ -236,18 +236,12 @@ export default function ConfiguracoesPage() {
     }
   }
 
-function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-   const target = e.target;
-   const { name } = target;
-   let val: any;
-   if (target.type === "checkbox") {
-     val = (target as HTMLInputElement).checked;
-   } else {
-     val = target.value;
-   }
-   setClinica((c) => (c ? { ...c, [name]: val } : c));
-   setSucessoClinica(false);
- }
+  function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
+    const { name, value, type, checked } = e.target;
+    const val = type === "checkbox" ? checked : value;
+    setClinica((c) => (c ? { ...c, [name]: val } : c));
+    setSucessoClinica(false);
+  }
 
   async function handleSalvarClinica(e: React.FormEvent) {
     e.preventDefault();
