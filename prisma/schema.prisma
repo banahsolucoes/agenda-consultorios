@@ -121,7 +121,7 @@ model Paciente {
   quemIndicou     String?
   pastaDriveUrl   String?
   origemCadastro  OrigemCadastro  @default(MANUAL)
-  diaPreferido    DiaSemana
+  diaPreferido    DiaSemana?
   horarioFixo     String          // "HH:MM"
   tipoSessaoId    String?
   // Legado temporário: cópia em texto do valor do antigo enum TipoSessao (ex.: "ONLINE"),

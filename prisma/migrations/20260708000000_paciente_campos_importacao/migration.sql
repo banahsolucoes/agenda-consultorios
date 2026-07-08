@@ -1,0 +1,11 @@
+ALTER TABLE "Paciente" ALTER COLUMN "diaPreferido" DROP NOT NULL;
+ALTER TABLE "Paciente" ALTER COLUMN "horarioFixo" DROP NOT NULL;
+ALTER TABLE "Paciente" ADD COLUMN "dataNascimento" TEXT;
+ALTER TABLE "Paciente" ADD COLUMN "estadoCivil" TEXT;
+ALTER TABLE "Paciente" ADD COLUMN "nacionalidade" TEXT;
+ALTER TABLE "Paciente" ADD COLUMN "instagram" TEXT;
+ALTER TABLE "Paciente" ADD COLUMN "profissao" TEXT;
+ALTER TABLE "Paciente" ADD COLUMN "rg" TEXT;
+ALTER TABLE "Paciente" ADD COLUMN "dataCadastroForms" TIMESTAMP(3);
+ALTER TABLE "Clinica" ADD COLUMN "sheetsPlanilhaId" TEXT;
+ALTER TABLE "Clinica" ADD COLUMN "sheetsAba" TEXT DEFAULT 'Página1';
