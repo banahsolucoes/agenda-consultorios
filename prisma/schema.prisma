@@ -9,6 +9,8 @@ datasource db {
 
 // ─── Tenant ───────────────────────────────
 model Clinica {
+  sheetsPlanilhaId  String?
+  sheetsAba         String?  @default("Página1")
   id                        String            @id @default(uuid())
   nome                      String
   slug                      String            @unique
