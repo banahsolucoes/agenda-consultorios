@@ -1,0 +1,950 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { diaSemanaLabel, statusLabel } from "@/lib/labels";
+import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
+import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
+import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
+import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import DatePickerSP from "./DatePickerSP";
+
+// Granularidade da grade: cada linha representa 30 minutos. A altura em
+// pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
+// vertical disponível na tela, para a agenda do dia inteiro caber sem
+// rolagem — ROW_PX_PADRAO é só o valor usado antes da primeira medição.
+const ROW_MIN = 30;
+const ROW_PX_PADRAO = 36;
+const ROW_PX_MIN = 34;
+const ROW_PX_MAX = 52;
+const ALTURA_CABECALHO_DIA = 40; // h-10
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
+const STATUS_SESSAO_OPCOES = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA"] as const;
+const DURACAO_OPCOES_MIN = [30, 45, 60, 90, 120];
+const DURACAO_SNAP_MIN = 15;
+const DIA_SEMANA_POR_INDICE = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
+
+interface SessaoAgenda {
+  id: string;
+  pacienteId: string;
+  paciente: { id: string; nome: string };
+  numeroSessao: number;
+  totalPacote: number;
+  inicio: string;
+  duracaoMin: number;
+  status: string;
+  tipoSessaoId: string | null;
+  tipoSessao: { id: string; nome: string; cor: string | null } | null;
+  linkMeet: string | null;
+  motivoCancelamento: string | null;
+  confirmada: boolean;
+}
+
+interface HorarioTrabalho {
+  id: string;
+  diaSemana: string;
+  horaInicio: string;
+  horaFim: string;
+}
+
+interface TipoSessaoOpcao {
+  id: string;
+  nome: string;
+  cor: string | null;
+  ehOnline: boolean;
+}
+
+interface ClinicaAgenda {
+  nomeAssistente: string;
+  horarioLimiteConfirmacao: string;
+  templateConfirmacao: string;
+  templateMeet: string;
+}
+
+function horaParaMinutos(hora: string) {
+  const [h, m] = hora.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// Mesma regra do servidor: um dia sem faixa cadastrada está fechado quando a
+// clínica já configurou algum horário; só cai na grade padrão 08:00–19:30
+// quando a clínica ainda não configurou horário nenhum. Usada tanto ao
+// arrastar (mudar dia/horário) quanto ao redimensionar (mudar duração).
+function estaDentroExpediente(
+  horarios: HorarioTrabalho[],
+  diaSemanaNome: string,
+  inicioMin: number,
+  fimMin: number
+): boolean {
+  const horariosDia = horarios.filter((h) => h.diaSemana === diaSemanaNome);
+  return horarios.length > 0
+    ? horariosDia.some((hr) => inicioMin >= horaParaMinutos(hr.horaInicio) && fimMin <= horaParaMinutos(hr.horaFim))
+    : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
+}
+
+function minutosParaHora(min: number) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Todas as funções abaixo trabalham em componentes de calendário de São
+// Paulo (via componentesSP/criarDataSP), nunca nos métodos locais do Date
+// (getDay/getDate/setHours...) — esses dependem do fuso do navegador, que
+// pode divergir do fuso da clínica.
+function normalizarData(d: Date) {
+  const c = componentesSP(d);
+  return criarDataSP(c.ano, c.mes, c.dia, 0, 0, 0);
+}
+
+function segundaDaSemana(d: Date) {
+  const c = componentesSP(d);
+  const dist = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
+  const diaCalendario = new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - dist * DIA_MS);
+  return criarDataSP(diaCalendario.getUTCFullYear(), diaCalendario.getUTCMonth() + 1, diaCalendario.getUTCDate(), 0, 0, 0);
+}
+
+function mesmoDia(a: Date, b: Date) {
+  const ca = componentesSP(a);
+  const cb = componentesSP(b);
+  return ca.ano === cb.ano && ca.mes === cb.mes && ca.dia === cb.dia;
+}
+
+function diaSemanaDeData(d: Date) {
+  return DIA_SEMANA_POR_INDICE[componentesSP(d).diaSemana];
+}
+
+function formatarDiaMes(d: Date) {
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
+}
+
+function formatarHorario(d: Date) {
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE });
+}
+
+// "YYYY-MM-DD" de `d` no calendário de São Paulo, formato aceito pelo DatePickerSP
+function dataISODeData(d: Date) {
+  const c = componentesSP(d);
+  return `${c.ano}-${String(c.mes).padStart(2, "0")}-${String(c.dia).padStart(2, "0")}`;
+}
+
+// Soma `dias` dias de calendário a `d`, preservando o horário de parede em
+// São Paulo (aritmética em ms é segura aqui: o Brasil não observa horário de
+// verão desde 2019, então o deslocamento UTC-3 é sempre fixo).
+function somarDiasSP(d: Date, dias: number) {
+  return new Date(d.getTime() + dias * DIA_MS);
+}
+
+// Copia texto pro clipboard; retorna se deu certo (contexto não seguro falha silenciosamente)
+async function copiarParaClipboard(texto: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Mesmo template configurável por clínica usado no painel do paciente
+function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
+  const inicio = new Date(sessao.inicio);
+  return renderizarTemplateMensagem(clinica.templateConfirmacao, {
+    saudacao: saudacaoAtual(),
+    paciente: sessao.paciente.nome.split(" ")[0],
+    data: formatarDiaMes(inicio),
+    hora: formatarHorario(inicio),
+    horarioLimite: clinica.horarioLimiteConfirmacao,
+    assistente: clinica.nomeAssistente,
+  });
+}
+
+// Texto do link do Meet — só é chamado quando sessao.linkMeet já existe (os
+// botões de copiar ficam desabilitados sem link).
+function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
+  return renderizarTemplateMensagem(clinica.templateMeet, {
+    saudacao: saudacaoAtual(),
+    paciente: sessao.paciente.nome.split(" ")[0],
+    linkMeet: sessao.linkMeet ?? "",
+    assistente: clinica.nomeAssistente,
+  });
+}
+
+// Cor sólida usada no ponto do menu de status (mesma paleta do painel principal)
+function corPontoStatus(status: string) {
+  switch (status) {
+    case "AGENDADA":
+      return "bg-blue";
+    case "REAGENDADA":
+      return "bg-orange";
+    case "REALIZADA":
+      return "bg-green";
+    case "NAO_REALIZADA":
+      return "bg-red";
+    default:
+      return "bg-muted";
+  }
+}
+
+export default function AgendaCalendario() {
+  const [modo, setModo] = useState<"semana" | "dia">("semana");
+  const [refData, setRefData] = useState(() => normalizarData(new Date()));
+  const [sessoes, setSessoes] = useState<SessaoAgenda[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [horarios, setHorarios] = useState<HorarioTrabalho[]>([]);
+  const [clinica, setClinica] = useState<ClinicaAgenda | null>(null);
+  const [tiposSessao, setTiposSessao] = useState<TipoSessaoOpcao[]>([]);
+  const [aviso, setAviso] = useState("");
+  const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
+
+  const colRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [rowPx, setRowPx] = useState(ROW_PX_PADRAO);
+  // Relógio para esmaecer sessões cujo início já passou (recalcula sem precisar recarregar a página)
+  const [agora, setAgora] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setAgora(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  // Dias da semana em que a clínica atende, conforme o HorarioTrabalho —
+  // null enquanto nenhuma faixa está configurada (aí mostra a semana toda).
+  const diasTrabalhoSet = useMemo(() => {
+    if (horarios.length === 0) return null;
+    return new Set(horarios.map((h) => h.diaSemana));
+  }, [horarios]);
+
+  const dias = useMemo(() => {
+    if (modo === "dia") return [refData];
+    const seg = segundaDaSemana(refData);
+    const semanaCompleta = Array.from({ length: 7 }, (_, i) => somarDiasSP(seg, i));
+    if (!diasTrabalhoSet) return semanaCompleta;
+    const diasComAtendimento = semanaCompleta.filter((d) => diasTrabalhoSet.has(diaSemanaDeData(d)));
+    return diasComAtendimento.length > 0 ? diasComAtendimento : semanaCompleta;
+  }, [refData, modo, diasTrabalhoSet]);
+
+  const intervalo = useMemo(() => {
+    const c0 = componentesSP(dias[0]);
+    const inicio = criarDataSP(c0.ano, c0.mes, c0.dia, 0, 0, 0);
+    const cUlt = componentesSP(dias[dias.length - 1]);
+    const fim = criarDataSP(cUlt.ano, cUlt.mes, cUlt.dia, 23, 59, 59);
+    return { inicio, fim };
+  }, [dias]);
+
+  const carregarSessoes = useCallback(async () => {
+    setCarregando(true);
+    try {
+      const params = new URLSearchParams({
+        inicio: intervalo.inicio.toISOString(),
+        fim: intervalo.fim.toISOString(),
+      });
+      const res = await fetch(`/api/agenda?${params}`);
+      if (res.ok) setSessoes(await res.json());
+    } finally {
+      setCarregando(false);
+    }
+  }, [intervalo]);
+
+  useEffect(() => {
+    fetch("/api/clinica/horarios")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setHorarios);
+    fetch("/api/clinica")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (c) =>
+          c &&
+          setClinica({
+            nomeAssistente: c.nomeAssistente,
+            horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
+            templateConfirmacao: c.templateConfirmacao,
+            templateMeet: c.templateMeet,
+          })
+      );
+    fetch("/api/clinica/tipos-sessao")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setTiposSessao);
+  }, []);
+
+  useEffect(() => {
+    carregarSessoes();
+  }, [carregarSessoes]);
+
+  const janela = useMemo(() => {
+    if (horarios.length === 0) return { inicioMin: 8 * 60, fimMin: 19 * 60 + 30 };
+    const inicios = horarios.map((h) => horaParaMinutos(h.horaInicio));
+    const fins = horarios.map((h) => horaParaMinutos(h.horaFim));
+    return { inicioMin: Math.min(...inicios), fimMin: Math.max(...fins) };
+  }, [horarios]);
+
+  // Recalcula a altura de cada linha (rowPx) a partir do espaço vertical
+  // realmente disponível abaixo do topo da grade, para o dia inteiro (do
+  // horário de abertura ao de fechamento configurados) caber na tela sem
+  // exigir rolagem — independente da resolução da tela do usuário.
+  const recalcularRowPx = useCallback(() => {
+    const el = boxRef.current;
+    const totalMin = janela.fimMin - janela.inicioMin;
+    if (!el || totalMin <= 0) return;
+    const margemInferior = 40;
+    const disponivel = window.innerHeight - el.getBoundingClientRect().top - ALTURA_CABECALHO_DIA - margemInferior;
+    const px = (disponivel / totalMin) * ROW_MIN;
+    setRowPx(Math.min(ROW_PX_MAX, Math.max(ROW_PX_MIN, Math.floor(px))));
+  }, [janela]);
+
+  useEffect(() => {
+    recalcularRowPx();
+    window.addEventListener("resize", recalcularRowPx);
+    return () => window.removeEventListener("resize", recalcularRowPx);
+  }, [recalcularRowPx, carregando]);
+
+  const gridHeightPx = ((janela.fimMin - janela.inicioMin) / ROW_MIN) * rowPx;
+
+  const marcadores = useMemo(() => {
+    const lista: number[] = [];
+    const primeiraHoraCheia = Math.ceil(janela.inicioMin / 60) * 60;
+    for (let m = primeiraHoraCheia; m <= janela.fimMin; m += 60) lista.push(m);
+    return lista;
+  }, [janela]);
+
+  const sessoesPorDia = useMemo(
+    () => dias.map((dia) => sessoes.filter((s) => mesmoDia(new Date(s.inicio), dia))),
+    [dias, sessoes]
+  );
+
+  function mostrarAviso(msg: string) {
+    setAviso(msg);
+    if (avisoTimeout.current) clearTimeout(avisoTimeout.current);
+    avisoTimeout.current = setTimeout(() => setAviso(""), 4000);
+  }
+
+  // No modo "dia", pula direto para o próximo dia em que a clínica atende
+  // (sem parar num fim de semana ou dia fechado, por exemplo).
+  function proximoDiaComAtendimento(d: Date, direcao: 1 | -1) {
+    if (!diasTrabalhoSet) return somarDiasSP(d, direcao);
+    let n = d;
+    for (let i = 0; i < 7; i++) {
+      n = somarDiasSP(n, direcao);
+      if (diasTrabalhoSet.has(diaSemanaDeData(n))) return n;
+    }
+    return somarDiasSP(d, direcao);
+  }
+
+  function irAnterior() {
+    setRefData((d) => (modo === "semana" ? somarDiasSP(d, -7) : proximoDiaComAtendimento(d, -1)));
+  }
+  function irProximo() {
+    setRefData((d) => (modo === "semana" ? somarDiasSP(d, 7) : proximoDiaComAtendimento(d, 1)));
+  }
+  function irHoje() {
+    setRefData(normalizarData(new Date()));
+  }
+
+  // Move a sessão localmente (otimista) e confirma no servidor; em caso de
+  // falha (regra de negócio violada ou erro de rede), desfaz e avisa.
+  async function moverSessao(sessao: SessaoAgenda, novaData: Date, novoHorario: string) {
+    const anteriores = sessoes;
+    setSessoes((prev) =>
+      prev.map((s) => (s.id === sessao.id ? { ...s, inicio: novaData.toISOString(), status: "AGENDADA" } : s))
+    );
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novaData: dataISODeData(novaData), novoHorario }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setSessoes(anteriores);
+        mostrarAviso(data?.erro ?? "não foi possível mover a sessão");
+        return;
+      }
+      await carregarSessoes();
+    } catch {
+      setSessoes(anteriores);
+      mostrarAviso("não foi possível mover a sessão");
+    }
+  }
+
+  // Redimensiona a sessão localmente (otimista) e confirma no servidor; em
+  // caso de falha desfaz e avisa — mesmo padrão de moverSessao.
+  async function redimensionarSessao(sessao: SessaoAgenda, novaDuracaoMin: number) {
+    const anteriores = sessoes;
+    setSessoes((prev) => prev.map((s) => (s.id === sessao.id ? { ...s, duracaoMin: novaDuracaoMin } : s)));
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duracaoMin: novaDuracaoMin }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setSessoes(anteriores);
+        mostrarAviso(data?.erro ?? "não foi possível alterar a duração");
+        return;
+      }
+      await carregarSessoes();
+    } catch {
+      setSessoes(anteriores);
+      mostrarAviso("não foi possível alterar a duração");
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    const sessao = sessoes.find((s) => s.id === active.id);
+    if (!sessao || !over) return;
+
+    const diaIndex = Number(String(over.id).replace("dia-", ""));
+    if (isNaN(diaIndex) || !dias[diaIndex]) return;
+
+    const colEl = colRefs.current[diaIndex];
+    const rectAtivo = active.rect.current.translated;
+    if (!colEl || !rectAtivo) return;
+
+    const rectCol = colEl.getBoundingClientRect();
+    const offsetTopPx = rectAtivo.top - rectCol.top;
+    const minutosRel = (offsetTopPx / rowPx) * ROW_MIN;
+    const minutosSnap = Math.max(0, Math.round(minutosRel / 15) * 15);
+    const novoMinutoAbsoluto = janela.inicioMin + minutosSnap;
+    const novoHorario = minutosParaHora(novoMinutoAbsoluto);
+
+    const diaAlvo = dias[diaIndex];
+    const [hh, mm] = novoHorario.split(":").map(Number);
+    const cDiaAlvo = componentesSP(diaAlvo);
+    const novaData = criarDataSP(cDiaAlvo.ano, cDiaAlvo.mes, cDiaAlvo.dia, hh, mm);
+
+    if (STATUS_TRAVADOS.includes(sessao.status)) return;
+
+    if (novaData.getTime() < Date.now()) {
+      mostrarAviso("Não é possível mover uma sessão para o passado.");
+      return;
+    }
+
+    const diaSemanaAlvo = diaSemanaDeData(diaAlvo);
+    const fimMin = novoMinutoAbsoluto + sessao.duracaoMin;
+    if (!estaDentroExpediente(horarios, diaSemanaAlvo, novoMinutoAbsoluto, fimMin)) {
+      mostrarAviso("Esse horário está fora do expediente da clínica.");
+      return;
+    }
+
+    moverSessao(sessao, novaData, novoHorario);
+  }
+
+  const titulo =
+    modo === "semana"
+      ? `${formatarDiaMes(dias[0])} – ${formatarDiaMes(dias[dias.length - 1])}`
+      : dias[0].toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={irAnterior}
+            aria-label="Período anterior"
+            className="rounded-lg border border-border px-2.5 py-1.5 text-fg hover:bg-bg"
+          >
+            ‹
+          </button>
+          <button
+            onClick={irHoje}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+          >
+            Hoje
+          </button>
+          <button
+            onClick={irProximo}
+            aria-label="Próximo período"
+            className="rounded-lg border border-border px-2.5 py-1.5 text-fg hover:bg-bg"
+          >
+            ›
+          </button>
+          <span className="ml-1 text-sm capitalize text-muted">{titulo}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setModo("semana")}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              modo === "semana" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+            }`}
+          >
+            Semana
+          </button>
+          <button
+            onClick={() => setModo("dia")}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              modo === "dia" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+            }`}
+          >
+            Dia
+          </button>
+        </div>
+      </div>
+
+      {aviso && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{aviso}</p>}
+
+      {carregando && sessoes.length === 0 ? (
+        <p className="text-sm text-muted">Carregando agenda...</p>
+      ) : (
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <div ref={boxRef} className="overflow-x-auto rounded-xl border border-border bg-surface">
+            <div className="flex" style={{ minWidth: modo === "semana" ? 880 : 280 }}>
+              {/* Gutter de horários */}
+              <div className="w-14 shrink-0 border-r border-border">
+                <div className="h-10 border-b border-border" />
+                <div className="relative" style={{ height: gridHeightPx }}>
+                  {marcadores.map((min) => (
+                    <span
+                      key={min}
+                      className="absolute right-1.5 -translate-y-1/2 text-[10px] text-muted"
+                      style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
+                    >
+                      {minutosParaHora(min)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {dias.map((dia, i) => (
+                <DiaColuna
+                  key={i}
+                  index={i}
+                  dia={dia}
+                  sessoesDoDia={sessoesPorDia[i]}
+                  janela={janela}
+                  marcadores={marcadores}
+                  gridHeightPx={gridHeightPx}
+                  rowPx={rowPx}
+                  colRefCallback={(idx, node) => {
+                    colRefs.current[idx] = node;
+                  }}
+                  onAbrirDetalhe={setSessaoDetalhe}
+                  clinica={clinica}
+                  agora={agora}
+                  horarios={horarios}
+                  onRedimensionar={redimensionarSessao}
+                  onAviso={mostrarAviso}
+                />
+              ))}
+            </div>
+          </div>
+        </DndContext>
+      )}
+
+      {sessaoDetalhe && (
+        <SessaoDetalheModal
+          sessao={sessaoDetalhe}
+          tiposSessao={tiposSessao}
+          clinica={clinica}
+          onFechar={() => setSessaoDetalhe(null)}
+          onAtualizado={() => {
+            carregarSessoes();
+            setSessaoDetalhe(null);
+          }}
+          onAviso={mostrarAviso}
+        />
+      )}
+    </div>
+  );
+}
+
+function DiaColuna({
+  index,
+  dia,
+  sessoesDoDia,
+  janela,
+  marcadores,
+  gridHeightPx,
+  rowPx,
+  colRefCallback,
+  onAbrirDetalhe,
+  clinica,
+  agora,
+  horarios,
+  onRedimensionar,
+  onAviso,
+}: {
+  index: number;
+  dia: Date;
+  sessoesDoDia: SessaoAgenda[];
+  janela: { inicioMin: number; fimMin: number };
+  marcadores: number[];
+  gridHeightPx: number;
+  rowPx: number;
+  colRefCallback: (index: number, node: HTMLDivElement | null) => void;
+  onAbrirDetalhe: (s: SessaoAgenda) => void;
+  clinica: ClinicaAgenda | null;
+  agora: number;
+  horarios: HorarioTrabalho[];
+  onRedimensionar: (sessao: SessaoAgenda, novaDuracaoMin: number) => void;
+  onAviso: (msg: string) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `dia-${index}` });
+  const hoje = mesmoDia(dia, new Date());
+
+  // Sessões que caem no mesmo horário não podem ficar uma escondendo a
+  // outra — divide o espaço horizontal entre as que se sobrepõem, como um
+  // sinal visual de conflito/overbooking a revisar.
+  const layoutColunas = useMemo(
+    () =>
+      calcularLayoutColunas(
+        sessoesDoDia.map((s) => {
+          const inicioMs = new Date(s.inicio).getTime();
+          return { id: s.id, inicioMs, fimMs: inicioMs + s.duracaoMin * 60000 };
+        })
+      ),
+    [sessoesDoDia]
+  );
+
+  return (
+    <div className="min-w-[120px] flex-1 border-r border-border last:border-r-0">
+      <div
+        className={`flex h-10 flex-col items-center justify-center border-b border-border text-xs ${
+          hoje ? "font-semibold text-gold" : "text-fg"
+        }`}
+      >
+        <span>{diaSemanaLabel(diaSemanaDeData(dia))}</span>
+        <span className="text-[10px] text-muted">{formatarDiaMes(dia)}</span>
+      </div>
+      <div
+        ref={(node) => {
+          setNodeRef(node);
+          colRefCallback(index, node);
+        }}
+        className={`relative ${isOver ? "bg-gold/5" : ""}`}
+        style={{ height: gridHeightPx }}
+      >
+        {marcadores.map((min) => (
+          <div
+            key={min}
+            className="absolute inset-x-0 border-t border-border/60"
+            style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
+          />
+        ))}
+        {sessoesDoDia.map((s) => (
+          <BlocoSessao
+            key={s.id}
+            sessao={s}
+            janela={janela}
+            rowPx={rowPx}
+            onAbrirDetalhe={onAbrirDetalhe}
+            clinica={clinica}
+            agora={agora}
+            layout={layoutColunas.get(s.id) ?? { coluna: 0, totalColunas: 1 }}
+            horarios={horarios}
+            onRedimensionar={onRedimensionar}
+            onAviso={onAviso}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BlocoSessao({
+  sessao,
+  janela,
+  rowPx,
+  onAbrirDetalhe,
+  clinica,
+  agora,
+  layout,
+  horarios,
+  onRedimensionar,
+  onAviso,
+}: {
+  sessao: SessaoAgenda;
+  janela: { inicioMin: number; fimMin: number };
+  rowPx: number;
+  onAbrirDetalhe: (s: SessaoAgenda) => void;
+  clinica: ClinicaAgenda | null;
+  agora: number;
+  layout: LayoutColuna;
+  horarios: HorarioTrabalho[];
+  onRedimensionar: (sessao: SessaoAgenda, novaDuracaoMin: number) => void;
+  onAviso: (msg: string) => void;
+}) {
+  const travada = STATUS_TRAVADOS.includes(sessao.status);
+  const [previewDuracaoMin, setPreviewDuracaoMin] = useState<number | null>(null);
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: sessao.id,
+    disabled: travada,
+  });
+
+  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const inicio = new Date(sessao.inicio);
+  const fim = new Date(inicio.getTime() + sessao.duracaoMin * 60000);
+  const cInicio = componentesSP(inicio);
+  const minutos = cInicio.hora * 60 + cInicio.minuto;
+  const top = ((minutos - janela.inicioMin) / ROW_MIN) * rowPx;
+  // Enquanto o mouse está arrastando a borda inferior, a altura reflete a
+  // duração-preview (ainda não confirmada no servidor) em vez da real.
+  const duracaoExibida = previewDuracaoMin ?? sessao.duracaoMin;
+  // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
+  const altura = Math.max(46, (duracaoExibida / ROW_MIN) * rowPx - 2);
+  const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
+  // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
+  const jaComecou = inicio.getTime() < agora;
+
+  // Duas ou mais sessões no mesmo horário dividem o espaço horizontal lado a
+  // lado, em vez de ficarem uma escondendo a outra — sinal visual de
+  // conflito/overbooking a revisar.
+  const sobreposta = layout.totalColunas > 1;
+  const larguraPercent = 100 / layout.totalColunas;
+
+  const style: React.CSSProperties = {
+    top,
+    height: altura,
+    backgroundColor: cor,
+    opacity: jaComecou ? 0.5 : 1,
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    zIndex: isDragging ? 20 : 1,
+    cursor: travada ? "default" : "grab",
+    ...(sobreposta
+      ? {
+          left: `calc(${larguraPercent * layout.coluna}% + 2px)`,
+          width: `calc(${larguraPercent}% - 4px)`,
+        }
+      : {}),
+  };
+
+  function mostrarCopiado(tipo: "conf" | "meet") {
+    setCopiado(tipo);
+    if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
+    copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
+  }
+
+  async function handleCopiarConfirmacao(e: React.SyntheticEvent) {
+    e.stopPropagation();
+    if (!clinica) return;
+    if (await copiarParaClipboard(montarMensagemConfirmacao(sessao, clinica))) mostrarCopiado("conf");
+  }
+
+  async function handleCopiarMeet(e: React.SyntheticEvent) {
+    e.stopPropagation();
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  // Redimensiona a duração arrastando a borda inferior do bloco. Evento
+  // tratado fora do dnd-kit (stopPropagation impede que o drag de mover
+  // comece junto) — pointermove/pointerup ficam no window para acompanhar o
+  // ponteiro mesmo saindo da área do bloco.
+  function handleResizePointerDown(e: React.PointerEvent) {
+    if (travada) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startY = e.clientY;
+    const duracaoInicial = sessao.duracaoMin;
+
+    function calcularCandidato(ev: PointerEvent) {
+      const deltaY = ev.clientY - startY;
+      const deltaMin = Math.round((deltaY / rowPx) * ROW_MIN / DURACAO_SNAP_MIN) * DURACAO_SNAP_MIN;
+      return Math.max(DURACAO_SNAP_MIN, duracaoInicial + deltaMin);
+    }
+
+    function onMove(ev: PointerEvent) {
+      setPreviewDuracaoMin(calcularCandidato(ev));
+    }
+
+    function onUp(ev: PointerEvent) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setPreviewDuracaoMin(null);
+
+      const candidato = calcularCandidato(ev);
+      if (candidato === duracaoInicial) return;
+
+      const diaSemanaNome = DIA_SEMANA_POR_INDICE[cInicio.diaSemana];
+      const fimMin = minutos + candidato;
+      if (!estaDentroExpediente(horarios, diaSemanaNome, minutos, fimMin)) {
+        onAviso("Essa duração ultrapassa o expediente da clínica.");
+        return;
+      }
+
+      onRedimensionar(sessao, candidato);
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...(travada ? {} : listeners)}
+      {...(travada ? {} : attributes)}
+      role="button"
+      tabIndex={0}
+      onClick={() => onAbrirDetalhe(sessao)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onAbrirDetalhe(sessao);
+        }
+      }}
+      style={style}
+      title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
+      className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm`}
+    >
+      <p className="truncate text-[11px] font-medium leading-[13px]">
+        {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
+      </p>
+      <div className="flex items-center justify-between gap-1 leading-none">
+        {copiado ? (
+          <span className="truncate text-[10px] font-medium leading-[12px]">Copiado!</span>
+        ) : (
+          <>
+            <span className="truncate text-[10px] leading-[12px] opacity-90">
+              {formatarHorario(inicio)}–{formatarHorario(fim)}
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleCopiarConfirmacao}
+                title="Copiar mensagem de confirmação"
+                aria-label="Copiar mensagem de confirmação"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40"
+              >
+                <IconCopiar className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!sessao.linkMeet}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleCopiarMeet}
+                title="Copiar texto do link do Meet"
+                aria-label="Copiar texto do link do Meet"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
+              >
+                <IconMeet className="h-3 w-3" />
+              </button>
+            </span>
+          </>
+        )}
+      </div>
+
+      {!travada && (
+        <div
+          onPointerDown={handleResizePointerDown}
+          onClick={(e) => e.stopPropagation()}
+          title="Arraste para alterar a duração"
+          className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Ícone de copiar (clipboard), usado nos botões de copiar do bloco de sessão
+function IconCopiar({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <rect x="7" y="7" width="9" height="10" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4 13V4.5A1.5 1.5 0 0 1 5.5 3H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Ícone de vídeo (Meet), usado no botão de copiar o link da chamada
+function IconMeet({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="5.5" width="10" height="9" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M12.5 9.2 17 6.3v7.4l-4.5-2.9" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Modal de detalhes da sessão, aberto ao clicar num bloco do calendário —
+// mesmas ações já existentes no painel do paciente (status, editar, cancelar),
+// numa versão compacta para não sair do contexto da agenda.
+function SessaoDetalheModal({
+  sessao,
+  tiposSessao,
+  clinica,
+  onFechar,
+  onAtualizado,
+  onAviso,
+}: {
+  sessao: SessaoAgenda;
+  tiposSessao: TipoSessaoOpcao[];
+  clinica: ClinicaAgenda | null;
+  onFechar: () => void;
+  onAtualizado: () => void;
+  onAviso: (msg: string) => void;
+}) {
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [editando, setEditando] = useState(false);
+  const [novaData, setNovaData] = useState(dataISODeData(new Date(sessao.inicio)));
+  const [novoHorario, setNovoHorario] = useState(formatarHorario(new Date(sessao.inicio)));
+  const [cancelando, setCancelando] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [arquivar, setArquivar] = useState(false);
+  const [trocandoTipo, setTrocandoTipo] = useState(false);
+  const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
+  const [alterandoDuracao, setAlterandoDuracao] = useState(false);
+  const [novaDuracao, setNovaDuracao] = useState(sessao.duracaoMin);
+  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const travada = STATUS_TRAVADOS.includes(sessao.status);
+  const inicio = new Date(sessao.inicio);
+
+  function mostrarCopiado(tipo: "conf" | "meet") {
+    setCopiado(tipo);
+    if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
+    copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
+  }
+
+  async function handleCopiarConfirmacao() {
+    if (!clinica) return;
+    if (await copiarParaClipboard(montarMensagemConfirmacao(sessao, clinica))) mostrarCopiado("conf");
+  }
+
+  async function handleCopiarMeet() {
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  async function alternarConfirmacao() {
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmada: !sessao.confirmada }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível atualizar a confirmação");
+        return;
+      }
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
