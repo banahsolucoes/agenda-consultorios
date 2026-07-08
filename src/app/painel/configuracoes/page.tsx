@@ -34,6 +34,8 @@ interface Clinica {
   emailBoasVindasCorpo: string;
   templateConfirmacao: string;
   templateMeet: string;
+  sheetsPlanilhaId: string | null;
+  sheetsAba: string | null;
 }
 
 interface FaixaHorario {
@@ -124,6 +126,17 @@ export default function ConfiguracoesPage() {
   const [erroCarregarGoogle, setErroCarregarGoogle] = useState(false);
   const [desconectandoGoogle, setDesconectandoGoogle] = useState(false);
   const [avisoGoogle, setAvisoGoogle] = useState<"conectado" | "erro" | null>(null);
+  const [salvandoConfigSheets, setSalvandoConfigSheets] = useState(false);
+  const [erroConfigSheets, setErroConfigSheets] = useState("");
+  const [sucessoConfigSheets, setSucessoConfigSheets] = useState(false);
+
+  function extractSheetIdFromUrl(urlOrId: string): string {
+    const match = urlOrId.match(/\/d\/([^\/]+)/);
+    if (match) {
+      return match[1];
+    }
+    return urlOrId;
+  }
 
   const [pastaRaizInput, setPastaRaizInput] = useState("");
   const [editandoPastaRaiz, setEditandoPastaRaiz] = useState(false);
@@ -268,6 +281,8 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
           nomeAssistente: clinica.nomeAssistente,
           horarioLimiteConfirmacao: clinica.horarioLimiteConfirmacao,
           permitirResizeSessao: clinica.permitirResizeSessao,
+          sheetsPlanilhaId: clinica.sheetsPlanilhaId,
+          sheetsAba: clinica.sheetsAba,
         }),
       });
 
@@ -315,6 +330,30 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
       setErroEmailBoasVindas("não foi possível salvar");
     } finally {
       setSalvandoEmailBoasVindas(false);
+    }
+  }
+  
+  async function handleSalvarConfigSheets(e: React.FormEvent) {
+    e.preventDefault();
+    if (!clinica) return;
+    try {
+      const res = await fetch("/api/clinica", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetsPlanilhaId: clinica.sheetsPlanilhaId || null,
+          sheetsAba: clinica.sheetsAba || null,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.erro ?? "não foi possível salvar");
+        return;
+      }
+      setClinica(await res.json());
+      alert("Configuração da planilha salva!");
+    } catch {
+      alert("não foi possível salvar");
     }
   }
 
@@ -1015,6 +1054,83 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
               </p>
             )}
           </div>
+        </section>
+
+        {/* Importação de formulário (Google Sheets) */}
+        <section className="rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
+            Importação de formulário (Google Sheets)
+          </h2>
+          <p className="mb-4 text-sm text-muted">
+            Configure a planilha do Google Sheets de onde os dados dos pacientes serão importados.
+          </p>
+
+          {carregandoClinica ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : erroCarregarClinica || !clinica ? (
+            <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Não foi possível carregar os dados da clínica.
+            </p>
+          ) : (
+            <form onSubmit={handleSalvarConfigSheets} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">ID ou link da planilha</label>
+                <input
+                  type="text"
+                  name="sheetsPlanilhaId"
+                  value={clinica.sheetsPlanilhaId || ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const id = extractSheetIdFromUrl(value);
+                    setClinica(c => c ? {...c, sheetsPlanilhaId: id} : c);
+                    setErroConfigSheets("");
+                    setSucessoConfigSheets(false);
+                  }}
+                  placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Cole o ID da planilha ou o link completo. O ID é a parte entre /d/ e /edit na URL.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Nome da aba</label>
+                <input
+                  type="text"
+                  name="sheetsAba"
+                  value={clinica.sheetsAba || ""}
+                  onChange={handleChangeClinica}
+                  placeholder="Página1"
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Deixe em branco para usar a primeira aba (padrão: "Página1").
+                </p>
+              </div>
+
+              {erroConfigSheets && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroConfigSheets}
+                </p>
+              )}
+              {sucessoConfigSheets && (
+                <p className="rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  Configurações salvas.
+                </p>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={salvandoConfigSheets}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoConfigSheets ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          )}
         </section>
 
         {/* Email de boas-vindas */}

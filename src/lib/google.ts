@@ -22,6 +22,7 @@ const ESCOPOS_GOOGLE = [
   "https://www.googleapis.com/auth/userinfo.email",
   ESCOPO_DRIVE,
   ESCOPO_GMAIL,
+  "https://www.googleapis.com/auth/spreadsheets.readonly",
 ];
 
 // Confere se a última autorização OAuth da clínica concedeu um escopo
