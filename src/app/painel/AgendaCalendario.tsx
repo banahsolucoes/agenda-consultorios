@@ -836,6 +836,20 @@ function BlocoSessao({
                 aria-label="Copiar texto do link do Meet"
                 className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
               >
+                <IconLink className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!sessao.linkMeet}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (sessao.linkMeet) window.open(sessao.linkMeet, "_blank", "noopener,noreferrer");
+                }}
+                title="Abrir Meet"
+                aria-label="Abrir Meet"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
+              >
                 <IconMeet className="h-3 w-3" />
               </button>
             </span>
@@ -862,6 +876,15 @@ function IconCopiar({ className }: { className?: string }) {
     <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
       <rect x="7" y="7" width="9" height="10" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
       <path d="M4 13V4.5A1.5 1.5 0 0 1 5.5 3H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconLink({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path d="M8.5 11.5a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2l-1 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M11.5 8.5a3 3 0 0 0-4.2 0L5 10.8a3 3 0 0 0 4.2 4.2l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }
