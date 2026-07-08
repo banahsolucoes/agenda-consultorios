@@ -949,8 +949,15 @@ function SessaoDetalheModal({
   }
 
   async function mudarStatus(novoStatus: string) {
+    if (travada) {
+      const ok = window.confirm(
+        `Esta sessão está marcada como "${statusLabel(sessao.status)}". Deseja alterar para "${statusLabel(novoStatus)}"?`
+      );
+      if (!ok) return;
+    }
     setErro("");
     setSalvando(true);
+	
     try {
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
@@ -1096,14 +1103,14 @@ function SessaoDetalheModal({
         )}
 
         {sessao.status === "CANCELADA" && sessao.motivoCancelamento && (
-          <p className="mb-4 rounded-lg bg-bg px-3 py-2 text-xs italic text-muted">
+          <p className="mb-4 rounded-lg bg-bg px-3 py-2 text-xs italic text-muted">f
             Motivo: {sessao.motivoCancelamento}
           </p>
         )}
 
         {erro && <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
 
-        {!travada && !editando && !cancelando && !trocandoTipo && !alterandoDuracao && (
+        {!editando && !cancelando && !trocandoTipo && !alterandoDuracao && (
           <div className="space-y-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Status</p>
@@ -1361,9 +1368,7 @@ function SessaoDetalheModal({
           </form>
         )}
 
-        {travada && (
-          <p className="text-sm text-muted">Sessão consumida — somente leitura.</p>
-        )}
+        
       </div>
     </div>
   );
