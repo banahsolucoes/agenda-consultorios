@@ -22,8 +22,10 @@ const CAMPOS_EDITAVEIS = [
   "emailBoasVindasCorpo",
   "templateConfirmacao",
   "templateMeet",
-  "fundoOpacidade",
+ "fundoOpacidade",
   "fundoAjuste",
+  "sheetsPlanilhaId",
+  "sheetsAba",
 ] as const;
 
 const SELECT_CLINICA = {
@@ -49,6 +51,8 @@ const SELECT_CLINICA = {
   emailBoasVindasCorpo: true,
   templateConfirmacao: true,
   templateMeet: true,
+  sheetsPlanilhaId: true,
+  sheetsAba: true,
 } as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado
