@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { registrarLog } from "@/lib/auditoria";
 import { extrairIdPastaDrive, pareceIdPastaDriveValido } from "@/lib/validacao";
 import { obterDriveDaClinica, verificarPastaDriveAcessivel } from "@/lib/google";
 import { OPCOES_AJUSTE_FUNDO } from "@/lib/fundo";
@@ -67,7 +68,30 @@ export async function GET() {
   });
   if (!clinica) return NextResponse.json({ erro: "clínica não encontrada" }, { status: 404 });
 
-  return NextResponse.json(clinica);
+  // Audit logging for sheets configuration changes
+    // Get original values for comparison
+    const clinicaOriginal = await prisma.clinica.findUnique({
+      where: { id: usuario.clinicaId },
+      select: {
+        sheetsPlanilhaId: true,
+        sheetsAba: true,
+      },
+    });
+
+    const sheetsChanged =
+      clinicaOriginal?.sheetsPlanilhaId !== clinica.sheetsPlanilhaId ||
+      clinicaOriginal?.sheetsAba !== clinica.sheetsAba;
+
+    if (sheetsChanged) {
+      await registrarLog(
+        usuario.clinicaId,
+        usuario.id,
+        "ALTERAR_CONFIG_SHEETS",
+        `Alterou configuração da planilha (planilha: ${clinicaOriginal?.sheetsPlanilhaId ?? "null"} → ${clinica.sheetsPlanilhaId ?? "null"}, aba: ${clinicaOriginal?.sheetsAba ?? "Padrão (Página1)"} → ${clinica.sheetsAba ?? "Padrão (Página1)"})`
+      );
+    }
+
+    return NextResponse.json(clinica);
 }
 
 // PATCH /api/clinica — atualiza dados gerais/white-label da clínica do usuário logado
@@ -154,5 +178,28 @@ export async function PATCH(req: NextRequest) {
     select: SELECT_CLINICA,
   });
 
-  return NextResponse.json(clinica);
+  // Audit logging for sheets configuration changes
+    // Get original values for comparison
+    const clinicaOriginal = await prisma.clinica.findUnique({
+      where: { id: usuario.clinicaId },
+      select: {
+        sheetsPlanilhaId: true,
+        sheetsAba: true,
+      },
+    });
+
+    const sheetsChanged =
+      clinicaOriginal?.sheetsPlanilhaId !== clinica.sheetsPlanilhaId ||
+      clinicaOriginal?.sheetsAba !== clinica.sheetsAba;
+
+    if (sheetsChanged) {
+      await registrarLog(
+        usuario.clinicaId,
+        usuario.id,
+        "ALTERAR_CONFIG_SHEETS",
+        `Alterou configuração da planilha (planilha: ${clinicaOriginal?.sheetsPlanilhaId ?? "null"} → ${clinica.sheetsPlanilhaId ?? "null"}, aba: ${clinicaOriginal?.sheetsAba ?? "Padrão (Página1)"} → ${clinica.sheetsAba ?? "Padrão (Página1)"})`
+      );
+    }
+
+    return NextResponse.json(clinica);
 }

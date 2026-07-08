@@ -1158,7 +1158,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <form onSubmit={pedirConfirmacaoSheets} className="flex flex-wrap items-center gap-3">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">ID ou link da planilha</label>
                     <input
@@ -1200,12 +1200,11 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
 
                   <div className="flex justify-end gap-3">
                     <button
-                      type="button"
-                      onClick={pedirConfirmacaoSheets}
+                      type="submit"
                       disabled={salvandoConfigSheets}
                       className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Salvar
+                      {salvandoConfigSheets ? "Salvando..." : "Salvar"}
                     </button>
                     <button
                       type="button"
@@ -1216,7 +1215,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                       Cancelar
                     </button>
                   </div>
-                </div>
+                </form>
               )}
 
               {erroConfigSheets && !confirmandoSheets && (
