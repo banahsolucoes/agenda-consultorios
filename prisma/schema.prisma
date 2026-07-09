@@ -113,7 +113,6 @@ model Paciente {
   telefone        String?
   email           String?
   cpf             String?
-  rg              String?
   logradouro      String?
   numero          String?
   complemento     String?
@@ -122,11 +121,6 @@ model Paciente {
   estado          String?
   cep             String?
   quemIndicou     String?
-  dataNascimento  DateTime?
-  estadoCivil     String?
-  nacionalidade   String?
-  profissao       String?
-  instagram       String?
   pastaDriveUrl   String?
   origemCadastro  OrigemCadastro  @default(MANUAL)
   diaPreferido    DiaSemana?
@@ -139,7 +133,6 @@ model Paciente {
   statusGeral     StatusCliente   @default(ATIVO)
   finalizadoEm    DateTime?
   criadoEm        DateTime        @default(now())
-  dataImportacao  DateTime?
 
   clinica         Clinica         @relation(fields: [clinicaId], references: [id])
   tipoSessao      TipoSessao?     @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
