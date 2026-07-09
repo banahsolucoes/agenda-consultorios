@@ -3,41 +3,7 @@ import { google } from "googleapis";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterClienteGoogleDaClinica } from "@/lib/google";
-
-// Normaliza cabeçalho: minúsculo, sem acento, sem espaços extras
-function normalizarCabecalho(s: string): string {
-  return (s || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-// Mapa: nome normalizado da coluna na planilha -> campo do paciente
-const MAPA: Record<string, string> = {
-  "nome completo": "nome",
-  "data de nascimento": "dataNascimento",
-  "estado civil": "estadoCivil",
-  "nacionalidade": "nacionalidade",
-  "seu instagram": "instagram",
-  "e-mail": "email",
-  "email": "email",
-  "endereco completo": "logradouro",
-  "cep": "cep",
-  "profissao": "profissao",
-  "telefone (whatsapp)": "telefone",
-  "telefone": "telefone",
-  "seu rg": "rg",
-  "seu cpf": "cpf",
-  "quem indicou?": "quemIndicou",
-  "quem indicou": "quemIndicou",
-  "carimbo de data/hora": "dataCadastroForms",
-  "timestamp": "dataCadastroForms",
-};
-
-function soDigitos(s: string): string {
-  return (s || "").replace(/\D/g, "");
-}
+import { normalizarCabecalho, MAPA, soDigitos } from "@/lib/importacao-utils";
 
 export async function GET() {
   const usuario = await getUsuarioLogado();
@@ -51,9 +17,10 @@ export async function GET() {
   }
 
   if (!clinica.sheetsPlanilhaId) {
-    return NextResponse.json({ erro: "planilha não configurada nas Configurações" }, { status: 400 });
+    return NextResponse.json({ erro: "planilha não configurada" }, { status: 400 });
   }
 
+  // Obtém o cliente Google da clínica
   const auth = await obterClienteGoogleDaClinica(clinica).catch(() => null);
   if (!auth) {
     return NextResponse.json({ erro: "Google não conectado ou sem permissão de planilhas — reconecte nas Configurações" }, { status: 400 });
@@ -62,6 +29,7 @@ export async function GET() {
   const sheets = google.sheets({ version: "v4", auth });
   const aba = clinica.sheetsAba || "Página1";
 
+  // Lê os dados da planilha
   let valores: string[][] = [];
   try {
     const resp = await sheets.spreadsheets.values.get({
@@ -69,12 +37,13 @@ export async function GET() {
       range: aba,
     });
     valores = (resp.data.values as string[][]) || [];
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "erro ao ler a planilha";
-    return NextResponse.json({ erro: `Não foi possível ler a planilha: ${msg}` }, { status: 400 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ erro: `Não foi possível ler a planilha: ${message}` }, { status: 400 });
   }
 
   if (valores.length < 2) {
+    // Nenhum dado além do cabeçalho
     return NextResponse.json({ total: 0, novos: 0, existentes: 0, registros: [] });
   }
 
@@ -90,29 +59,35 @@ export async function GET() {
     pacientesExistentes.map((p) => soDigitos(p.cpf || "")).filter(Boolean)
   );
 
-  const registros = linhas
-    .map((linha) => {
-      const dados: Record<string, string> = {};
-      cabecalho.forEach((col, i) => {
-        const campo = MAPA[col];
-        if (campo) dados[campo] = (linha[i] || "").trim();
-      });
-      return dados;
-    })
-    .filter((d) => (d.nome && d.nome.length > 0) || (d.cpf && d.cpf.length > 0)) // ignora linhas vazias
-    .map((d) => {
-      const cpfDigitos = soDigitos(d.cpf || "");
-      const jaExiste = cpfDigitos.length > 0 && cpfsExistentes.has(cpfDigitos);
-      return { ...d, status: jaExiste ? "existente" : "novo" };
+  // Processa cada linha
+  const registros = [];
+
+  for (const linha of linhas) {
+    const dados: Record<string, string> = {};
+    cabecalho.forEach((col, i) => {
+      const campo = MAPA[col];
+      if (campo) {
+        dados[campo] = (linha[i] || "").trim();
+      }
     });
 
-  const novos = registros.filter((r) => r.status === "novo").length;
-  const existentes = registros.filter((r) => r.status === "existente").length;
+    // Ignora linhas vazias (sem nome e sem CPF)
+    if (!(dados.nome && dados.nome.length > 0) && !(dados.cpf && dados.cpf.length > 0)) {
+      continue;
+    }
 
-  return NextResponse.json({
-    total: registros.length,
-    novos,
-    existentes,
-    registros,
-  });
+    const cpfDigitos = soDigitos(dados.cpf || "");
+    const jaExiste = cpfDigitos.length > 0 && cpfsExistentes.has(cpfDigitos);
+
+    registros.push({
+      ...dados,
+      novo: !jaExiste,
+      cpfFormatado: cpfDigitos,
+    });
+  }
+
+  const novos = registros.filter((r) => r.novo).length;
+  const existentes = registros.filter((r) => !r.novo).length;
+
+  return NextResponse.json({ total: registros.length, novos, existentes, registros });
 }

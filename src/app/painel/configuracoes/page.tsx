@@ -80,6 +80,10 @@ export default function ConfiguracoesPage() {
   const [salvandoClinica, setSalvandoClinica] = useState(false);
   const [erroClinica, setErroClinica] = useState("");
   const [sucessoClinica, setSucessoClinica] = useState(false);
+  const [importandoPacientes, setImportandoPacientes] = useState(false);
+  const [importarErro, setImportarErro] = useState("");
+  const [importarSucesso, setImportarSucesso] = useState<{ importados: number; ignorados: number; erros: number } | null>(null);
+  const [confirmandoImportar, setConfirmandoImportar] = useState(false);
 
   const [salvandoEmailBoasVindas, setSalvandoEmailBoasVindas] = useState(false);
   const [erroEmailBoasVindas, setErroEmailBoasVindas] = useState("");
@@ -133,6 +137,7 @@ export default function ConfiguracoesPage() {
   const [confirmandoSheets, setConfirmandoSheets] = useState(false);
   const [sheetsPlanilhaIdInput, setSheetsPlanilhaIdInput] = useState("");
   const [sheetsAbaInput, setSheetsAbaInput] = useState("");
+ 
 
   function extractSheetIdFromUrl(urlOrId: string): string {
     const match = urlOrId.match(/\/d\/([^\/]+)/);
@@ -236,7 +241,7 @@ export default function ConfiguracoesPage() {
     if (params.has("google_conectado") || params.has("google_erro")) {
       router.replace("/painel/configuracoes");
     }
-  }, []);
+  }, [carregarClinica, carregarHorarios, carregarTiposSessao, carregarGoogleStatus, router]);
 
   function handleConectarGoogle() {
     window.location.href = "/api/integracoes/google/conectar";
@@ -256,7 +261,7 @@ export default function ConfiguracoesPage() {
 function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
    const target = e.target;
    const { name } = target;
-   let val: any;
+   let val: string | boolean;
    if (target.type === "checkbox") {
      val = (target as HTMLInputElement).checked;
    } else {
@@ -335,30 +340,6 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
     }
   }
   
-  async function handleSalvarConfigSheets(e: React.FormEvent) {
-    e.preventDefault();
-    if (!clinica) return;
-    try {
-      const res = await fetch("/api/clinica", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sheetsPlanilhaId: clinica.sheetsPlanilhaId || null,
-          sheetsAba: clinica.sheetsAba || null,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        alert(data?.erro ?? "não foi possível salvar");
-        return;
-      }
-      setClinica(await res.json());
-      alert("Configuração da planilha salva!");
-    } catch {
-      alert("não foi possível salvar");
-    }
-  }
-
   async function handleSalvarTemplatesMensagem(e: React.FormEvent) {
     e.preventDefault();
     if (!clinica) return;
@@ -559,6 +540,39 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
       setConfirmandoSheets(false);
     } finally {
       setSalvandoConfigSheets(false);
+    }
+  }
+
+  function abrirConfirmacaoImportar() {
+    setImportarErro("");
+    setImportarSucesso(null);
+    setConfirmandoImportar(true);
+  }
+
+  function cancelarImportar() {
+    setConfirmandoImportar(false);
+  }
+
+  async function handleImportarPacientes() {
+    setImportandoPacientes(true);
+    setImportarErro("");
+    setImportarSucesso(null);
+    try {
+      const res = await fetch("/api/importacao/executar", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setImportarErro(data?.erro ?? "não foi possível executar a importação");
+        return;
+      }
+      const resultado = await res.json();
+      setImportarSucesso(resultado);
+    } catch {
+      setImportarErro("não foi possível executar a importação");
+    } finally {
+      setImportandoPacientes(false);
+      setConfirmandoImportar(false);
     }
   }
 
@@ -1156,6 +1170,17 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                     <span className="text-xs text-muted">Aba</span>
                     <p className="text-sm text-fg">{clinica.sheetsAba || "Padrão (Página1)"}</p>
                   </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={abrirConfirmacaoImportar}
+                      className="shrink-0 rounded-lg border border-border px-3 py-1 text-sm font-medium text-fg hover:bg-bg"
+                      disabled={importandoPacientes || !clinica?.sheetsPlanilhaId}
+                    >
+                      {importandoPacientes ? "Buscando..." : "Buscar novos pacientes"}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={pedirConfirmacaoSheets} className="flex flex-wrap items-center gap-3">
@@ -1751,6 +1776,62 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                 className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {salvandoConfigSheets ? "Salvando..." : "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar importação de pacientes */}
+      {confirmandoImportar && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-semibold text-lg font-serif text-fg">
+              Confirmar importação de pacientes
+            </h2>
+            <p className="mb-4 text-sm text-muted">
+              Deseja realmente executar a importação de pacientes da planilha configurada?
+              Esta ação não pode ser desfeita.
+            </p>
+
+            {importarSucesso && (
+              <div className="mb-4 p-4 bg-green/10 rounded-lg border border-green">
+                <p className="mb-2 text-sm font-medium text-fg">
+                  Importação concluída com sucesso!
+                </p>
+                <p className="mb-1 text-sm">
+                  <span className="font-mono">Novos:</span> {importarSucesso.importados}
+                </p>
+                <p className="mb-1 text-sm">
+                  <span className="font-mono">Existentes:</span> {importarSucesso.ignorados}
+                </p>
+                <p className="mb-1 text-sm">
+                  <span className="font-mono">Erros:</span> {importarSucesso.erros}
+                </p>
+              </div>
+            )}
+
+            {importarErro && (
+              <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                {importarErro}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelarImportar}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleImportarPacientes}
+                disabled={importandoPacientes}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {importandoPacientes ? "Importando..." : "Confirmar importação"}
               </button>
             </div>
           </div>
