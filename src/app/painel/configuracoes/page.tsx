@@ -241,8 +241,7 @@ export default function ConfiguracoesPage() {
     if (params.has("google_conectado") || params.has("google_erro")) {
       router.replace("/painel/configuracoes");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+  }, [carregarClinica, carregarHorarios, carregarTiposSessao, carregarGoogleStatus, router]);
 
   function handleConectarGoogle() {
     window.location.href = "/api/integracoes/google/conectar";
