@@ -29,6 +29,20 @@ model Clinica {
   permitirResizeSessao   Boolean           @default(false)
   criadoEm                  DateTime          @default(now())
 
+  // Dados cadastrais/fiscais da clínica (todos opcionais — clínicas antigas
+  // não têm). cnpj e cep são gravados só com dígitos (normalizados no PATCH).
+  razaoSocial               String?
+  cnpj                      String?
+  enderecoLogradouro        String?
+  enderecoNumero            String?
+  enderecoComplemento       String?
+  enderecoBairro            String?
+  enderecoCidade            String?
+  enderecoUF                String?
+  cep                       String?
+  emailContato              String?
+  telefoneContato           String?
+
   // Integração Google Calendar/Meet (OAuth por clínica, Tarefa 13)
   googleRefreshToken        String?
   googleAccessToken         String?

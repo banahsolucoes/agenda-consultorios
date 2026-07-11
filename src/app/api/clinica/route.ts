@@ -6,6 +6,7 @@ import { extrairIdPastaDrive, pareceIdPastaDriveValido } from "@/lib/validacao";
 import { obterDriveDaClinica, verificarPastaDriveAcessivel } from "@/lib/google";
 import { OPCOES_AJUSTE_FUNDO } from "@/lib/fundo";
 import { pode } from "@/lib/permissoes";
+import { soDigitos } from "@/lib/importacao";
 
 // Campos que podem ser alterados pela tela de Configurações. "logo" e
 // "fundoUrl" ficam de fora de propósito — só mudam via upload em
@@ -28,6 +29,17 @@ const CAMPOS_EDITAVEIS = [
   "fundoAjuste",
   "sheetsPlanilhaId",
   "sheetsAba",
+  "razaoSocial",
+  "cnpj",
+  "enderecoLogradouro",
+  "enderecoNumero",
+  "enderecoComplemento",
+  "enderecoBairro",
+  "enderecoCidade",
+  "enderecoUF",
+  "cep",
+  "emailContato",
+  "telefoneContato",
 ] as const;
 
 const SELECT_CLINICA = {
@@ -55,6 +67,17 @@ const SELECT_CLINICA = {
   templateMeet: true,
   sheetsPlanilhaId: true,
   sheetsAba: true,
+  razaoSocial: true,
+  cnpj: true,
+  enderecoLogradouro: true,
+  enderecoNumero: true,
+  enderecoComplemento: true,
+  enderecoBairro: true,
+  enderecoCidade: true,
+  enderecoUF: true,
+  cep: true,
+  emailContato: true,
+  telefoneContato: true,
 } as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado
@@ -133,6 +156,15 @@ export async function PATCH(req: NextRequest) {
 
   if (data.nomeExibicao === "") {
     data.nomeExibicao = null;
+  }
+
+  // CNPJ e CEP são guardados só com dígitos (a máscara fica por conta da UI).
+  // Campo enviado vazio ou só com pontuação vira null.
+  if (data.cnpj !== undefined) {
+    data.cnpj = soDigitos(String(data.cnpj ?? "")) || null;
+  }
+  if (data.cep !== undefined) {
+    data.cep = soDigitos(String(data.cep ?? "")) || null;
   }
 
   if (data.emailBoasVindasAssunto !== undefined && !data.emailBoasVindasAssunto) {
