@@ -1352,10 +1352,25 @@ export default function PainelPage() {
                       p.statusGeral !== "ATIVO" ? "opacity-60" : ""
                     }`}
                   >
-                    <p className="font-medium text-fg">{p.nome}</p>
-                    <p className="mt-1 text-sm text-muted">
-                      {p.telefone ?? "sem telefone"}
-                    </p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-fg">{p.nome}</p>
+                        <p className="mt-1 text-sm text-muted">
+                          {p.telefone ?? "sem telefone"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          abrirModalEdicao(p);
+                        }}
+                        className="shrink-0 rounded-lg border border-border p-2 text-muted hover:bg-bg hover:text-fg"
+                        aria-label="Editar cadastro"
+                        title="Editar cadastro"
+                      >
+                        <IconLapis className="h-4 w-4" />
+                      </button>
+                    </div>
                     <div className="mt-3" onClick={(e) => e.stopPropagation()}>
                       <MenuStatus
                         status={p.statusGeral}
