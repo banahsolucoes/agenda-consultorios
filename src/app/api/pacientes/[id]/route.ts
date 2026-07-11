@@ -4,12 +4,14 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { obterClinicaECalendar } from "@/lib/google";
 import { registrarLog } from "@/lib/auditoria";
 import { pareceUrl } from "@/lib/validacao";
+import { soDigitos } from "@/lib/importacao";
 
 const CAMPOS_EDITAVEIS = [
   "nome",
   "telefone",
   "email",
   "cpf",
+  "rg",
   "logradouro",
   "numero",
   "complemento",
@@ -18,6 +20,11 @@ const CAMPOS_EDITAVEIS = [
   "estado",
   "cep",
   "quemIndicou",
+  "dataNascimento",
+  "estadoCivil",
+  "nacionalidade",
+  "profissao",
+  "instagram",
   "pastaDriveUrl",
   "origemCadastro",
   "diaPreferido",
@@ -69,6 +76,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   for (const campo of CAMPOS_EDITAVEIS) {
     if (body[campo] !== undefined) data[campo] = body[campo];
   }
+  // Normaliza pra só dígitos antes de gravar — consistência com a
+  // constraint @@unique([clinicaId, cpf]).
+  if (body.cpf !== undefined) {
+    data.cpf = soDigitos(String(body.cpf ?? "")) || null;
+  }
 
   // Troca manual de status é reversível e não mexe em sessões: só atualiza o
   // rótulo e o carimbo de finalização (limpo quando sai de FINALIZADO).
@@ -79,7 +91,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     data.finalizadoEm = body.statusGeral === "FINALIZADO" ? new Date() : null;
   }
 
-  const atualizado = await prisma.paciente.update({ where: { id }, data });
+  let atualizado;
+  try {
+    atualizado = await prisma.paciente.update({ where: { id }, data });
+  } catch (err) {
+    const codigo = (err as { code?: string } | null)?.code;
+    if (codigo === "P2002") {
+      return NextResponse.json({ erro: "CPF já cadastrado nesta clínica" }, { status: 409 });
+    }
+    throw err;
+  }
 
   const camposAlterados = Object.keys(data).filter((campo) =>
     (CAMPOS_EDITAVEIS as readonly string[]).includes(campo)

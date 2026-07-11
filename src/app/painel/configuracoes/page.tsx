@@ -143,6 +143,7 @@ export default function ConfiguracoesPage() {
     existentes: number;
     registros: Array<{ nome?: string; cpf?: string; status: string }>;
   } | null>(null);
+  const [cpfsSelecionadosImportacao, setCpfsSelecionadosImportacao] = useState<Set<string>>(new Set());
   const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
   const [erroExecutarImportacao, setErroExecutarImportacao] = useState("");
   const [resultadoImportacao, setResultadoImportacao] = useState<{
@@ -150,6 +151,10 @@ export default function ConfiguracoesPage() {
     pulados: number;
     erros: number;
   } | null>(null);
+
+  function soDigitos(s: string): string {
+    return (s || "").replace(/\D/g, "");
+  }
 
   function extractSheetIdFromUrl(urlOrId: string): string {
     const match = urlOrId.match(/\/d\/([^\/]+)/);
@@ -594,6 +599,17 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
       }
 
       setPreviewImportacao(dados);
+      // Default: todos os "novos" vêm marcados — o toggle mestre permite
+      // desmarcar tudo de uma vez para escolher só os poucos que interessam.
+      const registrosNovos = (dados?.registros ?? []) as Array<{ cpf?: string; status: string }>;
+      setCpfsSelecionadosImportacao(
+        new Set(
+          registrosNovos
+            .filter((r) => r.status === "novo")
+            .map((r) => soDigitos(r.cpf || ""))
+            .filter(Boolean)
+        )
+      );
       setPreviewImportacaoAberto(true);
     } catch {
       setErroPreviewImportacao("não foi possível pré-visualizar a importação");
@@ -602,12 +618,34 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
     }
   }
 
+  function alternarSelecaoTodosImportacao(novosRegistros: Array<{ cpf?: string }>) {
+    const todasAsChaves = novosRegistros.map((r) => soDigitos(r.cpf || "")).filter(Boolean);
+    setCpfsSelecionadosImportacao((atual) =>
+      atual.size === todasAsChaves.length ? new Set() : new Set(todasAsChaves)
+    );
+  }
+
+  function alternarSelecaoImportacao(cpf: string) {
+    const chave = soDigitos(cpf || "");
+    if (!chave) return;
+    setCpfsSelecionadosImportacao((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(chave)) novo.delete(chave);
+      else novo.add(chave);
+      return novo;
+    });
+  }
+
   async function handleConfirmarImportacao() {
     setConfirmandoImportacao(true);
     setErroExecutarImportacao("");
 
     try {
-      const res = await fetch("/api/importacao/executar", { method: "POST" });
+      const res = await fetch("/api/importacao/executar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cpfs: Array.from(cpfsSelecionadosImportacao) }),
+      });
       const dados = await res.json().catch(() => null);
 
       if (!res.ok) {
@@ -628,6 +666,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
     setPreviewImportacao(null);
     setResultadoImportacao(null);
     setErroExecutarImportacao("");
+    setCpfsSelecionadosImportacao(new Set());
   }
 
   function faixaEmEdicao(dia: string) {
@@ -1871,19 +1910,58 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                 </p>
 
                 {previewImportacao.novos > 0 ? (
-                  <div className="mb-4 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border bg-bg p-2">
-                    {previewImportacao.registros
-                      .filter((r) => r.status === "novo")
-                      .map((r, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm"
-                        >
-                          <span className="truncate text-fg">{r.nome || "(sem nome)"}</span>
-                          <span className="shrink-0 font-mono text-xs text-muted">{r.cpf || "sem CPF"}</span>
-                        </div>
-                      ))}
-                  </div>
+                  <>
+                    <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={
+                            cpfsSelecionadosImportacao.size > 0 &&
+                            cpfsSelecionadosImportacao.size ===
+                              previewImportacao.registros
+                                .filter((r) => r.status === "novo")
+                                .map((r) => soDigitos(r.cpf || ""))
+                                .filter(Boolean).length
+                          }
+                          onChange={() =>
+                            alternarSelecaoTodosImportacao(
+                              previewImportacao.registros.filter((r) => r.status === "novo")
+                            )
+                          }
+                          className="h-4 w-4 rounded border-border"
+                        />
+                        Selecionar todos
+                      </label>
+                      <span>
+                        {cpfsSelecionadosImportacao.size} de {previewImportacao.novos} selecionados
+                      </span>
+                    </div>
+                    <div className="mb-4 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border bg-bg p-2">
+                      {previewImportacao.registros
+                        .filter((r) => r.status === "novo")
+                        .map((r, i) => {
+                          const chave = soDigitos(r.cpf || "");
+                          return (
+                            <label
+                              key={i}
+                              className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm hover:bg-surface"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={chave ? cpfsSelecionadosImportacao.has(chave) : false}
+                                  disabled={!chave}
+                                  onChange={() => alternarSelecaoImportacao(r.cpf || "")}
+                                  className="h-4 w-4 shrink-0 rounded border-border disabled:cursor-not-allowed"
+                                />
+                                <span className="truncate text-fg">{r.nome || "(sem nome)"}</span>
+                              </span>
+                              <span className="shrink-0 font-mono text-xs text-muted">{r.cpf || "sem CPF"}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </>
                 ) : (
                   <p className="mb-4 text-sm text-muted">Nenhum paciente novo para importar.</p>
                 )}
@@ -1904,7 +1982,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                   <button
                     type="button"
                     onClick={handleConfirmarImportacao}
-                    disabled={confirmandoImportacao || previewImportacao.novos === 0}
+                    disabled={confirmandoImportacao || cpfsSelecionadosImportacao.size === 0}
                     className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {confirmandoImportacao ? "Importando..." : "Confirmar importação"}

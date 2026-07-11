@@ -66,6 +66,7 @@ interface Paciente {
   telefone: string | null;
   email: string | null;
   cpf: string | null;
+  rg: string | null;
   logradouro: string | null;
   numero: string | null;
   complemento: string | null;
@@ -74,6 +75,11 @@ interface Paciente {
   estado: string | null;
   cep: string | null;
   quemIndicou: string | null;
+  dataNascimento: string | null;
+  estadoCivil: string | null;
+  nacionalidade: string | null;
+  profissao: string | null;
+  instagram: string | null;
   pastaDriveUrl: string | null;
   origemCadastro: string;
   diaPreferido: string;
@@ -143,8 +149,14 @@ interface TipoSessao {
 const FORM_VAZIO = {
   nome: "",
   cpf: "",
+  rg: "",
   telefone: "",
   email: "",
+  dataNascimento: "",
+  estadoCivil: "",
+  nacionalidade: "",
+  profissao: "",
+  instagram: "",
   cep: "",
   logradouro: "",
   numero: "",
@@ -527,8 +539,14 @@ export default function PainelPage() {
     setForm({
       nome: p.nome,
       cpf: p.cpf ?? "",
+      rg: p.rg ?? "",
       telefone: p.telefone ?? "",
       email: p.email ?? "",
+      dataNascimento: p.dataNascimento ?? "",
+      estadoCivil: p.estadoCivil ?? "",
+      nacionalidade: p.nacionalidade ?? "",
+      profissao: p.profissao ?? "",
+      instagram: p.instagram ?? "",
       cep: p.cep ?? "",
       logradouro: p.logradouro ?? "",
       numero: p.numero ?? "",
@@ -1380,8 +1398,14 @@ export default function PainelPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Campo label="Nome" name="nome" value={form.nome} onChange={handleChange} required className="sm:col-span-2" />
                   <Campo label="CPF" name="cpf" value={form.cpf} onChange={handleChange} />
+                  <Campo label="RG" name="rg" value={form.rg} onChange={handleChange} />
                   <Campo label="Telefone" name="telefone" value={form.telefone} onChange={handleChange} />
                   <Campo label="E-mail" name="email" value={form.email} onChange={handleChange} type="email" className="sm:col-span-2" />
+                  <Campo label="Data de nascimento" name="dataNascimento" value={form.dataNascimento} onChange={handleChange} placeholder="DD/MM/AAAA" />
+                  <Campo label="Estado civil" name="estadoCivil" value={form.estadoCivil} onChange={handleChange} />
+                  <Campo label="Nacionalidade" name="nacionalidade" value={form.nacionalidade} onChange={handleChange} />
+                  <Campo label="Profissão" name="profissao" value={form.profissao} onChange={handleChange} />
+                  <Campo label="Instagram" name="instagram" value={form.instagram} onChange={handleChange} placeholder="@usuario" />
                   <Campo label="Quem indicou" name="quemIndicou" value={form.quemIndicou} onChange={handleChange} />
                   <Campo
                     label="Link da pasta de gravações (Google Drive)"

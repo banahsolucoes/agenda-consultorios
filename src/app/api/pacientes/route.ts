@@ -4,6 +4,7 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
 import { pareceUrl } from "@/lib/validacao";
 import { obterDriveDaClinica, criarPastaPacienteDrive } from "@/lib/google";
+import { soDigitos } from "@/lib/importacao";
 
 // GET /api/pacientes — lista pacientes da clínica do usuário logado
 // ?filtro=ativos (default) | finalizados | cancelados | todos
@@ -55,28 +56,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "pastaDriveUrl deve ser uma URL válida" }, { status: 400 });
   }
 
-  const paciente = await prisma.paciente.create({
-    data: {
-      clinicaId: usuario.clinicaId,  // vem do login, não do request
-      nome: body.nome,
-      telefone: body.telefone ?? null,
-      email: body.email ?? null,
-      cpf: body.cpf ?? null,
-      logradouro: body.logradouro ?? null,
-      numero: body.numero ?? null,
-      complemento: body.complemento ?? null,
-      bairro: body.bairro ?? null,
-      cidade: body.cidade ?? null,
-      estado: body.estado ?? null,
-      cep: body.cep ?? null,
-      quemIndicou: body.quemIndicou ?? null,
-      pastaDriveUrl: body.pastaDriveUrl ?? null,
-      origemCadastro: body.origemCadastro ?? "MANUAL",
-      diaPreferido: body.diaPreferido,
-      horarioFixo: body.horarioFixo,
-      tipoSessaoId: body.tipoSessaoId,
-    },
-  });
+  let paciente;
+  try {
+    paciente = await prisma.paciente.create({
+      data: {
+        clinicaId: usuario.clinicaId,  // vem do login, não do request
+        nome: body.nome,
+        telefone: body.telefone ?? null,
+        email: body.email ?? null,
+        cpf: soDigitos(String(body.cpf ?? "")) || null,
+        rg: body.rg ?? null,
+        logradouro: body.logradouro ?? null,
+        numero: body.numero ?? null,
+        complemento: body.complemento ?? null,
+        bairro: body.bairro ?? null,
+        cidade: body.cidade ?? null,
+        estado: body.estado ?? null,
+        cep: body.cep ?? null,
+        quemIndicou: body.quemIndicou ?? null,
+        dataNascimento: body.dataNascimento ?? null,
+        estadoCivil: body.estadoCivil ?? null,
+        nacionalidade: body.nacionalidade ?? null,
+        profissao: body.profissao ?? null,
+        instagram: body.instagram ?? null,
+        pastaDriveUrl: body.pastaDriveUrl ?? null,
+        origemCadastro: body.origemCadastro ?? "MANUAL",
+        diaPreferido: body.diaPreferido,
+        horarioFixo: body.horarioFixo,
+        tipoSessaoId: body.tipoSessaoId,
+      },
+    });
+  } catch (err) {
+    const codigo = (err as { code?: string } | null)?.code;
+    if (codigo === "P2002") {
+      return NextResponse.json({ erro: "CPF já cadastrado nesta clínica" }, { status: 409 });
+    }
+    throw err;
+  }
 
   await registrarLog(usuario.clinicaId, usuario.id, "CRIAR_PACIENTE", `Cadastrou o paciente ${paciente.nome}`);
 

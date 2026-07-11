@@ -1,21 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
 import { ErroImportacao, lerEDeduplicarPlanilha, soDigitos } from "@/lib/importacao";
 
 // POST /api/importacao/executar — lê e deduplica a planilha configurada na
-// clínica do usuário logado, e cria os pacientes marcados como "novo".
-// clinicaId vem sempre de getUsuarioLogado(), nunca do body (não há body).
-export async function POST() {
+// clínica do usuário logado, e cria os pacientes marcados como "novo" cujo
+// CPF normalizado está entre os selecionados pelo cliente. clinicaId vem
+// sempre de getUsuarioLogado(), nunca do body — o único dado que vem do
+// cliente é a lista de CPFs usada como seletor; todos os campos cadastrais
+// vêm da planilha lida no servidor, nunca do body.
+export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) {
     return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
   }
 
+  const body = await req.json().catch(() => null);
+  const cpfsSelecionados = new Set(
+    (Array.isArray(body?.cpfs) ? body.cpfs : [])
+      .map((cpf: unknown) => soDigitos(String(cpf ?? "")))
+      .filter(Boolean)
+  );
+  if (cpfsSelecionados.size === 0) {
+    return NextResponse.json({ erro: "selecione ao menos um paciente para importar" }, { status: 400 });
+  }
+
   try {
     const { registros } = await lerEDeduplicarPlanilha(usuario.clinicaId);
-    const novos = registros.filter((r) => r.status === "novo");
+    const novos = registros.filter(
+      (r) => r.status === "novo" && cpfsSelecionados.has(soDigitos(r.cpf || ""))
+    );
 
     let criados = 0;
     let pulados = 0;
