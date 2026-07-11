@@ -38,6 +38,20 @@ const ORIGENS_VALIDAS = ["MANUAL", "FORMS"];
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 const STATUS_GERAL_VALIDOS = ["ATIVO", "CANCELADO", "FINALIZADO"];
 
+// GET /api/pacientes/[id] — retorna o paciente da clínica logada
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const usuario = await getUsuarioLogado();
+  if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+
+  const { id } = await ctx.params;
+  const paciente = await prisma.paciente.findUnique({ where: { id } });
+  if (!paciente || paciente.clinicaId !== usuario.clinicaId) {
+    return NextResponse.json({ erro: "paciente não encontrado" }, { status: 404 });
+  }
+
+  return NextResponse.json(paciente);
+}
+
 // PATCH /api/pacientes/[id] — edita o cadastro de um paciente da clínica logada
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();

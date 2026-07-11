@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 
-// Seção "Anamnese" do modal de cadastro/edição de paciente — textarea livre,
-// persistida à parte do restante do formulário (PATCH /api/pacientes/[id]).
-// Paciente antigo sem anamnese vem com o campo vazio pra colar manualmente.
-export default function AnamnesePaciente({
+// Editor de anamnese reutilizável — textarea livre + botão "Salvar", persiste
+// via PATCH /api/pacientes/[id]. Usado dentro do modal de cadastro/edição de
+// paciente e do AnamneseModal (abertura rápida a partir da agenda). Paciente
+// antigo sem anamnese vem com o campo vazio pra colar manualmente.
+export default function AnamneseEditor({
   pacienteId,
   anamneseInicial,
 }: {

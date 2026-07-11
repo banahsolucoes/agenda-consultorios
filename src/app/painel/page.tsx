@@ -15,7 +15,7 @@ import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
-import AnamnesePaciente from "./AnamnesePaciente";
+import AnamneseEditor from "./AnamneseEditor";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -1578,7 +1578,7 @@ export default function PainelPage() {
               {/* Anamnese e Anexos — só disponíveis em modo edição, dependem de um pacienteId já salvo */}
               {pacienteEditando && (
                 <div id="secao-anamnese">
-                  <AnamnesePaciente
+                  <AnamneseEditor
                     pacienteId={pacienteEditando.id}
                     anamneseInicial={pacienteEditando.anamnese}
                   />

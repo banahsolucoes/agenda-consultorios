@@ -16,6 +16,7 @@ import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
 import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
 import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import DatePickerSP from "./DatePickerSP";
+import AnamneseModal from "./AnamneseModal";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -210,6 +211,7 @@ export default function AgendaCalendario({
   const [tiposSessao, setTiposSessao] = useState<TipoSessaoOpcao[]>([]);
   const [aviso, setAviso] = useState("");
   const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
+  const [anamnesePacienteId, setAnamnesePacienteId] = useState<string | null>(null);
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -567,7 +569,15 @@ export default function AgendaCalendario({
             setSessaoDetalhe(null);
             onEditarPaciente(pacienteId);
           }}
+          onAbrirAnamnese={(pacienteId) => {
+            setSessaoDetalhe(null);
+            setAnamnesePacienteId(pacienteId);
+          }}
         />
+      )}
+
+      {anamnesePacienteId && (
+        <AnamneseModal pacienteId={anamnesePacienteId} onFechar={() => setAnamnesePacienteId(null)} />
       )}
     </div>
   );
@@ -909,6 +919,22 @@ function IconMeet({ className }: { className?: string }) {
   );
 }
 
+// Ícone de prancheta (anamnese) — mesmo desenho usado no botão "Anamnese" do
+// painel lateral de pacientes, pra manter o mesmo padrão visual no projeto
+function IconPrancheta({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M7 3.5h6a1 1 0 0 1 1 1V4h.5A1.5 1.5 0 0 1 16 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 15.5v-10A1.5 1.5 0 0 1 5.5 4H6v.5a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M7.5 9h5M7.5 12h5M7.5 6h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // Modal de detalhes da sessão, aberto ao clicar num bloco do calendário —
 // mesmas ações já existentes no painel do paciente (status, editar, cancelar),
 // numa versão compacta para não sair do contexto da agenda.
@@ -920,6 +946,7 @@ function SessaoDetalheModal({
   onAtualizado,
   onAviso,
   onEditarPaciente,
+  onAbrirAnamnese,
 }: {
   sessao: SessaoAgenda;
   tiposSessao: TipoSessaoOpcao[];
@@ -928,6 +955,7 @@ function SessaoDetalheModal({
   onAtualizado: () => void;
   onAviso: (msg: string) => void;
   onEditarPaciente: (pacienteId: string) => void;
+  onAbrirAnamnese: (pacienteId: string) => void;
 }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -1225,6 +1253,13 @@ function SessaoDetalheModal({
                 className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 {copiado === "meet" ? "Copiado!" : "Copiar link Meet"}
+              </button>
+              <button
+                onClick={() => onAbrirAnamnese(sessao.pacienteId)}
+                className="flex items-center gap-1.5 rounded-lg border border-gold px-2 py-1 text-sm font-medium text-gold hover:bg-gold/10"
+              >
+                <IconPrancheta className="h-3.5 w-3.5" />
+                Anamnese
               </button>
             </div>
           </div>
