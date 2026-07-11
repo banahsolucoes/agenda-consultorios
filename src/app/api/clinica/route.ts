@@ -5,6 +5,7 @@ import { registrarLog } from "@/lib/auditoria";
 import { extrairIdPastaDrive, pareceIdPastaDriveValido } from "@/lib/validacao";
 import { obterDriveDaClinica, verificarPastaDriveAcessivel } from "@/lib/google";
 import { OPCOES_AJUSTE_FUNDO } from "@/lib/fundo";
+import { pode } from "@/lib/permissoes";
 
 // Campos que podem ser alterados pela tela de Configurações. "logo" e
 // "fundoUrl" ficam de fora de propósito — só mudam via upload em
@@ -98,6 +99,9 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  if (!pode(usuario.papel, "editarConfiguracoes")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const body = await req.json();
   const data: Record<string, unknown> = {};

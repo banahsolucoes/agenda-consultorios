@@ -5,6 +5,7 @@ import { obterClinicaECalendar } from "@/lib/google";
 import { registrarLog } from "@/lib/auditoria";
 import { pareceUrl } from "@/lib/validacao";
 import { soDigitos } from "@/lib/importacao";
+import { pode } from "@/lib/permissoes";
 
 const CAMPOS_EDITAVEIS = [
   "nome",
@@ -146,6 +147,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  if (!pode(usuario.papel, "excluirPaciente")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const { id } = await ctx.params;
   const paciente = await prisma.paciente.findUnique({ where: { id } });

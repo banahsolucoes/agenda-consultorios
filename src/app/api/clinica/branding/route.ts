@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { pode } from "@/lib/permissoes";
 
 const BUCKET = "branding";
 const TAMANHO_MAX_BYTES = 5 * 1024 * 1024; // 5MB
@@ -42,6 +43,9 @@ const SELECT_CLINICA = {
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  if (!pode(usuario.papel, "gerirIdentidadeVisual")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const form = await req.formData();
   const tipo = form.get("tipo");

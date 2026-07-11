@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { trocarCodePorTokensGoogle, resolverOrigemPublica } from "@/lib/google";
+import { pode } from "@/lib/permissoes";
 
 // GET /api/integracoes/google/callback — recebe o "code" do Google, troca
 // pelos tokens e salva na clínica do usuário logado.
@@ -11,6 +12,9 @@ export async function GET(req: NextRequest) {
 
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.redirect(new URL("/login", origem));
+  if (!pode(usuario.papel, "gerirIntegracoes")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");

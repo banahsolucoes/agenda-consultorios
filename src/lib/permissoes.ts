@@ -5,6 +5,7 @@
  */
 export type Capacidade =
   | "gerirPacientes"
+  | "excluirPaciente"
   | "operarAgenda"
   | "verConfiguracoes"
   | "editarConfiguracoes"
@@ -12,6 +13,7 @@ export type Capacidade =
   | "gerirTiposAtendimento"
   | "gerirIdentidadeVisual"
   | "gerirUsuarios"
+  | "criarClinica"
   | "verLog"
   | "gerirBilling";
 
@@ -24,12 +26,15 @@ export type Papel = "ADMIN" | "PROFISSIONAL" | "OPERADOR";
 /**
  * Mapeamento de papéis para capacidades permitidas.
  * ADMIN: todas as capacidades.
- * PROFISSIONAL: gerirPacientes, operarAgenda, verConfiguracoes = true; restante false.
- * OPERADOR: gerirPacientes, operarAgenda = true; restante false.
+ * PROFISSIONAL: tudo do OPERADOR + excluirPaciente, editarConfiguracoes,
+ * gerirIdentidadeVisual, gerirIntegracoes = true; gerirUsuarios, criarClinica,
+ * verLog, gerirBilling = false.
+ * OPERADOR: gerirPacientes, operarAgenda, gerirTiposAtendimento = true; restante false.
  */
 export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
   ADMIN: {
     gerirPacientes: true,
+    excluirPaciente: true,
     operarAgenda: true,
     verConfiguracoes: true,
     editarConfiguracoes: true,
@@ -37,30 +42,35 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     gerirTiposAtendimento: true,
     gerirIdentidadeVisual: true,
     gerirUsuarios: true,
+    criarClinica: true,
     verLog: true,
     gerirBilling: true,
   },
   PROFISSIONAL: {
     gerirPacientes: true,
+    excluirPaciente: true,
     operarAgenda: true,
     verConfiguracoes: true,
-    editarConfiguracoes: false,
-    gerirIntegracoes: false,
-    gerirTiposAtendimento: false,
-    gerirIdentidadeVisual: false,
+    editarConfiguracoes: true,
+    gerirIntegracoes: true,
+    gerirTiposAtendimento: true,
+    gerirIdentidadeVisual: true,
     gerirUsuarios: false,
+    criarClinica: false,
     verLog: false,
     gerirBilling: false,
   },
   OPERADOR: {
     gerirPacientes: true,
+    excluirPaciente: false,
     operarAgenda: true,
     verConfiguracoes: false,
     editarConfiguracoes: false,
     gerirIntegracoes: false,
-    gerirTiposAtendimento: false,
+    gerirTiposAtendimento: true,
     gerirIdentidadeVisual: false,
     gerirUsuarios: false,
+    criarClinica: false,
     verLog: false,
     gerirBilling: false,
   },

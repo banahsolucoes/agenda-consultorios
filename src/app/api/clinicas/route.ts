@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { pode } from "@/lib/permissoes";
 
 // GET /api/clinicas — retorna só a clínica do usuário logado. Nunca lista
 // outros tenants (antes listava TODAS as clínicas do sistema, vazando
@@ -22,6 +23,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  if (!pode(usuario.papel, "criarClinica")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const body = await req.json();
 
