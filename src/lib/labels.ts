@@ -51,3 +51,13 @@ const LABEL_ORIGEM_CADASTRO: Record<string, string> = {
 export function origemCadastroLabel(valor: string): string {
   return LABEL_ORIGEM_CADASTRO[valor] ?? valor;
 }
+
+const LABEL_PAPEL: Record<string, string> = {
+  ADMIN: "Admin",
+  PROFISSIONAL: "Profissional",
+  OPERADOR: "Operador",
+};
+
+export function papelLabel(valor: string): string {
+  return LABEL_PAPEL[valor] ?? valor;
+}

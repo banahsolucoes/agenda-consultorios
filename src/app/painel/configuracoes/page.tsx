@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { diaSemanaLabel } from "@/lib/labels";
+import { diaSemanaLabel, papelLabel } from "@/lib/labels";
 import { AJUSTE_FUNDO_PADRAO, OPCOES_AJUSTE_FUNDO, estiloFundoTela } from "@/lib/fundo";
 import { pode, type Papel } from "@/lib/permissoes";
 
@@ -37,6 +37,14 @@ interface Clinica {
   templateMeet: string;
   sheetsPlanilhaId: string | null;
   sheetsAba: string | null;
+}
+
+interface UsuarioEquipe {
+  id: string;
+  nome: string;
+  email: string;
+  papel: Papel;
+  criadoEm: string;
 }
 
 interface FaixaHorario {
@@ -82,6 +90,17 @@ export default function ConfiguracoesPage() {
   const podeConfigGeral = papel !== null && pode(papel, "editarConfiguracoes");
   const podeBranding = papel !== null && pode(papel, "gerirIdentidadeVisual");
   const podeIntegracoesGoogle = papel !== null && pode(papel, "gerirIntegracoes");
+
+  const [equipe, setEquipe] = useState<UsuarioEquipe[]>([]);
+  const [carregandoEquipe, setCarregandoEquipe] = useState(true);
+  const [erroCarregarEquipe, setErroCarregarEquipe] = useState(false);
+  const [novoNome, setNovoNome] = useState("");
+  const [novoEmail, setNovoEmail] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [novoPapel, setNovoPapel] = useState<Papel>("OPERADOR");
+  const [criandoUsuario, setCriandoUsuario] = useState(false);
+  const [erroCriarUsuario, setErroCriarUsuario] = useState("");
+  const [sucessoCriarUsuario, setSucessoCriarUsuario] = useState(false);
 
   const [clinica, setClinica] = useState<Clinica | null>(null);
   const [carregandoClinica, setCarregandoClinica] = useState(true);
@@ -257,6 +276,59 @@ export default function ConfiguracoesPage() {
     if (res.ok) setPapel((await res.json()).papel);
   }
 
+  async function carregarEquipe() {
+    setCarregandoEquipe(true);
+    setErroCarregarEquipe(false);
+    try {
+      const res = await fetch("/api/usuarios");
+      if (!res.ok) {
+        setErroCarregarEquipe(true);
+        return;
+      }
+      setEquipe(await res.json());
+    } catch {
+      setErroCarregarEquipe(true);
+    } finally {
+      setCarregandoEquipe(false);
+    }
+  }
+
+  async function handleCriarUsuario(e: React.FormEvent) {
+    e.preventDefault();
+    if (!clinica) return;
+    setErroCriarUsuario("");
+    setSucessoCriarUsuario(false);
+    setCriandoUsuario(true);
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: novoNome,
+          email: novoEmail,
+          senha: novaSenha,
+          papel: novoPapel,
+          clinicaId: clinica.id,
+        }),
+      });
+      const dados = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroCriarUsuario(dados?.erro ?? "não foi possível criar o usuário");
+        return;
+      }
+      setNovoNome("");
+      setNovoEmail("");
+      setNovaSenha("");
+      setNovoPapel("OPERADOR");
+      setSucessoCriarUsuario(true);
+      await carregarEquipe();
+    } catch {
+      setErroCriarUsuario("não foi possível criar o usuário");
+    } finally {
+      setCriandoUsuario(false);
+    }
+  }
+
   useEffect(() => {
     carregarPapel();
     carregarClinica();
@@ -273,6 +345,11 @@ export default function ConfiguracoesPage() {
       router.replace("/painel/configuracoes");
     }
   }, []);
+
+  // Só busca a equipe depois de saber o papel — carrega quando (e só quando) for ADMIN
+  useEffect(() => {
+    if (papel === "ADMIN") carregarEquipe();
+  }, [papel]);
 
   function handleConectarGoogle() {
     window.location.href = "/api/integracoes/google/conectar";
@@ -1691,6 +1768,115 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
             </ul>
           )}
         </section>
+
+        {/* Equipe — só ADMIN vê e usa; o servidor também barra não-ADMIN em GET/POST */}
+        {papel === "ADMIN" && (
+          <section className="rounded-xl border border-border bg-surface p-6">
+            <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
+              Equipe
+            </h2>
+            <p className="mb-4 text-sm text-muted">
+              Usuários com acesso a este painel. Só administradores podem ver esta lista e criar novos usuários.
+            </p>
+
+            {carregandoEquipe ? (
+              <p className="text-sm text-muted">Carregando...</p>
+            ) : erroCarregarEquipe ? (
+              <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                Não foi possível carregar a equipe.
+              </p>
+            ) : equipe.length === 0 ? (
+              <p className="text-sm text-muted">Nenhum usuário encontrado.</p>
+            ) : (
+              <div className="mb-6 space-y-2">
+                {equipe.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-bg px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-fg">{u.nome}</p>
+                      <p className="truncate text-xs text-muted">{u.email}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold">
+                      {papelLabel(u.papel)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleCriarUsuario} className="space-y-4 border-t border-border pt-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gold">
+                Novo usuário
+              </h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Nome</label>
+                  <input
+                    type="text"
+                    value={novoNome}
+                    onChange={(e) => setNovoNome(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">E-mail</label>
+                  <input
+                    type="email"
+                    value={novoEmail}
+                    onChange={(e) => setNovoEmail(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Senha inicial</label>
+                  <input
+                    type="password"
+                    value={novaSenha}
+                    onChange={(e) => setNovaSenha(e.target.value)}
+                    required
+                    minLength={6}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Papel</label>
+                  <select
+                    value={novoPapel}
+                    onChange={(e) => setNovoPapel(e.target.value as Papel)}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    <option value="OPERADOR">{papelLabel("OPERADOR")}</option>
+                    <option value="PROFISSIONAL">{papelLabel("PROFISSIONAL")}</option>
+                    <option value="ADMIN">{papelLabel("ADMIN")}</option>
+                  </select>
+                </div>
+              </div>
+
+              {erroCriarUsuario && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroCriarUsuario}</p>
+              )}
+              {sucessoCriarUsuario && (
+                <p className="rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  Usuário criado.
+                </p>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={criandoUsuario}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {criandoUsuario ? "Criando..." : "Criar usuário"}
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
       </main>
 
       {/* Modal: criar/editar tipo de atendimento */}
