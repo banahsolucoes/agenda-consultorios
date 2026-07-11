@@ -70,8 +70,11 @@ export async function GET() {
     });
     valores = (resp.data.values as string[][]) || [];
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "erro ao ler a planilha";
-    return NextResponse.json({ erro: `Não foi possível ler a planilha: ${msg}` }, { status: 400 });
+    console.error("Falha ao ler a planilha do Google Sheets:", err);
+    return NextResponse.json(
+      { erro: "Não foi possível ler a planilha. Verifique se a URL/ID e a aba estão corretos." },
+      { status: 400 }
+    );
   }
 
   if (valores.length < 2) {
