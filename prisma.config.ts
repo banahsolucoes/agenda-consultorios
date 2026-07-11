@@ -10,6 +10,9 @@ export default defineConfig({
     seed: "node prisma/seed.mjs",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Comandos de CLI (migrate, db execute, etc.) sempre usam a conexão
+    // direta (porta 5432) — o pooler (DATABASE_URL, pgbouncer) não segura o
+    // advisory lock que o Prisma Migrate precisa, o que trava `migrate dev`.
+    url: process.env["DIRECT_URL"],
   },
 });

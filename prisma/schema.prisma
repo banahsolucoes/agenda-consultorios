@@ -60,6 +60,7 @@ model Clinica {
   logs                      LogAuditoria[]
   horariosTrabalho          HorarioTrabalho[]
   tiposSessao               TipoSessao[]
+  anexos                    Anexo[]
 }
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
@@ -145,10 +146,30 @@ model Paciente {
   pacotes         Pacote[]
   agendamentos    Agendamento[]
   consentimentos  Consentimento[]
+  anexos          Anexo[]
 
   @@index([clinicaId])
   @@index([tipoSessaoId])
   @@unique([clinicaId, cpf])
+}
+
+model Anexo {
+  id          String   @id @default(uuid())
+  clinicaId   String
+  pacienteId  String
+  nomeArquivo String
+  mimeType    String
+  tamanho     Int
+  // Caminho no Supabase Storage, sempre {clinicaId}/{pacienteId}/{uuid}-{nome}
+  // — o clinicaId já vai no caminho físico do arquivo.
+  path        String
+  criadoEm    DateTime @default(now())
+
+  clinica     Clinica  @relation(fields: [clinicaId], references: [id])
+  paciente    Paciente @relation(fields: [pacienteId], references: [id])
+
+  @@index([pacienteId])
+  @@index([clinicaId])
 }
 
 model Consentimento {

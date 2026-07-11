@@ -14,6 +14,7 @@ import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensag
 import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
+import AnexosPaciente from "./AnexosPaciente";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -1528,6 +1529,9 @@ export default function PainelPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Anexos — só disponível em modo edição, o upload precisa de um pacienteId já salvo */}
+              {pacienteEditando && <AnexosPaciente pacienteId={pacienteEditando.id} />}
 
               {erroForm && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
