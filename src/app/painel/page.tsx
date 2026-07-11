@@ -1375,8 +1375,8 @@ export default function PainelPage() {
       {/* Modal de cadastro de paciente */}
       {modalAberto && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-lg">
-            <div className="mb-4 flex items-center justify-between">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-surface shadow-lg">
+            <div className="flex shrink-0 items-center justify-between border-b border-border p-6 pb-4">
               <h2 className="font-serif text-lg font-semibold text-fg">
                 {pacienteEditando ? "Editar paciente" : "Novo paciente"}
               </h2>
@@ -1389,7 +1389,8 @@ export default function PainelPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSalvar} className="space-y-6">
+            <form onSubmit={handleSalvar} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 space-y-6 overflow-y-auto p-6">
               {/* Dados pessoais */}
               <div>
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gold">
@@ -1518,24 +1519,25 @@ export default function PainelPage() {
                   {erroForm}
                 </p>
               )}
+            </div>
 
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={fecharModal}
-                  disabled={salvando}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={salvando || tiposSessao.length === 0}
-                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvando ? "Salvando..." : "Salvar"}
-                </button>
-              </div>
+            <div className="flex shrink-0 justify-end gap-3 border-t border-border p-6 pt-4">
+              <button
+                type="button"
+                onClick={fecharModal}
+                disabled={salvando}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={salvando || tiposSessao.length === 0}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
             </form>
           </div>
         </div>
