@@ -113,6 +113,7 @@ model Paciente {
   telefone        String?
   email           String?
   cpf             String?
+  rg              String?
   logradouro      String?
   numero          String?
   complemento     String?
@@ -121,6 +122,11 @@ model Paciente {
   estado          String?
   cep             String?
   quemIndicou     String?
+  dataNascimento  String?
+  estadoCivil     String?
+  nacionalidade   String?
+  profissao       String?
+  instagram       String?
   pastaDriveUrl   String?
   origemCadastro  OrigemCadastro  @default(MANUAL)
   diaPreferido    DiaSemana?
@@ -142,6 +148,7 @@ model Paciente {
 
   @@index([clinicaId])
   @@index([tipoSessaoId])
+  @@unique([clinicaId, cpf])
 }
 
 model Consentimento {

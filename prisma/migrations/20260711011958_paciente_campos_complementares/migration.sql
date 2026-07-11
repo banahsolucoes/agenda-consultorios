@@ -1,0 +1,7 @@
+-- No-op: as colunas abaixo já foram adicionadas pela migration
+-- 20260708000000_paciente_campos_importacao (rg, dataNascimento, estadoCivil,
+-- nacionalidade, profissao, instagram), que na época não teve o
+-- schema.prisma atualizado em conjunto. Esta migration existe só para
+-- sincronizar o schema.prisma com o estado real do banco; é marcada como
+-- aplicada via `prisma migrate resolve --applied`, sem executar SQL, e o
+-- corpo fica vazio para não conflitar em replays de shadow database.
