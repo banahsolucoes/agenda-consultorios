@@ -51,6 +51,10 @@ export async function POST(req: NextRequest) {
             origemCadastro: "FORMS",
             horarioFixo: "09:00",
             statusGeral: "ATIVO",
+            // Só grava na criação — o dedupe por CPF já pula pacientes
+            // existentes, então isso nunca sobrescreve observações que a
+            // clínica já tenha editado na ficha.
+            anamnese: registro.anamnese || null,
           },
         });
         criados++;

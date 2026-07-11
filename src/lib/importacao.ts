@@ -39,6 +39,14 @@ const MAPA: Record<string, string> = {
   "timestamp": "dataCadastroForms",
 };
 
+// Colunas de meta (não é dado cadastral nem pergunta de anamnese): timestamp
+// do formulário (já cai em "dataCadastroForms" via MAPA) e a coluna de
+// aceite/consentimento do forms.app — a validação do consentimento já
+// acontece lá, aqui só não queremos o texto dela poluindo a anamnese.
+const REGEX_COLUNA_ACEITE = /aceit|consint|consent|concord|autoriz/;
+
+const SEPARADOR_OBSERVACOES = "\n\n--- OBSERVAÇÕES ---\n";
+
 export function soDigitos(s: string): string {
   return (s || "").replace(/\D/g, "");
 }
@@ -95,7 +103,8 @@ export async function lerEDeduplicarPlanilha(clinicaId: string): Promise<Resulta
     return { total: 0, novos: 0, existentes: 0, registros: [] };
   }
 
-  const cabecalho = valores[0].map(normalizarCabecalho);
+  const cabecalhoOriginal = valores[0];
+  const cabecalho = cabecalhoOriginal.map(normalizarCabecalho);
   const linhas = valores.slice(1);
 
   // CPFs já existentes na clínica
@@ -110,10 +119,24 @@ export async function lerEDeduplicarPlanilha(clinicaId: string): Promise<Resulta
   const registros = linhas
     .map((linha) => {
       const dados: Record<string, string> = {};
+      // Colunas não mapeadas (nem cadastrais nem meta) = perguntas da
+      // anamnese, uma linha "Pergunta: Resposta" por coluna, na ordem em
+      // que aparecem na planilha.
+      const linhasAnamnese: string[] = [];
       cabecalho.forEach((col, i) => {
+        const valor = (linha[i] || "").trim();
         const campo = MAPA[col];
-        if (campo) dados[campo] = (linha[i] || "").trim();
+        if (campo) {
+          dados[campo] = valor;
+          return;
+        }
+        if (REGEX_COLUNA_ACEITE.test(col)) return;
+        const rotulo = (cabecalhoOriginal[i] || "").trim();
+        if (!rotulo) return;
+        linhasAnamnese.push(`${rotulo}: ${valor}`);
       });
+      dados.anamnese =
+        linhasAnamnese.length > 0 ? linhasAnamnese.join("\n") + SEPARADOR_OBSERVACOES : "";
       return dados;
     })
     .filter((d) => (d.nome && d.nome.length > 0) || (d.cpf && d.cpf.length > 0)) // ignora linhas vazias

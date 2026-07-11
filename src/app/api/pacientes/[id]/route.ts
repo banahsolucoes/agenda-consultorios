@@ -26,6 +26,7 @@ const CAMPOS_EDITAVEIS = [
   "profissao",
   "instagram",
   "pastaDriveUrl",
+  "anamnese",
   "origemCadastro",
   "diaPreferido",
   "horarioFixo",

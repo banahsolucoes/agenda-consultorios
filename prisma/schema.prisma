@@ -140,6 +140,7 @@ model Paciente {
   statusGeral     StatusCliente   @default(ATIVO)
   finalizadoEm    DateTime?
   criadoEm        DateTime        @default(now())
+  anamnese        String?         @db.Text
 
   clinica         Clinica         @relation(fields: [clinicaId], references: [id])
   tipoSessao      TipoSessao?     @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
