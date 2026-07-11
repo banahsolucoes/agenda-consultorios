@@ -28,6 +28,7 @@ const CAMPOS_EDITAVEIS = [
 const DIAS_VALIDOS = ["SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO", "DOMINGO"];
 const ORIGENS_VALIDAS = ["MANUAL", "FORMS"];
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+const STATUS_GERAL_VALIDOS = ["ATIVO", "CANCELADO", "FINALIZADO"];
 
 // PATCH /api/pacientes/[id] — edita o cadastro de um paciente da clínica logada
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -60,20 +61,45 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.pastaDriveUrl && !pareceUrl(body.pastaDriveUrl)) {
     return NextResponse.json({ erro: "pastaDriveUrl deve ser uma URL válida" }, { status: 400 });
   }
+  if (body.statusGeral !== undefined && !STATUS_GERAL_VALIDOS.includes(body.statusGeral)) {
+    return NextResponse.json({ erro: "statusGeral inválido" }, { status: 400 });
+  }
 
   const data: Record<string, unknown> = {};
   for (const campo of CAMPOS_EDITAVEIS) {
     if (body[campo] !== undefined) data[campo] = body[campo];
   }
 
+  // Troca manual de status é reversível e não mexe em sessões: só atualiza o
+  // rótulo e o carimbo de finalização (limpo quando sai de FINALIZADO).
+  const statusAnterior = paciente.statusGeral;
+  const statusAlterado = body.statusGeral !== undefined && body.statusGeral !== statusAnterior;
+  if (statusAlterado) {
+    data.statusGeral = body.statusGeral;
+    data.finalizadoEm = body.statusGeral === "FINALIZADO" ? new Date() : null;
+  }
+
   const atualizado = await prisma.paciente.update({ where: { id }, data });
 
-  const camposAlterados = Object.keys(data);
-  const detalheEdicao =
-    camposAlterados.length > 0
-      ? `Editou o paciente ${atualizado.nome} (campos: ${camposAlterados.join(", ")})`
-      : `Editou o paciente ${atualizado.nome}`;
-  await registrarLog(usuario.clinicaId, usuario.id, "EDITAR_PACIENTE", detalheEdicao);
+  const camposAlterados = Object.keys(data).filter((campo) =>
+    (CAMPOS_EDITAVEIS as readonly string[]).includes(campo)
+  );
+  if (camposAlterados.length > 0) {
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "EDITAR_PACIENTE",
+      `Editou o paciente ${atualizado.nome} (campos: ${camposAlterados.join(", ")})`
+    );
+  }
+  if (statusAlterado) {
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "ALTERAR_STATUS_PACIENTE",
+      `Alterou o status de ${atualizado.nome} de ${statusAnterior} para ${atualizado.statusGeral}`
+    );
+  }
 
   return NextResponse.json(atualizado);
 }

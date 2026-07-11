@@ -6,12 +6,24 @@ import { pareceUrl } from "@/lib/validacao";
 import { obterDriveDaClinica, criarPastaPacienteDrive } from "@/lib/google";
 
 // GET /api/pacientes — lista pacientes da clínica do usuário logado
-export async function GET() {
+// ?filtro=ativos (default) | finalizados | cancelados | todos
+export async function GET(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
+  const filtro = searchParams.get("filtro") ?? "ativos";
+  const statusGeral =
+    filtro === "ativos"
+      ? "ATIVO"
+      : filtro === "finalizados"
+        ? "FINALIZADO"
+        : filtro === "cancelados"
+          ? "CANCELADO"
+          : undefined;
+
   const pacientes = await prisma.paciente.findMany({
-    where: { clinicaId: usuario.clinicaId },
+    where: { clinicaId: usuario.clinicaId, ...(statusGeral ? { statusGeral } : {}) },
     orderBy: { nome: "asc" },
   });
 

@@ -48,6 +48,18 @@ const STATUS_SESSAO_OPCOES = [
 // controle (menu de status, editar, copiar, seleção para adiar) fica clicável
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 
+// Status disponíveis para o operador escolher manualmente para um paciente
+const STATUS_PACIENTE_OPCOES = ["ATIVO", "FINALIZADO", "CANCELADO"] as const;
+
+// Abas de filtro da lista de pacientes
+const FILTROS_PACIENTE = [
+  { valor: "ativos", rotulo: "Ativos" },
+  { valor: "finalizados", rotulo: "Finalizados" },
+  { valor: "cancelados", rotulo: "Cancelados" },
+  { valor: "todos", rotulo: "Todos" },
+] as const;
+type FiltroPaciente = (typeof FILTROS_PACIENTE)[number]["valor"];
+
 interface Paciente {
   id: string;
   nome: string;
@@ -228,8 +240,10 @@ function corPontoStatus(status: string) {
     case "REAGENDADA":
       return "bg-orange";
     case "REALIZADA":
+    case "ATIVO":
       return "bg-green";
     case "NAO_REALIZADA":
+    case "CANCELADO":
       return "bg-red";
     default:
       return "bg-muted";
@@ -283,10 +297,12 @@ function IconSino({ className }: { className?: string }) {
 // Menu de status de uma sessão: botão com ponto colorido + opções com ícone/cor
 function MenuStatus({
   status,
+  opcoes = STATUS_SESSAO_OPCOES,
   disabled,
   onEscolher,
 }: {
   status: string;
+  opcoes?: readonly string[];
   disabled?: boolean;
   onEscolher: (novoStatus: string) => void;
 }) {
@@ -311,7 +327,7 @@ function MenuStatus({
       </button>
       {aberto && (
         <div className="absolute left-0 z-10 mt-1 w-40 rounded-lg border border-border bg-surface p-1 shadow-lg">
-          {STATUS_SESSAO_OPCOES.map((st) => (
+          {opcoes.map((st) => (
             <button
               key={st}
               type="button"
@@ -341,6 +357,8 @@ export default function PainelPage() {
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [busca, setBusca] = useState("");
+  const [filtroPaciente, setFiltroPaciente] = useState<FiltroPaciente>("ativos");
+  const [statusPacienteSalvandoId, setStatusPacienteSalvandoId] = useState<string | null>(null);
   const [saindo, setSaindo] = useState(false);
   const [clinica, setClinica] = useState<Clinica | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
@@ -429,11 +447,11 @@ export default function PainelPage() {
     emailEnviado: boolean;
   } | null>(null);
 
-  // Busca a lista de pacientes da clínica logada
+  // Busca a lista de pacientes da clínica logada, filtrada pela aba ativa
   async function carregarPacientes() {
     setCarregandoLista(true);
     try {
-      const res = await fetch("/api/pacientes");
+      const res = await fetch(`/api/pacientes?filtro=${filtroPaciente}`);
       if (res.ok) {
         setPacientes(await res.json());
       }
@@ -442,10 +460,11 @@ export default function PainelPage() {
     }
   }
 
-  // Recarrega a lista de pacientes e sincroniza o paciente aberto no painel lateral
-  // (o statusGeral dele pode mudar sozinho: pacote finalizado, renovação, etc.)
+  // Recarrega a lista de pacientes (respeitando a aba ativa) e sincroniza o
+  // paciente aberto no painel lateral (o statusGeral dele pode mudar sozinho:
+  // pacote finalizado, renovação, etc.)
   async function recarregarPacienteSelecionado() {
-    const res = await fetch("/api/pacientes");
+    const res = await fetch(`/api/pacientes?filtro=${filtroPaciente}`);
     if (!res.ok) return;
     const lista: Paciente[] = await res.json();
     setPacientes(lista);
@@ -474,12 +493,17 @@ export default function PainelPage() {
   }
 
   useEffect(() => {
-    carregarPacientes();
     carregarClinica();
     carregarTiposSessao();
     carregarNotificacoes();
     carregarGoogleStatus();
   }, []);
+
+  // Recarrega a lista sempre que a aba de filtro (Ativos/Finalizados/Cancelados/Todos) muda
+  useEffect(() => {
+    carregarPacientes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroPaciente]);
 
   // Lista filtrada por nome, ignorando maiúsculas/minúsculas e acentos
   const pacientesFiltrados = useMemo(() => {
@@ -710,6 +734,25 @@ export default function PainelPage() {
       }
     } finally {
       setStatusSalvandoId(null);
+    }
+  }
+
+  // Troca manual do status (statusGeral) de um paciente via dropdown. Rótulo
+  // reversível — não mexe em sessões.
+  async function handleMudarStatusPaciente(pacienteId: string, novoStatus: string) {
+    setStatusPacienteSalvandoId(pacienteId);
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statusGeral: novoStatus }),
+      });
+      if (res.ok) {
+        await recarregarPacienteSelecionado();
+        await carregarNotificacoes();
+      }
+    } finally {
+      setStatusPacienteSalvandoId(null);
     }
   }
 
@@ -1252,6 +1295,23 @@ export default function PainelPage() {
               </button>
             </div>
 
+            {/* Abas de filtro por status do paciente */}
+            <div className="mb-4 flex gap-2">
+              {FILTROS_PACIENTE.map((f) => (
+                <button
+                  key={f.valor}
+                  onClick={() => setFiltroPaciente(f.valor)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                    filtroPaciente === f.valor
+                      ? "border-gold bg-gold/10 text-gold"
+                      : "border-border text-fg hover:bg-bg"
+                  }`}
+                >
+                  {f.rotulo}
+                </button>
+              ))}
+            </div>
+
             {/* Lista de pacientes */}
             {carregandoLista ? (
               <p className="text-sm text-muted">Carregando pacientes...</p>
@@ -1262,19 +1322,31 @@ export default function PainelPage() {
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {pacientesFiltrados.map((p) => (
-                  <button
+                  <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => abrirPainelPaciente(p)}
-                    className="rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") abrirPainelPaciente(p);
+                    }}
+                    className={`cursor-pointer rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40 ${
+                      p.statusGeral !== "ATIVO" ? "opacity-60" : ""
+                    }`}
                   >
                     <p className="font-medium text-fg">{p.nome}</p>
                     <p className="mt-1 text-sm text-muted">
                       {p.telefone ?? "sem telefone"}
                     </p>
-                    <span className={`mt-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(p.statusGeral)}`}>
-                      {statusLabel(p.statusGeral)}
-                    </span>
-                  </button>
+                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                      <MenuStatus
+                        status={p.statusGeral}
+                        opcoes={STATUS_PACIENTE_OPCOES}
+                        disabled={statusPacienteSalvandoId === p.id}
+                        onEscolher={(novoStatus) => handleMudarStatusPaciente(p.id, novoStatus)}
+                      />
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -1467,11 +1539,12 @@ export default function PainelPage() {
                       {tiposSessao.find((t) => t.id === pacienteSelecionado.tipoSessaoId)?.nome}
                     </span>
                   )}
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(pacienteSelecionado.statusGeral)}`}
-                  >
-                    {statusLabel(pacienteSelecionado.statusGeral)}
-                  </span>
+                  <MenuStatus
+                    status={pacienteSelecionado.statusGeral}
+                    opcoes={STATUS_PACIENTE_OPCOES}
+                    disabled={statusPacienteSalvandoId === pacienteSelecionado.id}
+                    onEscolher={(novoStatus) => handleMudarStatusPaciente(pacienteSelecionado.id, novoStatus)}
+                  />
                 </div>
               </div>
               <div className="flex items-center gap-3">
