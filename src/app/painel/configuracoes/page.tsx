@@ -134,6 +134,23 @@ export default function ConfiguracoesPage() {
   const [sheetsPlanilhaIdInput, setSheetsPlanilhaIdInput] = useState("");
   const [sheetsAbaInput, setSheetsAbaInput] = useState("");
 
+  const [carregandoPreviewImportacao, setCarregandoPreviewImportacao] = useState(false);
+  const [erroPreviewImportacao, setErroPreviewImportacao] = useState("");
+  const [previewImportacaoAberto, setPreviewImportacaoAberto] = useState(false);
+  const [previewImportacao, setPreviewImportacao] = useState<{
+    total: number;
+    novos: number;
+    existentes: number;
+    registros: Array<{ nome?: string; cpf?: string; status: string }>;
+  } | null>(null);
+  const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
+  const [erroExecutarImportacao, setErroExecutarImportacao] = useState("");
+  const [resultadoImportacao, setResultadoImportacao] = useState<{
+    criados: number;
+    pulados: number;
+    erros: number;
+  } | null>(null);
+
   function extractSheetIdFromUrl(urlOrId: string): string {
     const match = urlOrId.match(/\/d\/([^\/]+)/);
     if (match) {
@@ -560,6 +577,57 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
     } finally {
       setSalvandoConfigSheets(false);
     }
+  }
+
+  async function handleAbrirPreviewImportacao() {
+    setCarregandoPreviewImportacao(true);
+    setErroPreviewImportacao("");
+    setResultadoImportacao(null);
+
+    try {
+      const res = await fetch("/api/importacao/preview");
+      const dados = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroPreviewImportacao(dados?.erro ?? "não foi possível pré-visualizar a importação");
+        return;
+      }
+
+      setPreviewImportacao(dados);
+      setPreviewImportacaoAberto(true);
+    } catch {
+      setErroPreviewImportacao("não foi possível pré-visualizar a importação");
+    } finally {
+      setCarregandoPreviewImportacao(false);
+    }
+  }
+
+  async function handleConfirmarImportacao() {
+    setConfirmandoImportacao(true);
+    setErroExecutarImportacao("");
+
+    try {
+      const res = await fetch("/api/importacao/executar", { method: "POST" });
+      const dados = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroExecutarImportacao(dados?.erro ?? "não foi possível concluir a importação");
+        return;
+      }
+
+      setResultadoImportacao(dados);
+    } catch {
+      setErroExecutarImportacao("não foi possível concluir a importação");
+    } finally {
+      setConfirmandoImportacao(false);
+    }
+  }
+
+  function fecharPreviewImportacao() {
+    setPreviewImportacaoAberto(false);
+    setPreviewImportacao(null);
+    setResultadoImportacao(null);
+    setErroExecutarImportacao("");
   }
 
   function faixaEmEdicao(dia: string) {
@@ -1156,6 +1224,20 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                     <span className="text-xs text-muted">Aba</span>
                     <p className="text-sm text-fg">{clinica.sheetsAba || "Padrão (Página1)"}</p>
                   </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleAbrirPreviewImportacao}
+                      disabled={!clinica.sheetsPlanilhaId || carregandoPreviewImportacao}
+                      className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {carregandoPreviewImportacao ? "Carregando..." : "IMPORTAR AGORA"}
+                    </button>
+                  </div>
+                  {erroPreviewImportacao && (
+                    <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroPreviewImportacao}</p>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={pedirConfirmacaoSheets} className="flex flex-wrap items-center gap-3">
@@ -1753,6 +1835,83 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                 {salvandoConfigSheets ? "Salvando..." : "Confirmar"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: pré-visualização e confirmação da importação de pacientes */}
+      {previewImportacaoAberto && previewImportacao && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Importar pacientes da planilha
+            </h2>
+
+            {resultadoImportacao ? (
+              <>
+                <p className="mb-4 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  {resultadoImportacao.criados} paciente(s) criado(s), {resultadoImportacao.pulados} pulado(s)
+                  {resultadoImportacao.erros > 0 ? `, ${resultadoImportacao.erros} com erro` : ""}.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={fecharPreviewImportacao}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mb-3 text-sm text-fg">
+                  <strong>{previewImportacao.novos}</strong> novo(s), <strong>{previewImportacao.existentes}</strong> já
+                  existem na clínica.
+                </p>
+
+                {previewImportacao.novos > 0 ? (
+                  <div className="mb-4 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border bg-bg p-2">
+                    {previewImportacao.registros
+                      .filter((r) => r.status === "novo")
+                      .map((r, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm"
+                        >
+                          <span className="truncate text-fg">{r.nome || "(sem nome)"}</span>
+                          <span className="shrink-0 font-mono text-xs text-muted">{r.cpf || "sem CPF"}</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="mb-4 text-sm text-muted">Nenhum paciente novo para importar.</p>
+                )}
+
+                {erroExecutarImportacao && (
+                  <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroExecutarImportacao}</p>
+                )}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={fecharPreviewImportacao}
+                    disabled={confirmandoImportacao}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarImportacao}
+                    disabled={confirmandoImportacao || previewImportacao.novos === 0}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {confirmandoImportacao ? "Importando..." : "Confirmar importação"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
