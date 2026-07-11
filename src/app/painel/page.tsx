@@ -1152,7 +1152,7 @@ export default function PainelPage() {
   }
 
   return (
-    <div className="relative min-h-screen bg-bg">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-bg">
       {/* Fundo de tela da clínica (identidade visual white-label). z-index
           negativo garante que fique sempre atrás do conteúdo em fluxo
           normal (que não tem z-index próprio) — um z-index 0 aqui pintaria
@@ -1170,7 +1170,7 @@ export default function PainelPage() {
       )}
 
       {/* Cabeçalho */}
-      <header className="sticky top-0 z-30 h-16 border-b border-border bg-surface">
+      <header className="z-30 h-16 shrink-0 border-b border-border bg-surface">
         <div className="mx-auto flex h-full max-w-5xl items-center justify-between px-6">
           <button
             onClick={() => router.push("/painel")}
@@ -1274,9 +1274,9 @@ export default function PainelPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
-        {/* Abas: lista de pacientes ou calendário da agenda */}
-        <div className="mb-6 flex gap-2">
+      <main className="mx-auto flex w-full min-h-0 max-w-5xl flex-1 flex-col overflow-hidden px-6 pb-6 pt-8">
+        {/* Abas: lista de pacientes ou calendário da agenda — fixo, não rola */}
+        <div className="mb-6 flex shrink-0 gap-2">
           <button
             onClick={() => setAbaAtiva("pacientes")}
             className={`rounded-lg border px-4 py-2 text-sm font-medium ${
@@ -1303,9 +1303,9 @@ export default function PainelPage() {
             }}
           />
         ) : (
-          <>
-            {/* Barra de busca + ação de novo paciente */}
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-h-0 flex-1 flex-col">
+            {/* Barra de busca + ação de novo paciente — fixa, não rola */}
+            <div className="mb-6 flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <input
                 type="text"
                 value={busca}
@@ -1321,8 +1321,8 @@ export default function PainelPage() {
               </button>
             </div>
 
-            {/* Abas de filtro por status do paciente */}
-            <div className="mb-4 flex gap-2">
+            {/* Abas de filtro por status do paciente — fixas, não rolam */}
+            <div className="mb-4 flex shrink-0 gap-2">
               {FILTROS_PACIENTE.map((f) => (
                 <button
                   key={f.valor}
@@ -1338,60 +1338,62 @@ export default function PainelPage() {
               ))}
             </div>
 
-            {/* Lista de pacientes */}
-            {carregandoLista ? (
-              <p className="text-sm text-muted">Carregando pacientes...</p>
-            ) : pacientesFiltrados.length === 0 ? (
-              <p className="text-sm text-muted">
-                Nenhum paciente encontrado.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {pacientesFiltrados.map((p) => (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => abrirPainelPaciente(p)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") abrirPainelPaciente(p);
-                    }}
-                    className={`cursor-pointer rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40 ${
-                      p.statusGeral !== "ATIVO" ? "opacity-60" : ""
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium text-fg">{p.nome}</p>
-                        <p className="mt-1 text-sm text-muted">
-                          {p.telefone ?? "sem telefone"}
-                        </p>
+            {/* Lista de pacientes — só ela rola */}
+            <div className="flex-1 overflow-y-auto pb-8">
+              {carregandoLista ? (
+                <p className="text-sm text-muted">Carregando pacientes...</p>
+              ) : pacientesFiltrados.length === 0 ? (
+                <p className="text-sm text-muted">
+                  Nenhum paciente encontrado.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {pacientesFiltrados.map((p) => (
+                    <div
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => abrirPainelPaciente(p)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") abrirPainelPaciente(p);
+                      }}
+                      className={`cursor-pointer rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40 ${
+                        p.statusGeral !== "ATIVO" ? "opacity-60" : ""
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium text-fg">{p.nome}</p>
+                          <p className="mt-1 text-sm text-muted">
+                            {p.telefone ?? "sem telefone"}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirModalEdicao(p);
+                          }}
+                          className="shrink-0 rounded-lg border border-border p-2 text-muted hover:bg-bg hover:text-fg"
+                          aria-label="Editar cadastro"
+                          title="Editar cadastro"
+                        >
+                          <IconLapis className="h-4 w-4" />
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          abrirModalEdicao(p);
-                        }}
-                        className="shrink-0 rounded-lg border border-border p-2 text-muted hover:bg-bg hover:text-fg"
-                        aria-label="Editar cadastro"
-                        title="Editar cadastro"
-                      >
-                        <IconLapis className="h-4 w-4" />
-                      </button>
+                      <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                        <MenuStatus
+                          status={p.statusGeral}
+                          opcoes={STATUS_PACIENTE_OPCOES}
+                          disabled={statusPacienteSalvandoId === p.id}
+                          onEscolher={(novoStatus) => handleMudarStatusPaciente(p.id, novoStatus)}
+                        />
+                      </div>
                     </div>
-                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                      <MenuStatus
-                        status={p.statusGeral}
-                        opcoes={STATUS_PACIENTE_OPCOES}
-                        disabled={statusPacienteSalvandoId === p.id}
-                        onEscolher={(novoStatus) => handleMudarStatusPaciente(p.id, novoStatus)}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </main>
 

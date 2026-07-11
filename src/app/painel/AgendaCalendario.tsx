@@ -457,8 +457,8 @@ export default function AgendaCalendario({
       : dias[0].toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={irAnterior}
@@ -502,17 +502,17 @@ export default function AgendaCalendario({
         </div>
       </div>
 
-      {aviso && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{aviso}</p>}
+      {aviso && <p className="shrink-0 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{aviso}</p>}
 
       {carregando && sessoes.length === 0 ? (
         <p className="text-sm text-muted">Carregando agenda...</p>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div ref={boxRef} className="overflow-x-auto rounded-xl border border-border bg-surface">
+          <div ref={boxRef} className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-surface">
             <div className="flex" style={{ minWidth: modo === "semana" ? 880 : 280 }}>
               {/* Gutter de horários */}
               <div className="w-14 shrink-0 border-r border-border">
-                <div className="h-10 border-b border-border" />
+                <div className="sticky top-0 z-10 h-10 border-b border-border bg-surface" />
                 <div className="relative" style={{ height: gridHeightPx }}>
                   {marcadores.map((min) => (
                     <span
@@ -624,7 +624,7 @@ function DiaColuna({
   return (
     <div className="min-w-[120px] flex-1 border-r border-border last:border-r-0">
       <div
-        className={`flex h-10 flex-col items-center justify-center border-b border-border text-xs ${
+        className={`sticky top-0 z-10 flex h-10 flex-col items-center justify-center border-b border-border bg-surface text-xs ${
           hoje ? "font-semibold text-gold" : "text-fg"
         }`}
       >
