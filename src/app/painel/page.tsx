@@ -15,6 +15,7 @@ import { estiloFundoTela } from "@/lib/fundo";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
+import AnamnesePaciente from "./AnamnesePaciente";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -87,6 +88,7 @@ interface Paciente {
   horarioFixo: string;
   tipoSessaoId: string | null;
   statusGeral: "ATIVO" | "CANCELADO" | "FINALIZADO";
+  anamnese: string | null;
 }
 
 // Pendências mostradas no sino de notificações
@@ -1294,7 +1296,12 @@ export default function PainelPage() {
         </div>
 
         {abaAtiva === "agenda" ? (
-          <AgendaCalendario />
+          <AgendaCalendario
+            onEditarPaciente={(pacienteId) => {
+              const p = pacientes.find((pac) => pac.id === pacienteId);
+              if (p) abrirModalEdicao(p);
+            }}
+          />
         ) : (
           <>
             {/* Barra de busca + ação de novo paciente */}
@@ -1530,7 +1537,13 @@ export default function PainelPage() {
                 </div>
               </div>
 
-              {/* Anexos — só disponível em modo edição, o upload precisa de um pacienteId já salvo */}
+              {/* Anamnese e Anexos — só disponíveis em modo edição, dependem de um pacienteId já salvo */}
+              {pacienteEditando && (
+                <AnamnesePaciente
+                  pacienteId={pacienteEditando.id}
+                  anamneseInicial={pacienteEditando.anamnese}
+                />
+              )}
               {pacienteEditando && <AnexosPaciente pacienteId={pacienteEditando.id} />}
 
               {erroForm && (

@@ -196,7 +196,11 @@ function corPontoStatus(status: string) {
   }
 }
 
-export default function AgendaCalendario() {
+export default function AgendaCalendario({
+  onEditarPaciente,
+}: {
+  onEditarPaciente: (pacienteId: string) => void;
+}) {
   const [modo, setModo] = useState<"semana" | "dia">("semana");
   const [refData, setRefData] = useState(() => normalizarData(new Date()));
   const [sessoes, setSessoes] = useState<SessaoAgenda[]>([]);
@@ -559,6 +563,10 @@ export default function AgendaCalendario() {
             setSessaoDetalhe(null);
           }}
           onAviso={mostrarAviso}
+          onEditarPaciente={(pacienteId) => {
+            setSessaoDetalhe(null);
+            onEditarPaciente(pacienteId);
+          }}
         />
       )}
     </div>
@@ -911,6 +919,7 @@ function SessaoDetalheModal({
   onFechar,
   onAtualizado,
   onAviso,
+  onEditarPaciente,
 }: {
   sessao: SessaoAgenda;
   tiposSessao: TipoSessaoOpcao[];
@@ -918,6 +927,7 @@ function SessaoDetalheModal({
   onFechar: () => void;
   onAtualizado: () => void;
   onAviso: (msg: string) => void;
+  onEditarPaciente: (pacienteId: string) => void;
 }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -1182,6 +1192,12 @@ function SessaoDetalheModal({
                 className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
               >
                 Duração
+              </button>
+              <button
+                onClick={() => onEditarPaciente(sessao.pacienteId)}
+                className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Editar paciente
               </button>
               <button
                 onClick={() => {
