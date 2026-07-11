@@ -16,6 +16,7 @@ import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
 import AnamneseEditor from "./AnamneseEditor";
+import { pode, type Papel } from "@/lib/permissoes";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -407,6 +408,10 @@ export default function PainelPage() {
 
   // Paciente selecionado (abre o painel lateral de sessões) e suas sessões
   const [pacienteSelecionado, setPacienteSelecionado] = useState<Paciente | null>(null);
+  // Só espelha o que a UI mostra/habilita — a checagem de verdade é sempre
+  // no servidor (src/lib/permissoes.ts + cada rota).
+  const [papel, setPapel] = useState<Papel | null>(null);
+  const podeExcluirPaciente = papel !== null && pode(papel, "excluirPaciente");
   const [sessoes, setSessoes] = useState<Sessao[]>([]);
   const [carregandoSessoes, setCarregandoSessoes] = useState(false);
   const [statusSalvandoId, setStatusSalvandoId] = useState<string | null>(null);
@@ -507,6 +512,11 @@ export default function PainelPage() {
     if (res.ok) setClinica(await res.json());
   }
 
+  async function carregarPapel() {
+    const res = await fetch("/api/auth/usuario");
+    if (res.ok) setPapel((await res.json()).papel);
+  }
+
   async function carregarGoogleStatus() {
     const res = await fetch("/api/integracoes/google/status");
     if (res.ok) setGoogleStatus(await res.json());
@@ -524,6 +534,7 @@ export default function PainelPage() {
   }
 
   useEffect(() => {
+    carregarPapel();
     carregarClinica();
     carregarTiposSessao();
     carregarNotificacoes();
@@ -1654,14 +1665,16 @@ export default function PainelPage() {
                 >
                   <IconLapis className="h-4 w-4" />
                 </button>
-                <button
-                  onClick={() => abrirModalExcluir(pacienteSelecionado)}
-                  className="text-muted hover:text-red"
-                  aria-label="Excluir paciente"
-                  title="Excluir paciente"
-                >
-                  <IconLixeira className="h-4 w-4" />
-                </button>
+                {podeExcluirPaciente && (
+                  <button
+                    onClick={() => abrirModalExcluir(pacienteSelecionado)}
+                    className="text-muted hover:text-red"
+                    aria-label="Excluir paciente"
+                    title="Excluir paciente"
+                  >
+                    <IconLixeira className="h-4 w-4" />
+                  </button>
+                )}
                 <button
                   onClick={fecharPainelPaciente}
                   className="text-muted hover:text-fg"

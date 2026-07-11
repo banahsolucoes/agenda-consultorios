@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { diaSemanaLabel } from "@/lib/labels";
 import { AJUSTE_FUNDO_PADRAO, OPCOES_AJUSTE_FUNDO, estiloFundoTela } from "@/lib/fundo";
+import { pode, type Papel } from "@/lib/permissoes";
 
 const DIAS_SEMANA = [
   "SEGUNDA",
@@ -74,6 +75,13 @@ const FORM_TIPO_VAZIO = {
 
 export default function ConfiguracoesPage() {
   const router = useRouter();
+
+  // Só espelha o que a UI mostra/habilita — a checagem de verdade é sempre
+  // no servidor (src/lib/permissoes.ts + cada rota).
+  const [papel, setPapel] = useState<Papel | null>(null);
+  const podeConfigGeral = papel !== null && pode(papel, "editarConfiguracoes");
+  const podeBranding = papel !== null && pode(papel, "gerirIdentidadeVisual");
+  const podeIntegracoesGoogle = papel !== null && pode(papel, "gerirIntegracoes");
 
   const [clinica, setClinica] = useState<Clinica | null>(null);
   const [carregandoClinica, setCarregandoClinica] = useState(true);
@@ -244,7 +252,13 @@ export default function ConfiguracoesPage() {
     }
   }
 
+  async function carregarPapel() {
+    const res = await fetch("/api/auth/usuario");
+    if (res.ok) setPapel((await res.json()).papel);
+  }
+
   useEffect(() => {
+    carregarPapel();
     carregarClinica();
     carregarHorarios();
     carregarTiposSessao();
@@ -844,9 +858,14 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
       <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
         {/* Dados gerais */}
         <section className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-            Dados gerais
-          </h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-fg">
+              Dados gerais
+            </h2>
+            {!podeConfigGeral && (
+              <span className="text-xs text-muted">Disponível apenas para administradores</span>
+            )}
+          </div>
 
           {carregandoClinica ? (
             <p className="text-sm text-muted">Carregando...</p>
@@ -856,6 +875,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
             </p>
           ) : (
             <form onSubmit={handleSalvarClinica} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <fieldset disabled={!podeConfigGeral} className="contents">
               <CampoTexto label="Nome da clínica" name="nome" value={clinica.nome} onChange={handleChangeClinica} className="sm:col-span-2" />
               <CampoTexto label="Nome do assistente" name="nomeAssistente" value={clinica.nomeAssistente} onChange={handleChangeClinica} />
               <div>
@@ -922,15 +942,21 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                   {salvandoClinica ? "Salvando..." : "Salvar"}
                 </button>
               </div>
+            </fieldset>
             </form>
           )}
         </section>
 
         {/* Identidade visual */}
         <section className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
-            Identidade visual
-          </h2>
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-fg">
+              Identidade visual
+            </h2>
+            {!podeBranding && (
+              <span className="text-xs text-muted">Disponível apenas para administradores</span>
+            )}
+          </div>
           <p className="mb-4 text-sm text-muted">
             Logo e fundo de tela exibidos no painel da clínica.
           </p>
@@ -942,6 +968,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
               Não foi possível carregar os dados da clínica.
             </p>
           ) : (
+            <fieldset disabled={!podeBranding} className="contents">
             <div className="space-y-6">
               {/* Texto ao lado da logo */}
               <div>
@@ -1089,18 +1116,25 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                 </div>
               </div>
             </div>
+            </fieldset>
           )}
         </section>
 
         {/* Integração Google */}
         <section className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
-            Integração Google
-          </h2>
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-fg">
+              Integração Google
+            </h2>
+            {!podeIntegracoesGoogle && (
+              <span className="text-xs text-muted">Disponível apenas para administradores</span>
+            )}
+          </div>
           <p className="mb-4 text-sm text-muted">
             Conecte a conta Google da clínica para criar automaticamente o link do Meet nas sessões online.
           </p>
 
+          <fieldset disabled={!podeIntegracoesGoogle} className="contents">
           {avisoGoogle === "conectado" && (
             <p className="mb-4 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
               Google conectado com sucesso.
@@ -1220,6 +1254,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
               </p>
             )}
           </div>
+          </fieldset>
         </section>
 
         {/* Importação de formulário (Google Sheets) */}
@@ -1253,7 +1288,9 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                     <button
                       type="button"
                       onClick={abrirEdicaoSheets}
-                      className="shrink-0 rounded-lg border border-border px-3 py-1 text-sm font-medium text-fg hover:bg-bg"
+                      disabled={!podeConfigGeral}
+                      title={!podeConfigGeral ? "Disponível apenas para administradores" : undefined}
+                      className="shrink-0 rounded-lg border border-border px-3 py-1 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                     >
                       Alterar
                     </button>
@@ -1355,9 +1392,14 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
 
         {/* Email de boas-vindas */}
         <section className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
-            Email de boas-vindas
-          </h2>
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-fg">
+              Email de boas-vindas
+            </h2>
+            {!podeConfigGeral && (
+              <span className="text-xs text-muted">Disponível apenas para administradores</span>
+            )}
+          </div>
           <p className="mb-4 text-sm text-muted">
             Template usado ao compartilhar a pasta de um paciente. <strong>{"{nome}"}</strong>{" "}
             é substituído pelo primeiro nome do paciente, e <strong>{"{link_pasta}"}</strong>{" "}
@@ -1372,6 +1414,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
             </p>
           ) : (
             <form onSubmit={handleSalvarEmailBoasVindas} className="space-y-4">
+            <fieldset disabled={!podeConfigGeral} className="contents">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Assunto</label>
                 <input
@@ -1416,15 +1459,21 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                   {salvandoEmailBoasVindas ? "Salvando..." : "Salvar"}
                 </button>
               </div>
+            </fieldset>
             </form>
           )}
         </section>
 
         {/* Mensagens de copiar-colar (confirmação e link do Meet) */}
         <section className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-serif text-lg font-semibold text-fg">
-            Mensagens de copiar-colar
-          </h2>
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-fg">
+              Mensagens de copiar-colar
+            </h2>
+            {!podeConfigGeral && (
+              <span className="text-xs text-muted">Disponível apenas para administradores</span>
+            )}
+          </div>
           <p className="mb-4 text-sm text-muted">
             Textos usados nos botões &quot;Copiar confirmação&quot; e &quot;Copiar link do Meet&quot;, na agenda e
             no painel do paciente. Variáveis disponíveis:{" "}
@@ -1443,6 +1492,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
             </p>
           ) : (
             <form onSubmit={handleSalvarTemplatesMensagem} className="space-y-4">
+            <fieldset disabled={!podeConfigGeral} className="contents">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Texto de confirmação</label>
                 <textarea
@@ -1487,6 +1537,7 @@ function handleChangeClinica(e: React.ChangeEvent<HTMLInputElement | HTMLTextAre
                   {salvandoTemplatesMensagem ? "Salvando..." : "Salvar"}
                 </button>
               </div>
+            </fieldset>
             </form>
           )}
         </section>
