@@ -294,6 +294,21 @@ function IconLixeira({ className }: { className?: string }) {
   );
 }
 
+// Ícone de prancheta (botão Anamnese)
+function IconPrancheta({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M7 3.5h6a1 1 0 0 1 1 1V4h.5A1.5 1.5 0 0 1 16 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 15.5v-10A1.5 1.5 0 0 1 5.5 4H6v.5a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M7.5 9h5M7.5 12h5M7.5 6h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // Ícone de sino (notificações)
 function IconSino({ className }: { className?: string }) {
   return (
@@ -385,6 +400,7 @@ export default function PainelPage() {
 
   const [modalAberto, setModalAberto] = useState(false);
   const [pacienteEditando, setPacienteEditando] = useState<Paciente | null>(null);
+  const [rolarAnamneseAoAbrir, setRolarAnamneseAoAbrir] = useState(false);
   const [form, setForm] = useState(FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState("");
@@ -565,8 +581,28 @@ export default function PainelPage() {
       tipoSessaoId: p.tipoSessaoId ?? "",
     });
     setErroForm("");
+    setRolarAnamneseAoAbrir(false);
     setModalAberto(true);
   }
+
+  // Atalho usado na tela de atendimento: abre o mesmo modal de edição já
+  // rolado até a seção Anamnese, pra ler as respostas sem precisar procurar.
+  function abrirAnamnese(p: Paciente) {
+    abrirModalEdicao(p);
+    setRolarAnamneseAoAbrir(true);
+  }
+
+  // Depois que o modal (e a seção Anamnese dentro dele) termina de montar,
+  // rola até ela. Precisa esperar o próximo paint porque o conteúdo do
+  // modal só existe no DOM depois que modalAberto vira true.
+  useEffect(() => {
+    if (!modalAberto || !rolarAnamneseAoAbrir) return;
+    const id = requestAnimationFrame(() => {
+      document.getElementById("secao-anamnese")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setRolarAnamneseAoAbrir(false);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [modalAberto, rolarAnamneseAoAbrir]);
 
   function fecharModal() {
     if (salvando) return;
@@ -1541,10 +1577,12 @@ export default function PainelPage() {
 
               {/* Anamnese e Anexos — só disponíveis em modo edição, dependem de um pacienteId já salvo */}
               {pacienteEditando && (
-                <AnamnesePaciente
-                  pacienteId={pacienteEditando.id}
-                  anamneseInicial={pacienteEditando.anamnese}
-                />
+                <div id="secao-anamnese">
+                  <AnamnesePaciente
+                    pacienteId={pacienteEditando.id}
+                    anamneseInicial={pacienteEditando.anamnese}
+                  />
+                </div>
               )}
               {pacienteEditando && <AnexosPaciente pacienteId={pacienteEditando.id} />}
 
@@ -1633,6 +1671,14 @@ export default function PainelPage() {
                 </button>
               </div>
             </div>
+
+            <button
+              onClick={() => abrirAnamnese(pacienteSelecionado)}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-gold px-4 py-2.5 text-sm font-medium text-gold hover:bg-gold/10"
+            >
+              <IconPrancheta className="h-4 w-4" />
+              Anamnese
+            </button>
 
             {sessoesSelecionadas.size > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/5 p-3">
