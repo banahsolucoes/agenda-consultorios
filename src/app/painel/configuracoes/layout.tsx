@@ -23,8 +23,7 @@ const ITENS_MENU: ItemMenu[] = [
 
 // Casca de navegação por seções da tela de Configurações. Só espelho de UX —
 // a segurança de verdade continua nas rotas de API (src/lib/permissoes.ts +
-// cada rota, Bloco 1). /legado tem seu próprio header completo (a tela
-// antiga, ainda intacta) e não deve ganhar essa casca por cima.
+// cada rota, Bloco 1).
 export default function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -37,8 +36,6 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
       .then((dados) => dados && setPapel(dados.papel));
   }, []);
 
-  const emLegado = pathname?.startsWith("/painel/configuracoes/legado") ?? false;
-
   const itensPermitidos = papel
     ? ITENS_MENU.filter((item) => !item.capacidade || pode(papel, item.capacidade))
     : [];
@@ -47,20 +44,18 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
   // usuário, manda de volta pro painel — evita um OPERADOR ficar parado numa
   // seção bloqueada só porque digitou a URL direto.
   useEffect(() => {
-    if (emLegado || papel === null) return;
+    if (papel === null) return;
     const slugAtual = pathname?.split("/").pop();
     const item = ITENS_MENU.find((i) => i.slug === slugAtual);
     if (item && item.capacidade && !pode(papel, item.capacidade)) {
       router.replace("/painel");
     }
-  }, [papel, pathname, emLegado, router]);
+  }, [papel, pathname, router]);
 
   async function handleSair() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   }
-
-  if (emLegado) return <>{children}</>;
 
   return (
     <div className="min-h-screen bg-bg">
