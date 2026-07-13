@@ -8,9 +8,7 @@ import { pode } from "@/lib/permissoes";
 // pelos tokens e salva na clínica do usuário logado.
 export async function GET(req: NextRequest) {
   const origem = resolverOrigemPublica(req);
-  // A tela de Integração Google ainda mora em /legado (Bloco 2 da navegação
-  // por seções só criou a casca, o conteúdo real ainda não migrou).
-  const destino = new URL("/painel/configuracoes/legado", origem);
+  const destino = new URL("/painel/configuracoes/integracoes", origem);
 
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.redirect(new URL("/login", origem));

@@ -136,6 +136,7 @@ interface Clinica {
   emailBoasVindasCorpo: string;
   templateConfirmacao: string;
   templateMeet: string;
+  sheetsPlanilhaId: string | null;
 }
 
 interface GoogleStatus {
@@ -483,6 +484,28 @@ export default function PainelPage() {
     emailEnviado: boolean;
   } | null>(null);
 
+  // Modal: pré-visualização e confirmação da importação de pacientes (Google
+  // Sheets) — movido de Configurações > Integrações porque quem dispara a
+  // importação no dia a dia é o OPERADOR, que não acessa aquela seção. A
+  // *configuração* da planilha/aba continua restrita a ADMIN/PROFISSIONAL lá.
+  const [carregandoPreviewImportacao, setCarregandoPreviewImportacao] = useState(false);
+  const [erroPreviewImportacao, setErroPreviewImportacao] = useState("");
+  const [previewImportacaoAberto, setPreviewImportacaoAberto] = useState(false);
+  const [previewImportacao, setPreviewImportacao] = useState<{
+    total: number;
+    novos: number;
+    existentes: number;
+    registros: Array<{ nome?: string; cpf?: string; status: string }>;
+  } | null>(null);
+  const [cpfsSelecionadosImportacao, setCpfsSelecionadosImportacao] = useState<Set<string>>(new Set());
+  const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
+  const [erroExecutarImportacao, setErroExecutarImportacao] = useState("");
+  const [resultadoImportacao, setResultadoImportacao] = useState<{
+    criados: number;
+    pulados: number;
+    erros: number;
+  } | null>(null);
+
   // Busca a lista de pacientes da clínica logada, filtrada pela aba ativa
   async function carregarPacientes() {
     setCarregandoLista(true);
@@ -531,6 +554,96 @@ export default function PainelPage() {
   async function carregarNotificacoes() {
     const res = await fetch("/api/notificacoes");
     if (res.ok) setNotificacoes(await res.json());
+  }
+
+  function soDigitos(s: string): string {
+    return (s || "").replace(/\D/g, "");
+  }
+
+  async function handleAbrirPreviewImportacao() {
+    setCarregandoPreviewImportacao(true);
+    setErroPreviewImportacao("");
+    setResultadoImportacao(null);
+
+    try {
+      const res = await fetch("/api/importacao/preview");
+      const dados = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroPreviewImportacao(dados?.erro ?? "não foi possível pré-visualizar a importação");
+        return;
+      }
+
+      setPreviewImportacao(dados);
+      // Default: todos os "novos" vêm marcados — o toggle mestre permite
+      // desmarcar tudo de uma vez para escolher só os poucos que interessam.
+      const registrosNovos = (dados?.registros ?? []) as Array<{ cpf?: string; status: string }>;
+      setCpfsSelecionadosImportacao(
+        new Set(
+          registrosNovos
+            .filter((r) => r.status === "novo")
+            .map((r) => soDigitos(r.cpf || ""))
+            .filter(Boolean)
+        )
+      );
+      setPreviewImportacaoAberto(true);
+    } catch {
+      setErroPreviewImportacao("não foi possível pré-visualizar a importação");
+    } finally {
+      setCarregandoPreviewImportacao(false);
+    }
+  }
+
+  function alternarSelecaoTodosImportacao(novosRegistros: Array<{ cpf?: string }>) {
+    const todasAsChaves = novosRegistros.map((r) => soDigitos(r.cpf || "")).filter(Boolean);
+    setCpfsSelecionadosImportacao((atual) =>
+      atual.size === todasAsChaves.length ? new Set() : new Set(todasAsChaves)
+    );
+  }
+
+  function alternarSelecaoImportacao(cpf: string) {
+    const chave = soDigitos(cpf || "");
+    if (!chave) return;
+    setCpfsSelecionadosImportacao((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(chave)) novo.delete(chave);
+      else novo.add(chave);
+      return novo;
+    });
+  }
+
+  async function handleConfirmarImportacao() {
+    setConfirmandoImportacao(true);
+    setErroExecutarImportacao("");
+
+    try {
+      const res = await fetch("/api/importacao/executar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cpfs: Array.from(cpfsSelecionadosImportacao) }),
+      });
+      const dados = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroExecutarImportacao(dados?.erro ?? "não foi possível concluir a importação");
+        return;
+      }
+
+      setResultadoImportacao(dados);
+      await carregarPacientes();
+    } catch {
+      setErroExecutarImportacao("não foi possível concluir a importação");
+    } finally {
+      setConfirmandoImportacao(false);
+    }
+  }
+
+  function fecharPreviewImportacao() {
+    setPreviewImportacaoAberto(false);
+    setPreviewImportacao(null);
+    setResultadoImportacao(null);
+    setErroExecutarImportacao("");
+    setCpfsSelecionadosImportacao(new Set());
   }
 
   useEffect(() => {
@@ -1360,13 +1473,27 @@ export default function PainelPage() {
                 placeholder="Buscar paciente por nome..."
                 className="w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none placeholder:text-muted focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
-              <button
-                onClick={abrirModal}
-                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110"
-              >
-                + Novo paciente
-              </button>
+              <div className="flex shrink-0 items-center gap-3">
+                {clinica?.sheetsPlanilhaId && (
+                  <button
+                    onClick={handleAbrirPreviewImportacao}
+                    disabled={carregandoPreviewImportacao}
+                    className="rounded-lg border border-gold px-4 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {carregandoPreviewImportacao ? "Carregando..." : "Importar pacientes"}
+                  </button>
+                )}
+                <button
+                  onClick={abrirModal}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg transition-colors hover:brightness-110"
+                >
+                  + Novo paciente
+                </button>
+              </div>
             </div>
+            {erroPreviewImportacao && (
+              <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroPreviewImportacao}</p>
+            )}
 
             {/* Abas de filtro por status do paciente — fixas, não rolam */}
             <div className="mb-4 flex shrink-0 gap-2">
@@ -2576,6 +2703,122 @@ export default function PainelPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: pré-visualização e confirmação da importação de pacientes */}
+      {previewImportacaoAberto && previewImportacao && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Importar pacientes da planilha
+            </h2>
+
+            {resultadoImportacao ? (
+              <>
+                <p className="mb-4 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  {resultadoImportacao.criados} paciente(s) criado(s), {resultadoImportacao.pulados} pulado(s)
+                  {resultadoImportacao.erros > 0 ? `, ${resultadoImportacao.erros} com erro` : ""}.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={fecharPreviewImportacao}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mb-3 text-sm text-fg">
+                  <strong>{previewImportacao.novos}</strong> novo(s), <strong>{previewImportacao.existentes}</strong> já
+                  existem na clínica.
+                </p>
+
+                {previewImportacao.novos > 0 ? (
+                  <>
+                    <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={
+                            cpfsSelecionadosImportacao.size > 0 &&
+                            cpfsSelecionadosImportacao.size ===
+                              previewImportacao.registros
+                                .filter((r) => r.status === "novo")
+                                .map((r) => soDigitos(r.cpf || ""))
+                                .filter(Boolean).length
+                          }
+                          onChange={() =>
+                            alternarSelecaoTodosImportacao(
+                              previewImportacao.registros.filter((r) => r.status === "novo")
+                            )
+                          }
+                          className="h-4 w-4 rounded border-border"
+                        />
+                        Selecionar todos
+                      </label>
+                      <span>
+                        {cpfsSelecionadosImportacao.size} de {previewImportacao.novos} selecionados
+                      </span>
+                    </div>
+                    <div className="mb-4 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border bg-bg p-2">
+                      {previewImportacao.registros
+                        .filter((r) => r.status === "novo")
+                        .map((r, i) => {
+                          const chave = soDigitos(r.cpf || "");
+                          return (
+                            <label
+                              key={i}
+                              className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm hover:bg-surface"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={chave ? cpfsSelecionadosImportacao.has(chave) : false}
+                                  disabled={!chave}
+                                  onChange={() => alternarSelecaoImportacao(r.cpf || "")}
+                                  className="h-4 w-4 shrink-0 rounded border-border disabled:cursor-not-allowed"
+                                />
+                                <span className="truncate text-fg">{r.nome || "(sem nome)"}</span>
+                              </span>
+                              <span className="shrink-0 font-mono text-xs text-muted">{r.cpf || "sem CPF"}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </>
+                ) : (
+                  <p className="mb-4 text-sm text-muted">Nenhum paciente novo para importar.</p>
+                )}
+
+                {erroExecutarImportacao && (
+                  <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroExecutarImportacao}</p>
+                )}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={fecharPreviewImportacao}
+                    disabled={confirmandoImportacao}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarImportacao}
+                    disabled={confirmandoImportacao || cpfsSelecionadosImportacao.size === 0}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {confirmandoImportacao ? "Importando..." : "Confirmar importação"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
