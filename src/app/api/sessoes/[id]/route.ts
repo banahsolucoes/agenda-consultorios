@@ -8,6 +8,7 @@ import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
 import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
 import { statusLabel } from "@/lib/labels";
+import { pode } from "@/lib/permissoes";
 
 // Sessões nesses status são somente-leitura — nem data/horário nem tipo de
 // atendimento podem mudar.
@@ -15,6 +16,7 @@ const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
 const DIA_NOME_POR_NUM: Record<number, string> = {
   0: "DOMINGO", 1: "SEGUNDA", 2: "TERCA", 3: "QUARTA", 4: "QUINTA", 5: "SEXTA", 6: "SABADO",
 };
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 // Mesma regra usada tanto ao mover quanto ao redimensionar uma sessão: um dia
 // sem faixa cadastrada está fechado quando a clínica já configurou algum
@@ -107,9 +109,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   if (body.novaData && body.novoHorario) {
+    // Nenhuma rota de move fazia esse gate até agora; passa a ser exigido
+    // aqui porque o escopo ESTA_E_FUTURAS expande a ação para lote.
+    if (!pode(usuario.papel, "operarAgenda")) {
+      return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+    }
+
     if (STATUS_CONSUMIDOS.includes(sessao.status)) {
       return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
     }
+
+    const escopo = body.escopo === "ESTA_E_FUTURAS" ? "ESTA_E_FUTURAS" : "ESTA";
 
     const dataMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(body.novaData);
     if (!dataMatch) return NextResponse.json({ erro: "data inválida" }, { status: 400 });
@@ -148,6 +158,133 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     if (novaData.getTime() < Date.now()) {
       return NextResponse.json({ erro: "não é possível mover a sessão para o passado" }, { status: 400 });
+    }
+
+    if (escopo === "ESTA_E_FUTURAS") {
+      // Sessões seguintes do mesmo pacote, ainda não consumidas nem
+      // canceladas — REALIZADA/NAO_REALIZADA/CANCELADA/REAGENDADA ficam de
+      // fora por não estarem em status "AGENDADA".
+      const irmas = await prisma.agendamento.findMany({
+        where: {
+          pacoteId: sessao.pacoteId,
+          numeroSessao: { gt: sessao.numeroSessao },
+          status: "AGENDADA",
+          arquivada: false,
+        },
+        include: { paciente: true },
+        orderBy: { numeroSessao: "asc" },
+      });
+
+      // Isolamento de tenant: toda irmã precisa pertencer à mesma clínica do
+      // usuário logado (garantido estruturalmente por pacoteId->paciente,
+      // mas confirmado aqui de forma explícita).
+      if (irmas.some((irma) => irma.paciente.clinicaId !== usuario.clinicaId)) {
+        return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
+      }
+
+      // TODO: cadência semanal fixa; parametrizar quando pacote suportar quinzenal/múltiplas por semana.
+      const movimentos = [
+        {
+          id: sessao.id,
+          numeroSessao: sessao.numeroSessao,
+          novoInicio: novaData,
+          duracaoMin: sessao.duracaoMin,
+          googleEventId: sessao.googleEventId,
+          googleCalendarId: sessao.googleCalendarId,
+        },
+        ...irmas.map((irma) => ({
+          id: irma.id,
+          numeroSessao: irma.numeroSessao,
+          novoInicio: new Date(novaData.getTime() + (irma.numeroSessao - sessao.numeroSessao) * 7 * DIA_MS),
+          duracaoMin: irma.duracaoMin,
+          googleEventId: irma.googleEventId,
+          googleCalendarId: irma.googleCalendarId,
+        })),
+      ];
+
+      const idsConjunto = movimentos.map((mov) => mov.id);
+
+      // Conflito de semana contra sessões do paciente que NÃO fazem parte do
+      // conjunto em movimento — mesmo padrão de "colisão contra as não
+      // movidas" usado em pacientes/[id]/empurrar/route.ts.
+      const outrasSessoesForaDoConjunto = await prisma.agendamento.findMany({
+        where: { pacienteId: sessao.pacienteId, id: { notIn: idsConjunto } },
+        select: { id: true, inicio: true, status: true },
+      });
+
+      for (const mov of movimentos) {
+        if (mov.novoInicio.getTime() < Date.now()) {
+          return NextResponse.json(
+            { erro: `Não é possível: a sessão ${mov.numeroSessao} (${formatarDataHoraSP(mov.novoInicio)}) cairia no passado.` },
+            { status: 400 }
+          );
+        }
+
+        const componentesMov = componentesSP(mov.novoInicio);
+        const diaSemanaNomeMov = DIA_NOME_POR_NUM[componentesMov.diaSemana];
+        const inicioMinMov = componentesMov.hora * 60 + componentesMov.minuto;
+        const fimMinMov = inicioMinMov + mov.duracaoMin;
+        if (!dentroDoExpediente(todosHorarios, diaSemanaNomeMov, inicioMinMov, fimMinMov)) {
+          return NextResponse.json(
+            { erro: `Não é possível: o horário da sessão ${mov.numeroSessao} (${formatarDataHoraSP(mov.novoInicio)}) fica fora do expediente da clínica.` },
+            { status: 400 }
+          );
+        }
+
+        if (existeConflitoDeSemana(mov.novoInicio, outrasSessoesForaDoConjunto)) {
+          return NextResponse.json(
+            { erro: `Não é possível: já existe uma sessão deste paciente na semana da sessão ${mov.numeroSessao} (${formatarDataHoraSP(mov.novoInicio)}).` },
+            { status: 409 }
+          );
+        }
+      }
+
+      await prisma.$transaction(
+        movimentos.map((mov) =>
+          prisma.agendamento.update({
+            where: { id: mov.id },
+            data:
+              mov.id === sessao.id
+                ? { inicio: mov.novoInicio, status: "AGENDADA" }
+                : { inicio: mov.novoInicio },
+          })
+        )
+      );
+
+      await registrarLog(
+        usuario.clinicaId,
+        usuario.id,
+        "EDITAR_SESSAO",
+        `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} e realinhou ${irmas.length} sessão(ões) seguinte(s) a partir de ${formatarDataHoraSP(novaData)}`
+      );
+
+      // Reflete o novo horário de cada sessão movida com evento vinculado no
+      // Google Calendar. Melhor esforço — busca o client uma única vez para o
+      // lote todo, e falha na integração nunca desfaz o que já foi movido.
+      const movimentosComEvento = movimentos.filter((mov) => mov.googleEventId);
+      if (movimentosComEvento.length > 0) {
+        const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+        if (google) {
+          for (const mov of movimentosComEvento) {
+            await sincronizarEventoGoogle(
+              google.calendar,
+              mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+              mov.googleEventId!,
+              { inicio: mov.novoInicio, duracaoMin: mov.duracaoMin }
+            );
+          }
+        }
+      }
+
+      return NextResponse.json({
+        movidas: movimentos.length,
+        ids: movimentos.map((mov) => mov.id),
+        sessoes: movimentos.map((mov) => ({
+          id: mov.id,
+          numeroSessao: mov.numeroSessao,
+          inicio: mov.novoInicio,
+        })),
+      });
     }
 
     // Conflito de semana: nenhuma outra sessão (não cancelada) deste mesmo
