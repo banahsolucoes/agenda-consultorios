@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ erro: "inicio e fim devem ser datas ISO válidas" }, { status: 400 });
   }
 
+  const t0 = Date.now();
   const sessoes = await prisma.agendamento.findMany({
     where: {
       paciente: { clinicaId: usuario.clinicaId },
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { inicio: "asc" },
   });
+  const dbMs = Date.now() - t0;
 
-  return NextResponse.json(sessoes);
+  return NextResponse.json(sessoes, { headers: { "Server-Timing": `db;dur=${dbMs}` } });
 }

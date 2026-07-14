@@ -228,6 +228,10 @@ export default function AgendaCalendario({
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Aborta a busca anterior antes de disparar uma nova — sem isso, trocar de
+  // semana rapidamente pode fazer uma resposta antiga (mais lenta) chegar
+  // depois da mais recente e sobrescrever a semana atual com dados errados.
+  const carregarSessoesController = useRef<AbortController | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [rowPx, setRowPx] = useState(ROW_PX_PADRAO);
   // Relógio para esmaecer sessões cujo início já passou (recalcula sem precisar recarregar a página)
@@ -267,16 +271,27 @@ export default function AgendaCalendario({
   }, [dias]);
 
   const carregarSessoes = useCallback(async () => {
+    carregarSessoesController.current?.abort();
+    const controller = new AbortController();
+    carregarSessoesController.current = controller;
+
     setCarregando(true);
     try {
       const params = new URLSearchParams({
         inicio: intervalo.inicio.toISOString(),
         fim: intervalo.fim.toISOString(),
       });
-      const res = await fetch(`/api/agenda?${params}`);
-      if (res.ok) setSessoes(await res.json());
+      const res = await fetch(`/api/agenda?${params}`, { signal: controller.signal });
+      // Só aplica se esta ainda for a requisição mais recente — uma resposta
+      // de uma busca já abortada não deve sobrescrever a semana atual.
+      if (res.ok && carregarSessoesController.current === controller) setSessoes(await res.json());
+    } catch (err) {
+      // AbortError (DOMException, não instância de Error) é o caso esperado
+      // de uma busca superada por uma mais nova — ignora silenciosamente.
+      if ((err as { name?: string })?.name === "AbortError") return;
+      throw err;
     } finally {
-      setCarregando(false);
+      if (carregarSessoesController.current === controller) setCarregando(false);
     }
   }, [intervalo]);
 
