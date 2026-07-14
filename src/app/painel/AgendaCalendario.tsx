@@ -448,7 +448,7 @@ export default function AgendaCalendario({
     }
   }
 
-  function handleDragEnd(event: DragEndEvent) {
+  async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     const sessao = sessoes.find((s) => s.id === active.id);
     if (!sessao || !over) return;
@@ -488,17 +488,20 @@ export default function AgendaCalendario({
 
     // Só pergunta o escopo quando existe irmã futura elegível no mesmo
     // pacote — sem irmã, move direto (comportamento atual, sem fricção).
-    const irmasFuturas = sessoes.filter(
-      (s) =>
-        s.pacoteId === sessao.pacoteId &&
-        s.numeroSessao > sessao.numeroSessao &&
-        s.status === "AGENDADA" &&
-        !s.arquivada
-    );
-
-    if (irmasFuturas.length > 0) {
-      setEscopoPendente({ sessao, novaData, novoHorario, qtdIrmas: irmasFuturas.length });
-      return;
+    // Consulta o banco (não o array `sessoes`, que só tem a semana visível
+    // do calendário — a irmã seguinte, +7 dias, quase sempre cai fora dela).
+    try {
+      const res = await fetch(`/api/sessoes/${sessao.id}/irmas-futuras/`);
+      if (!res.ok) throw new Error("falha ao consultar irmãs futuras");
+      const data: { temFuturas: boolean; quantidade: number } = await res.json();
+      if (data.temFuturas) {
+        setEscopoPendente({ sessao, novaData, novoHorario, qtdIrmas: data.quantidade });
+        return;
+      }
+    } catch (err) {
+      // Em dúvida, move só a sessão arrastada — nunca aplica ESTA_E_FUTURAS
+      // sem confirmação de que há irmã futura de fato.
+      console.error("Falha ao consultar irmãs futuras da sessão:", err);
     }
 
     moverSessao(sessao, novaData, novoHorario, "ESTA");
