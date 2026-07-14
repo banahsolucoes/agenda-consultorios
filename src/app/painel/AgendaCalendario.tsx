@@ -37,6 +37,7 @@ const DIA_SEMANA_POR_INDICE = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA"
 
 interface SessaoAgenda {
   id: string;
+  pacoteId: string;
   pacienteId: string;
   paciente: { id: string; nome: string };
   numeroSessao: number;
@@ -44,12 +45,15 @@ interface SessaoAgenda {
   inicio: string;
   duracaoMin: number;
   status: string;
+  arquivada: boolean;
   tipoSessaoId: string | null;
   tipoSessao: { id: string; nome: string; cor: string | null } | null;
   linkMeet: string | null;
   motivoCancelamento: string | null;
   confirmada: boolean;
 }
+
+type EscopoMove = "ESTA" | "ESTA_E_FUTURAS";
 
 interface HorarioTrabalho {
   id: string;
@@ -212,6 +216,15 @@ export default function AgendaCalendario({
   const [aviso, setAviso] = useState("");
   const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
   const [anamnesePacienteId, setAnamnesePacienteId] = useState<string | null>(null);
+  // Alvo de um drag que tem irmã futura elegível — aguarda a escolha do
+  // usuário no EscopoMoveModal antes de mover qualquer coisa (nem local, nem
+  // no servidor).
+  const [escopoPendente, setEscopoPendente] = useState<{
+    sessao: SessaoAgenda;
+    novaData: Date;
+    novoHorario: string;
+    qtdIrmas: number;
+  } | null>(null);
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -364,26 +377,49 @@ export default function AgendaCalendario({
 
   // Move a sessão localmente (otimista) e confirma no servidor; em caso de
   // falha (regra de negócio violada ou erro de rede), desfaz e avisa.
-  async function moverSessao(sessao: SessaoAgenda, novaData: Date, novoHorario: string) {
+  // Escopo ESTA_E_FUTURAS move um lote no servidor (sessão arrastada +
+  // irmãs futuras do pacote) — não faz otimismo local antes do fetch
+  // (duplicaria a cadência semanal calculada no backend); ao confirmar
+  // sucesso, aplica o resumo devolvido (id + novo início de cada sessão
+  // movida) no estado local, e não só na sessão arrastada.
+  async function moverSessao(
+    sessao: SessaoAgenda,
+    novaData: Date,
+    novoHorario: string,
+    escopo: EscopoMove = "ESTA"
+  ) {
     const anteriores = sessoes;
-    setSessoes((prev) =>
-      prev.map((s) => (s.id === sessao.id ? { ...s, inicio: novaData.toISOString(), status: "AGENDADA" } : s))
-    );
+    if (escopo === "ESTA") {
+      setSessoes((prev) =>
+        prev.map((s) => (s.id === sessao.id ? { ...s, inicio: novaData.toISOString(), status: "AGENDADA" } : s))
+      );
+    }
     try {
       const res = await fetch(`/api/sessoes/${sessao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novaData: dataISODeData(novaData), novoHorario }),
+        body: JSON.stringify({ novaData: dataISODeData(novaData), novoHorario, escopo }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setSessoes(anteriores);
+        if (escopo === "ESTA") setSessoes(anteriores);
         mostrarAviso(data?.erro ?? "não foi possível mover a sessão");
         return;
       }
+      if (escopo === "ESTA_E_FUTURAS") {
+        const data: { sessoes: { id: string; inicio: string }[] } = await res.json();
+        const novoInicioPorId = new Map(data.sessoes.map((mov) => [mov.id, mov.inicio]));
+        setSessoes((prev) =>
+          prev.map((s) =>
+            novoInicioPorId.has(s.id)
+              ? { ...s, inicio: novoInicioPorId.get(s.id)!, ...(s.id === sessao.id ? { status: "AGENDADA" } : {}) }
+              : s
+          )
+        );
+      }
       await carregarSessoes();
     } catch {
-      setSessoes(anteriores);
+      if (escopo === "ESTA") setSessoes(anteriores);
       mostrarAviso("não foi possível mover a sessão");
     }
   }
@@ -450,7 +486,22 @@ export default function AgendaCalendario({
       return;
     }
 
-    moverSessao(sessao, novaData, novoHorario);
+    // Só pergunta o escopo quando existe irmã futura elegível no mesmo
+    // pacote — sem irmã, move direto (comportamento atual, sem fricção).
+    const irmasFuturas = sessoes.filter(
+      (s) =>
+        s.pacoteId === sessao.pacoteId &&
+        s.numeroSessao > sessao.numeroSessao &&
+        s.status === "AGENDADA" &&
+        !s.arquivada
+    );
+
+    if (irmasFuturas.length > 0) {
+      setEscopoPendente({ sessao, novaData, novoHorario, qtdIrmas: irmasFuturas.length });
+      return;
+    }
+
+    moverSessao(sessao, novaData, novoHorario, "ESTA");
   }
 
   const titulo =
@@ -578,6 +629,19 @@ export default function AgendaCalendario({
 
       {anamnesePacienteId && (
         <AnamneseModal pacienteId={anamnesePacienteId} onFechar={() => setAnamnesePacienteId(null)} />
+      )}
+
+      {escopoPendente && (
+        <EscopoMoveModal
+          sessao={escopoPendente.sessao}
+          qtdIrmas={escopoPendente.qtdIrmas}
+          onCancelar={() => setEscopoPendente(null)}
+          onEscolher={(escopo) => {
+            const alvo = escopoPendente;
+            setEscopoPendente(null);
+            moverSessao(alvo.sessao, alvo.novaData, alvo.novoHorario, escopo);
+          }}
+        />
       )}
     </div>
   );
@@ -932,6 +996,51 @@ function IconPrancheta({ className }: { className?: string }) {
       />
       <path d="M7.5 9h5M7.5 12h5M7.5 6h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
+  );
+}
+
+// Modal aberto ao soltar um drag de sessão que tem irmã futura elegível no
+// mesmo pacote — pergunta se a mudança de dia/horário vale só para a sessão
+// arrastada ou também realinha as seguintes, antes de persistir qualquer coisa.
+function EscopoMoveModal({
+  sessao,
+  qtdIrmas,
+  onCancelar,
+  onEscolher,
+}: {
+  sessao: SessaoAgenda;
+  qtdIrmas: number;
+  onCancelar: () => void;
+  onEscolher: (escopo: EscopoMove) => void;
+}) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+        <h2 className="mb-2 font-serif text-lg font-semibold text-fg">Mover sessões futuras?</h2>
+        <p className="mb-4 text-sm text-muted">
+          A sessão {sessao.numeroSessao}/{sessao.totalPacote} de {sessao.paciente.nome} faz parte de um pacote com{" "}
+          {qtdIrmas} sessão{qtdIrmas > 1 ? "ões" : ""} seguinte{qtdIrmas > 1 ? "s" : ""}. “Esta e as futuras”
+          realinha todas as seguintes para o novo dia e horário, mantendo a cadência semanal.
+        </p>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => onEscolher("ESTA_E_FUTURAS")}
+            className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+          >
+            Esta e as futuras
+          </button>
+          <button
+            onClick={() => onEscolher("ESTA")}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+          >
+            Somente esta
+          </button>
+          <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-muted hover:bg-bg">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
