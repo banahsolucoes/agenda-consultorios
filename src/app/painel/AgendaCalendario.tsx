@@ -892,49 +892,6 @@ function BlocoSessao({
     window.addEventListener("pointerup", onUp);
   }
 
-  // Botões de copiar/abrir Meet — compartilhados entre o layout normal (linha
-  // própria) e o compacto (dividindo linha com nome+horário, por isso ganham
-  // menos padding/gap ali pra sobrar espaço horizontal).
-  const botoesIcones = (
-    <span className={`flex shrink-0 items-center ${compacto ? "gap-0.5" : "gap-1"}`}>
-      <button
-        type="button"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={handleCopiarConfirmacao}
-        title="Copiar mensagem de confirmação"
-        aria-label="Copiar mensagem de confirmação"
-        className={`rounded-full bg-white/25 shadow-sm backdrop-blur-[1px] hover:bg-white/40 ${compacto ? "p-0.5" : "p-1"}`}
-      >
-        <IconCopiar className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        disabled={!sessao.linkMeet}
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={handleCopiarMeet}
-        title="Copiar texto do link do Meet"
-        aria-label="Copiar texto do link do Meet"
-        className={`rounded-full bg-white/25 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10 ${compacto ? "p-0.5" : "p-1"}`}
-      >
-        <IconLink className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        disabled={!sessao.linkMeet}
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (sessao.linkMeet) window.open(sessao.linkMeet, "_blank", "noopener,noreferrer");
-        }}
-        title="Abrir Meet"
-        aria-label="Abrir Meet"
-        className={`rounded-full bg-white/25 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10 ${compacto ? "p-0.5" : "p-1"}`}
-      >
-        <IconMeet className="h-3 w-3" />
-      </button>
-    </span>
-  );
-
   return (
     <div
       ref={setNodeRef}
@@ -953,43 +910,57 @@ function BlocoSessao({
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
       className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between overflow-hidden rounded-md px-1.5 text-left text-white shadow-sm ${compacto ? "gap-0 py-0.5" : "gap-0.5 py-1"}`}
     >
-      {compacto ? (
-        // Compacto (≤30min): nome e horário na mesma linha — sem a segunda
-        // linha empilhada do layout normal.
-        <div className="flex items-center justify-between gap-1">
-          <span className="truncate text-xs font-medium">
-            {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
-          </span>
-          {copiado ? (
-            <span className="shrink-0 text-[10px] font-medium leading-none">Copiado!</span>
-          ) : (
-            <span className="flex shrink-0 items-center gap-1">
-              <span className="whitespace-nowrap text-xs opacity-90">
-                {formatarHorario(inicio)}–{formatarHorario(fim)}
-              </span>
-              {botoesIcones}
+      <p className={`truncate text-[11px] font-medium ${compacto ? "leading-none" : "leading-[13px]"}`}>
+        {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
+      </p>
+      <div className="flex items-center justify-between gap-1 leading-none">
+        {copiado ? (
+          <span className="truncate text-[10px] font-medium leading-[12px]">Copiado!</span>
+        ) : (
+          <>
+            <span className={`truncate text-[10px] ${compacto ? "leading-none" : "leading-[12px]"} opacity-90`}>
+              {formatarHorario(inicio)}–{formatarHorario(fim)}
             </span>
-          )}
-        </div>
-      ) : (
-        <>
-          <p className="truncate text-[11px] font-medium leading-[13px]">
-            {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
-          </p>
-          <div className="flex items-center justify-between gap-1 leading-none">
-            {copiado ? (
-              <span className="truncate text-[10px] font-medium leading-[12px]">Copiado!</span>
-            ) : (
-              <>
-                <span className="truncate text-[10px] leading-[12px] opacity-90">
-                  {formatarHorario(inicio)}–{formatarHorario(fim)}
-                </span>
-                {botoesIcones}
-              </>
-            )}
-          </div>
-        </>
-      )}
+            <span className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleCopiarConfirmacao}
+                title="Copiar mensagem de confirmação"
+                aria-label="Copiar mensagem de confirmação"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40"
+              >
+                <IconCopiar className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!sessao.linkMeet}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleCopiarMeet}
+                title="Copiar texto do link do Meet"
+                aria-label="Copiar texto do link do Meet"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
+              >
+                <IconLink className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!sessao.linkMeet}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (sessao.linkMeet) window.open(sessao.linkMeet, "_blank", "noopener,noreferrer");
+                }}
+                title="Abrir Meet"
+                aria-label="Abrir Meet"
+                className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
+              >
+                <IconMeet className="h-3 w-3" />
+              </button>
+            </span>
+          </>
+        )}
+      </div>
 
       {!travada && clinica?.permitirResizeSessao && (
         <div
