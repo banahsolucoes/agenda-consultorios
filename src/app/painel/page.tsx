@@ -145,6 +145,7 @@ interface Clinica {
   templateConfirmacao: string;
   templateMeet: string;
   sheetsPlanilhaId: string | null;
+  mentoriaAtivada: boolean;
 }
 
 interface GoogleStatus {
@@ -1632,6 +1633,14 @@ export default function PainelPage() {
           >
             Tarefas
           </button>
+          {clinica?.mentoriaAtivada && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
+            <button
+              onClick={() => router.push("/mentoria/alunos")}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+            >
+              Mentoria
+            </button>
+          )}
         </div>
 
         {abaAtiva === "agenda" ? (

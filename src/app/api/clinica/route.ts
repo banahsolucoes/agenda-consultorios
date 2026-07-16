@@ -78,6 +78,7 @@ const SELECT_CLINICA = {
   cep: true,
   emailContato: true,
   telefoneContato: true,
+  mentoriaAtivada: true,
 } as const;
 
 // GET /api/clinica — dados gerais da clínica do usuário logado

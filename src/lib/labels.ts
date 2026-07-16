@@ -32,6 +32,7 @@ const LABEL_STATUS: Record<string, string> = {
   PENDENTE: "Pendente",
   CONCLUIDA: "Concluída",
   ARQUIVADA: "Arquivada",
+  CONCLUIDO: "Concluído",
 };
 
 export function diaSemanaLabel(valor: string): string {
