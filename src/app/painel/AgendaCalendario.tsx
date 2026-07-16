@@ -905,9 +905,9 @@ function BlocoSessao({
       }}
       style={style}
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
-      className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between overflow-hidden rounded-md px-1.5 py-0 text-left text-white shadow-sm`}
+      className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex items-center justify-between gap-1 overflow-hidden rounded-md px-1.5 py-0 text-left text-white shadow-sm`}
     >
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <p className="truncate text-xs font-medium leading-none">
           {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
         </p>
@@ -919,10 +919,10 @@ function BlocoSessao({
           </p>
         )}
       </div>
-      {/* Rodapé próprio dos botões — faixa separada do texto, empurrada pro
-          fim do card por justify-between (some quando o card não sobra
-          altura, sem disputar espaço com nome/horário). */}
-      <div className="flex shrink-0 items-center justify-end gap-1">
+      {/* Coluna direita — os 3 botões, centralizados verticalmente pelo
+          items-center da raiz, sem disputar espaço com o texto (que trunca
+          na coluna esquerda via min-w-0/flex-1). */}
+      <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
