@@ -29,6 +29,9 @@ const LABEL_STATUS: Record<string, string> = {
   ATIVO: "Ativo",
   CANCELADO: "Cancelado",
   FINALIZADO: "Finalizado",
+  PENDENTE: "Pendente",
+  CONCLUIDA: "Concluída",
+  ARQUIVADA: "Arquivada",
 };
 
 export function diaSemanaLabel(valor: string): string {
@@ -60,4 +63,22 @@ const LABEL_PAPEL: Record<string, string> = {
 
 export function papelLabel(valor: string): string {
   return LABEL_PAPEL[valor] ?? valor;
+}
+
+const LABEL_TAREFA_TIPO: Record<string, string> = {
+  RENOVACAO: "Renovação",
+  CONTA: "Conta",
+};
+
+export function tarefaTipoLabel(valor: string): string {
+  return LABEL_TAREFA_TIPO[valor] ?? valor;
+}
+
+const LABEL_TAREFA_RECORRENCIA: Record<string, string> = {
+  NENHUMA: "Nenhuma",
+  MENSAL: "Mensal",
+};
+
+export function tarefaRecorrenciaLabel(valor: string): string {
+  return LABEL_TAREFA_RECORRENCIA[valor] ?? valor;
 }

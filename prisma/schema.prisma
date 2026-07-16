@@ -350,4 +350,5 @@ enum TarefaRecorrencia {
 enum TarefaStatus {
   PENDENTE
   CONCLUIDA
+  ARQUIVADA
 }

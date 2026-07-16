@@ -1461,12 +1461,20 @@ export default function PainelPage() {
                 <div className="absolute right-0 z-50 mt-2 w-80 max-w-[90vw] rounded-xl border border-border bg-surface p-3 shadow-lg">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-sm font-semibold text-fg">Pendências</p>
-                    <button
-                      onClick={abrirModalTarefa}
-                      className="text-xs font-medium text-gold hover:underline"
-                    >
-                      + Nova tarefa
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => router.push("/tarefas")}
+                        className="text-xs font-medium text-muted hover:text-fg hover:underline"
+                      >
+                        Ver todas
+                      </button>
+                      <button
+                        onClick={abrirModalTarefa}
+                        className="text-xs font-medium text-gold hover:underline"
+                      >
+                        + Nova tarefa
+                      </button>
+                    </div>
                   </div>
                   {avisoNotificacao && (
                     <p className="mb-2 rounded-lg bg-red/10 px-2 py-1.5 text-xs text-red">{avisoNotificacao}</p>
@@ -1536,6 +1544,12 @@ export default function PainelPage() {
                 </div>
               )}
             </div>
+            <button
+              onClick={() => router.push("/tarefas")}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+            >
+              Tarefas
+            </button>
             <button
               onClick={() => router.push("/painel/configuracoes")}
               className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
