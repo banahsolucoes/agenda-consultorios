@@ -801,9 +801,6 @@ function BlocoSessao({
   const duracaoExibida = previewDuracaoMin ?? sessao.duracaoMin;
   // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
   const altura = Math.max(46, (duracaoExibida / ROW_MIN) * rowPx - 2);
-  // Sessão curta (≤30min): card fica com pouca folga vertical mesmo na
-  // altura mínima — aperta padding/gap/line-height pra sobrar espaço.
-  const compacto = duracaoExibida <= 30;
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
@@ -908,9 +905,9 @@ function BlocoSessao({
       }}
       style={style}
       title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
-      className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between overflow-hidden rounded-md px-1.5 text-left text-white shadow-sm ${compacto ? "gap-0 py-0.5" : "gap-0.5 py-1"}`}
+      className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex flex-col justify-between gap-0.5 overflow-hidden rounded-md px-1.5 py-1 text-left text-white shadow-sm`}
     >
-      <p className={`truncate text-[11px] font-medium ${compacto ? "leading-none" : "leading-[13px]"}`}>
+      <p className="truncate text-[11px] font-medium leading-[13px]">
         {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
       </p>
       <div className="flex items-center justify-between gap-1 leading-none">
@@ -918,7 +915,7 @@ function BlocoSessao({
           <span className="truncate text-[10px] font-medium leading-[12px]">Copiado!</span>
         ) : (
           <>
-            <span className={`truncate text-[10px] ${compacto ? "leading-none" : "leading-[12px]"} opacity-90`}>
+            <span className="truncate text-[10px] leading-[12px] opacity-90">
               {formatarHorario(inicio)}–{formatarHorario(fim)}
             </span>
             <span className="flex shrink-0 items-center gap-1">
