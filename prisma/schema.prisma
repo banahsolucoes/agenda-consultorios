@@ -76,6 +76,13 @@ model Clinica {
   tiposSessao               TipoSessao[]
   anexos                    Anexo[]
   tarefas                   Tarefa[]
+
+  mentoriaAtivada    Boolean            @default(false)
+  mentoriaAlunos     MentoriaAluno[]
+  mentoriaContratos  MentoriaContrato[]
+  mentoriaParcelas   MentoriaParcela[]
+  comissionados      Comissionado[]
+  mentoriaComissoes  MentoriaComissao[]
 }
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
@@ -351,4 +358,125 @@ enum TarefaStatus {
   PENDENTE
   CONCLUIDA
   ARQUIVADA
+}
+
+enum FormaPagamento {
+  PIX
+  CARTAO
+  BOLETO
+  DINHEIRO
+  TRANSFERENCIA
+}
+
+enum PapelComissao {
+  SELLER
+  CLOSER
+  PRODUTOR
+}
+
+enum StatusComissao {
+  PENDENTE
+  PAGO
+  ESTORNADO
+}
+
+enum StatusContrato {
+  ATIVO
+  CONCLUIDO
+  CANCELADO
+}
+
+model MentoriaAluno {
+  id           String   @id @default(cuid())
+  clinicaId    String
+  clinica      Clinica  @relation(fields: [clinicaId], references: [id])
+  nomeCompleto String
+  cpf          String?
+  email        String?
+  telefone     String?
+  observacoes  String?  @db.Text
+  contratos    MentoriaContrato[]
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  @@unique([clinicaId, cpf])
+  @@index([clinicaId])
+}
+
+model MentoriaContrato {
+  id                 String   @id @default(cuid())
+  clinicaId          String
+  clinica            Clinica  @relation(fields: [clinicaId], references: [id])
+  alunoId            String
+  aluno              MentoriaAluno @relation(fields: [alunoId], references: [id])
+  pacote             String
+  valorTotal         Decimal  @db.Decimal(10,2)
+  taxaImpostoPct     Decimal  @default(0.06) @db.Decimal(5,4)
+  assinaturaContrato DateTime
+  totalParcelas      Int
+  status             StatusContrato @default(ATIVO)
+  canceladoEm        DateTime?
+  motivoCancelamento String?
+  parcelas           MentoriaParcela[]
+  comissoes          MentoriaComissao[]
+  criadoEm           DateTime @default(now())
+  atualizadoEm       DateTime @updatedAt
+  @@index([clinicaId])
+  @@index([alunoId])
+}
+
+model MentoriaParcela {
+  id             String   @id @default(cuid())
+  clinicaId      String
+  clinica        Clinica  @relation(fields: [clinicaId], references: [id])
+  contratoId     String
+  contrato       MentoriaContrato @relation(fields: [contratoId], references: [id])
+  numero         Int
+  valorBruto     Decimal  @db.Decimal(10,2)
+  valorLiquido   Decimal? @db.Decimal(10,2)
+  vencimento     DateTime
+  dataPagamento  DateTime?
+  formaPagamento FormaPagamento?
+  estornoEm      DateTime?
+  valorEstornado Decimal? @db.Decimal(10,2)
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+  @@index([clinicaId])
+  @@index([contratoId])
+  @@index([clinicaId, vencimento])
+  @@index([clinicaId, dataPagamento])
+}
+
+model Comissionado {
+  id           String   @id @default(cuid())
+  clinicaId    String
+  clinica      Clinica  @relation(fields: [clinicaId], references: [id])
+  nome         String
+  email        String?
+  telefone     String?
+  papelPadrao  PapelComissao?
+  ativo        Boolean  @default(true)
+  comissoes    MentoriaComissao[]
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  @@index([clinicaId])
+}
+
+model MentoriaComissao {
+  id             String   @id @default(cuid())
+  clinicaId      String
+  clinica        Clinica  @relation(fields: [clinicaId], references: [id])
+  contratoId     String
+  contrato       MentoriaContrato @relation(fields: [contratoId], references: [id])
+  comissionadoId String
+  comissionado   Comissionado @relation(fields: [comissionadoId], references: [id])
+  papel          PapelComissao
+  percentual     Decimal  @db.Decimal(5,4)
+  status         StatusComissao @default(PENDENTE)
+  dataPagamento  DateTime?
+  estornoEm      DateTime?
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+  @@index([clinicaId])
+  @@index([contratoId])
+  @@index([comissionadoId])
 }
