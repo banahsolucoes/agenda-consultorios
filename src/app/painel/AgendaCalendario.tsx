@@ -24,9 +24,16 @@ import AnamneseModal from "./AnamneseModal";
 // rolagem — ROW_PX_PADRAO é só o valor usado antes da primeira medição.
 const ROW_MIN = 30;
 const ROW_PX_PADRAO = 36;
-const ROW_PX_MIN = 34;
+const ROW_PX_MIN = 36;
 const ROW_PX_MAX = 52;
 const ALTURA_CABECALHO_DIA = 40; // h-10
+// Piso de conteúdo: menor altura que ainda mostra as duas linhas do bloco
+// (nome/nº + horário, text-[11px] leading-none, sem padding vertical) sem
+// cortar. Estimativa analítica (2 linhas ≈ 22px + folga p/ acento/descendente
+// de fonte) — não medida em navegador; ajuste aqui se a tela mostrar corte.
+const FRESTA_MIN = 32;
+// Vão fixo abaixo de cada card, igual em qualquer duração.
+const GAP = 4;
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
@@ -799,8 +806,10 @@ function BlocoSessao({
   // Enquanto o mouse está arrastando a borda inferior, a altura reflete a
   // duração-preview (ainda não confirmada no servidor) em vez da real.
   const duracaoExibida = previewDuracaoMin ?? sessao.duracaoMin;
-  // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
-  const altura = Math.max(46, (duracaoExibida / ROW_MIN) * rowPx - 2);
+  // Altura proporcional pura (sem piso/desconto aqui) — GAP é descontado
+  // ANTES da comparação com FRESTA_MIN no style.height, pra o vão abaixo do
+  // card sair sempre igual a GAP, em qualquer duração que não bata no piso.
+  const altura = (duracaoExibida / ROW_MIN) * rowPx;
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
@@ -813,7 +822,7 @@ function BlocoSessao({
 
   const style: React.CSSProperties = {
     top,
-    height: altura,
+    height: Math.max(FRESTA_MIN, altura - GAP),
     backgroundColor: cor,
     opacity: jaComecou ? 0.5 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
