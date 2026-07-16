@@ -100,14 +100,21 @@ interface NotificacaoSessao {
   inicio: string;
   paciente: { id: string; nome: string };
 }
-interface NotificacaoPaciente {
+interface Tarefa {
   id: string;
-  nome: string;
-  finalizadoEm: string;
+  tipo: "RENOVACAO" | "CONTA";
+  origem: "SISTEMA" | "MANUAL";
+  titulo: string;
+  descricao: string | null;
+  pacienteId: string | null;
+  dataVencimento: string | null;
+  dataAviso: string | null;
+  recorrencia: "NENHUMA" | "MENSAL";
+  status: "PENDENTE" | "CONCLUIDA";
 }
 interface Notificacoes {
   reagendadas: NotificacaoSessao[];
-  finalizados: NotificacaoPaciente[];
+  tarefas: Tarefa[];
 }
 
 interface Sessao {
@@ -396,9 +403,21 @@ export default function PainelPage() {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [tiposSessao, setTiposSessao] = useState<TipoSessao[]>([]);
 
-  // Sino de notificações (sessões reagendadas + pacientes finalizados)
-  const [notificacoes, setNotificacoes] = useState<Notificacoes>({ reagendadas: [], finalizados: [] });
+  // Sino de notificações (sessões reagendadas + tarefas pendentes)
+  const [notificacoes, setNotificacoes] = useState<Notificacoes>({ reagendadas: [], tarefas: [] });
   const [sinoAberto, setSinoAberto] = useState(false);
+  const [avisoNotificacao, setAvisoNotificacao] = useState("");
+  const [tarefaConcluindoId, setTarefaConcluindoId] = useState<string | null>(null);
+
+  // Modal: criar tarefa manual (tipo CONTA)
+  const [modalTarefa, setModalTarefa] = useState(false);
+  const [tituloTarefa, setTituloTarefa] = useState("");
+  const [descricaoTarefa, setDescricaoTarefa] = useState("");
+  const [dataVencimentoTarefa, setDataVencimentoTarefa] = useState("");
+  const [dataAvisoTarefa, setDataAvisoTarefa] = useState("");
+  const [recorrenciaTarefa, setRecorrenciaTarefa] = useState<"NENHUMA" | "MENSAL">("NENHUMA");
+  const [salvandoTarefa, setSalvandoTarefa] = useState(false);
+  const [erroTarefa, setErroTarefa] = useState("");
 
   const [modalAberto, setModalAberto] = useState(false);
   const [pacienteEditando, setPacienteEditando] = useState<Paciente | null>(null);
@@ -667,7 +686,7 @@ export default function PainelPage() {
     return pacientes.filter((p) => normalizar(p.nome).includes(termo));
   }, [pacientes, busca]);
 
-  const totalPendencias = notificacoes.reagendadas.length + notificacoes.finalizados.length;
+  const totalPendencias = notificacoes.reagendadas.length + notificacoes.tarefas.length;
 
   function abrirModal() {
     setPacienteEditando(null);
@@ -820,11 +839,84 @@ export default function PainelPage() {
     setFeedbackLote(null);
   }
 
-  // Ao clicar numa pendência do sino, fecha o dropdown e abre o painel do paciente
-  function abrirNotificacaoPaciente(pacienteId: string) {
+  // Ao clicar numa pendência do sino, fecha o dropdown e abre o painel do
+  // paciente. Se o paciente não estiver na lista carregada atualmente (ex.:
+  // a aba de filtro ativa exclui esse status), busca-o direto pela rota
+  // /api/pacientes/[id] em vez de falhar em silêncio.
+  async function abrirNotificacaoPaciente(pacienteId: string) {
     setSinoAberto(false);
+    setAvisoNotificacao("");
     const p = pacientes.find((pac) => pac.id === pacienteId);
-    if (p) abrirPainelPaciente(p);
+    if (p) {
+      abrirPainelPaciente(p);
+      return;
+    }
+    const res = await fetch(`/api/pacientes/${pacienteId}`);
+    if (!res.ok) {
+      setAvisoNotificacao("não foi possível abrir esse paciente — ele pode ter sido excluído.");
+      return;
+    }
+    abrirPainelPaciente(await res.json());
+  }
+
+  // Conclui uma tarefa manual (tipo CONTA) e recarrega o sino
+  async function concluirTarefa(tarefaId: string) {
+    setTarefaConcluindoId(tarefaId);
+    try {
+      const res = await fetch(`/api/tarefas/${tarefaId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CONCLUIDA" }),
+      });
+      if (res.ok) await carregarNotificacoes();
+    } finally {
+      setTarefaConcluindoId(null);
+    }
+  }
+
+  function abrirModalTarefa() {
+    setTituloTarefa("");
+    setDescricaoTarefa("");
+    setDataVencimentoTarefa("");
+    setDataAvisoTarefa("");
+    setRecorrenciaTarefa("NENHUMA");
+    setErroTarefa("");
+    setModalTarefa(true);
+  }
+
+  async function handleCriarTarefa(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tituloTarefa.trim()) {
+      setErroTarefa("informe o título");
+      return;
+    }
+    setErroTarefa("");
+    setSalvandoTarefa(true);
+    try {
+      const res = await fetch("/api/tarefas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: "CONTA",
+          titulo: tituloTarefa.trim(),
+          descricao: descricaoTarefa.trim() || undefined,
+          dataVencimento: dataVencimentoTarefa || undefined,
+          dataAviso: dataAvisoTarefa || undefined,
+          recorrencia: recorrenciaTarefa,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroTarefa(data?.erro ?? "não foi possível criar a tarefa");
+        return;
+      }
+      setModalTarefa(false);
+      await carregarNotificacoes();
+    } catch {
+      setErroTarefa("não foi possível criar a tarefa");
+    } finally {
+      setSalvandoTarefa(false);
+    }
   }
 
   // Criação de atendimento (só aparece quando o paciente ainda não tem sessões)
@@ -1367,7 +1459,18 @@ export default function PainelPage() {
               </button>
               {sinoAberto && (
                 <div className="absolute right-0 z-50 mt-2 w-80 max-w-[90vw] rounded-xl border border-border bg-surface p-3 shadow-lg">
-                  <p className="mb-2 text-sm font-semibold text-fg">Pendências</p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-fg">Pendências</p>
+                    <button
+                      onClick={abrirModalTarefa}
+                      className="text-xs font-medium text-gold hover:underline"
+                    >
+                      + Nova tarefa
+                    </button>
+                  </div>
+                  {avisoNotificacao && (
+                    <p className="mb-2 rounded-lg bg-red/10 px-2 py-1.5 text-xs text-red">{avisoNotificacao}</p>
+                  )}
                   {totalPendencias === 0 ? (
                     <p className="text-sm text-muted">Nenhuma pendência no momento.</p>
                   ) : (
@@ -1392,21 +1495,37 @@ export default function PainelPage() {
                           </ul>
                         </div>
                       )}
-                      {notificacoes.finalizados.length > 0 && (
+                      {notificacoes.tarefas.length > 0 && (
                         <div>
                           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
-                            Renovação pendente
+                            Tarefas
                           </p>
                           <ul className="space-y-1">
-                            {notificacoes.finalizados.map((p) => (
-                              <li key={p.id}>
-                                <button
-                                  onClick={() => abrirNotificacaoPaciente(p.id)}
-                                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-bg"
-                                >
-                                  <span className="font-medium">{p.nome}</span> — finalizado em{" "}
-                                  {formatarDataCurta(p.finalizadoEm)}
-                                </button>
+                            {notificacoes.tarefas.map((t) => (
+                              <li key={t.id} className="flex items-center gap-1">
+                                {t.tipo === "RENOVACAO" ? (
+                                  <button
+                                    onClick={() => abrirNotificacaoPaciente(t.pacienteId!)}
+                                    className="w-full rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-bg"
+                                  >
+                                    <span className="font-medium">{t.titulo}</span>
+                                    {t.dataVencimento && <> — vence em {formatarDataCurta(t.dataVencimento)}</>}
+                                  </button>
+                                ) : (
+                                  <>
+                                    <div className="flex-1 rounded-lg px-2 py-1.5 text-sm text-fg">
+                                      <span className="font-medium">{t.titulo}</span>
+                                      {t.dataVencimento && <> — vence em {formatarDataCurta(t.dataVencimento)}</>}
+                                    </div>
+                                    <button
+                                      onClick={() => concluirTarefa(t.id)}
+                                      disabled={tarefaConcluindoId === t.id}
+                                      className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {tarefaConcluindoId === t.id ? "..." : "Concluir"}
+                                    </button>
+                                  </>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -2181,6 +2300,86 @@ export default function PainelPage() {
                   className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {salvandoPacote ? "Criando..." : "Criar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: criar tarefa manual (tipo CONTA) */}
+      {modalTarefa && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Nova tarefa</h2>
+            <form onSubmit={handleCriarTarefa} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Título</label>
+                <input
+                  type="text"
+                  required
+                  value={tituloTarefa}
+                  onChange={(e) => setTituloTarefa(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Descrição (opcional)</label>
+                <textarea
+                  value={descricaoTarefa}
+                  onChange={(e) => setDescricaoTarefa(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
+                    Data de vencimento
+                  </label>
+                  <DatePickerSP value={dataVencimentoTarefa} onChange={setDataVencimentoTarefa} />
+                </div>
+                <div>
+                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
+                    Data de aviso
+                  </label>
+                  <DatePickerSP value={dataAvisoTarefa} onChange={setDataAvisoTarefa} />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Recorrência</label>
+                <select
+                  value={recorrenciaTarefa}
+                  onChange={(e) => setRecorrenciaTarefa(e.target.value as "NENHUMA" | "MENSAL")}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  <option value="NENHUMA">Nenhuma</option>
+                  <option value="MENSAL">Mensal</option>
+                </select>
+              </div>
+
+              {erroTarefa && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroTarefa}</p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalTarefa(false)}
+                  disabled={salvandoTarefa}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoTarefa || !tituloTarefa.trim()}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoTarefa ? "Criando..." : "Criar"}
                 </button>
               </div>
             </form>

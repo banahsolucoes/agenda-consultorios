@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { registrarLog } from "@/lib/auditoria";
+import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
 
 const CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA"];
 
@@ -17,14 +18,19 @@ export async function verificarFinalizacao(pacoteId: string, usuarioId?: string 
   const todasConsumidas = sessoes.every((s) => CONSUMIDOS.includes(s.status));
   if (!todasConsumidas) return false;
 
-  const pacote = await prisma.pacote.update({
-    where: { id: pacoteId },
-    data: { status: "FINALIZADO" },
-  });
+  const { paciente, tarefa } = await prisma.$transaction(async (tx) => {
+    const pacote = await tx.pacote.update({
+      where: { id: pacoteId },
+      data: { status: "FINALIZADO" },
+    });
 
-  const paciente = await prisma.paciente.update({
-    where: { id: pacote.pacienteId },
-    data: { statusGeral: "FINALIZADO", finalizadoEm: new Date() },
+    const paciente = await tx.paciente.update({
+      where: { id: pacote.pacienteId },
+      data: { statusGeral: "FINALIZADO", finalizadoEm: new Date() },
+    });
+
+    const tarefa = await sincronizarTarefaRenovacao(tx, paciente, "FINALIZADO", usuarioId ?? null);
+    return { paciente, tarefa };
   });
 
   await registrarLog(
@@ -33,6 +39,14 @@ export async function verificarFinalizacao(pacoteId: string, usuarioId?: string 
     "FINALIZAR_ATENDIMENTO",
     `Atendimento de ${paciente.nome} finalizado automaticamente (todas as sessões concluídas)`
   );
+  if (tarefa.tarefaCriada) {
+    await registrarLog(
+      paciente.clinicaId,
+      usuarioId ?? null,
+      "CRIAR_TAREFA_RENOVACAO",
+      `Tarefa de renovação criada para ${paciente.nome}`
+    );
+  }
 
   return true;
 }

@@ -6,6 +6,7 @@ import { registrarLog } from "@/lib/auditoria";
 import { pareceUrl } from "@/lib/validacao";
 import { soDigitos } from "@/lib/importacao";
 import { pode } from "@/lib/permissoes";
+import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
 
 const CAMPOS_EDITAVEIS = [
   "nome",
@@ -108,8 +109,24 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   let atualizado;
+  let tarefa: { tarefaCriada: boolean; tarefasConcluidas: number } = { tarefaCriada: false, tarefasConcluidas: 0 };
   try {
-    atualizado = await prisma.paciente.update({ where: { id }, data });
+    if (statusAlterado) {
+      const resultado = await prisma.$transaction(async (tx) => {
+        const atualizado = await tx.paciente.update({ where: { id }, data });
+        const tarefa = await sincronizarTarefaRenovacao(
+          tx,
+          atualizado,
+          atualizado.statusGeral as "ATIVO" | "FINALIZADO" | "CANCELADO",
+          usuario.id
+        );
+        return { atualizado, tarefa };
+      });
+      atualizado = resultado.atualizado;
+      tarefa = resultado.tarefa;
+    } else {
+      atualizado = await prisma.paciente.update({ where: { id }, data });
+    }
   } catch (err) {
     const codigo = (err as { code?: string } | null)?.code;
     if (codigo === "P2002") {
@@ -136,6 +153,22 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       "ALTERAR_STATUS_PACIENTE",
       `Alterou o status de ${atualizado.nome} de ${statusAnterior} para ${atualizado.statusGeral}`
     );
+    if (tarefa.tarefaCriada) {
+      await registrarLog(
+        usuario.clinicaId,
+        usuario.id,
+        "CRIAR_TAREFA_RENOVACAO",
+        `Tarefa de renovação criada para ${atualizado.nome}`
+      );
+    }
+    if (tarefa.tarefasConcluidas > 0) {
+      await registrarLog(
+        usuario.clinicaId,
+        usuario.id,
+        "CONCLUIR_TAREFA_RENOVACAO",
+        `Tarefa de renovação de ${atualizado.nome} concluída (status alterado manualmente)`
+      );
+    }
   }
 
   return NextResponse.json(atualizado);

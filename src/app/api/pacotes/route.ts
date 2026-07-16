@@ -6,6 +6,7 @@ import { primeiroUltimoNome } from "@/lib/nomes";
 import { criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { tipoPacoteLabel } from "@/lib/labels";
+import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
   AVULSA: 1, MENSAL: 4, BIMESTRAL: 8, TRIMESTRAL: 12,
@@ -99,10 +100,15 @@ export async function POST(req: NextRequest) {
 
   // Renovação: um pacote novo reativa o paciente, saindo de Finalizado/Cancelado
   const foiRenovacao = paciente.statusGeral !== "ATIVO";
+  let tarefasConcluidas = 0;
   if (foiRenovacao) {
-    await prisma.paciente.update({
-      where: { id: pacienteId },
-      data: { statusGeral: "ATIVO", finalizadoEm: null },
+    tarefasConcluidas = await prisma.$transaction(async (tx) => {
+      await tx.paciente.update({
+        where: { id: pacienteId },
+        data: { statusGeral: "ATIVO", finalizadoEm: null },
+      });
+      const { tarefasConcluidas } = await sincronizarTarefaRenovacao(tx, paciente, "ATIVO", usuario.id);
+      return tarefasConcluidas;
     });
   }
 
@@ -148,6 +154,14 @@ export async function POST(req: NextRequest) {
     acaoLog,
     `${verboLog} atendimento ${tipoPacoteLabel(tipo)} (${total} ${sessaoOuSessoes}) para ${paciente.nome} — tipo de atendimento: ${tipoSessaoNome ?? "não definido"}`
   );
+  if (tarefasConcluidas > 0) {
+    await registrarLog(
+      usuario.clinicaId,
+      usuario.id,
+      "CONCLUIR_TAREFA_RENOVACAO",
+      `Tarefa de renovação de ${paciente.nome} concluída automaticamente (novo pacote criado)`
+    );
+  }
 
   return NextResponse.json({ pacote, sessoesGeradas: total }, { status: 201 });
 }

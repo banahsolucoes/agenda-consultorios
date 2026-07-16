@@ -75,6 +75,7 @@ model Clinica {
   horariosTrabalho          HorarioTrabalho[]
   tiposSessao               TipoSessao[]
   anexos                    Anexo[]
+  tarefas                   Tarefa[]
 }
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
@@ -162,6 +163,7 @@ model Paciente {
   agendamentos    Agendamento[]
   consentimentos  Consentimento[]
   anexos          Anexo[]
+  tarefas         Tarefa[]
 
   @@index([clinicaId])
   @@index([tipoSessaoId])
@@ -241,6 +243,31 @@ model Agendamento {
   @@index([tipoSessaoId])
 }
 
+model Tarefa {
+  id             String            @id @default(uuid())
+  clinicaId      String
+  tipo           TarefaTipo
+  origem         TarefaOrigem
+  titulo         String
+  descricao      String?           @db.Text
+  pacienteId     String?
+  dataVencimento DateTime?
+  dataAviso      DateTime?
+  recorrencia    TarefaRecorrencia @default(NENHUMA)
+  status         TarefaStatus      @default(PENDENTE)
+  criadoPor      String?
+  concluidoPor   String?
+  concluidoEm    DateTime?
+  criadoEm       DateTime          @default(now())
+  atualizadoEm   DateTime          @updatedAt
+
+  clinica  Clinica   @relation(fields: [clinicaId], references: [id])
+  paciente Paciente? @relation(fields: [pacienteId], references: [id])
+
+  @@index([clinicaId, status])
+  @@index([pacienteId])
+}
+
 model LogAuditoria {
   id         String    @id @default(uuid())
   clinicaId  String
@@ -303,4 +330,24 @@ enum StatusSessao {
   REALIZADA
   NAO_REALIZADA
   CANCELADA
+}
+
+enum TarefaTipo {
+  RENOVACAO
+  CONTA
+}
+
+enum TarefaOrigem {
+  SISTEMA
+  MANUAL
+}
+
+enum TarefaRecorrencia {
+  NENHUMA
+  MENSAL
+}
+
+enum TarefaStatus {
+  PENDENTE
+  CONCLUIDA
 }
