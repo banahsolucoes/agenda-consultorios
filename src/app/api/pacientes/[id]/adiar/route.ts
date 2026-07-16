@@ -52,7 +52,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const colide = anteriores.some((s) => inicioDaSemana(s.inicio).getTime() === novaSemanaCorte);
   if (colide) {
     return NextResponse.json(
-      { erro: "Não é possível adiar: já existe uma sessão nesta semana." },
+      { erro: "Não é possível trazer: já existe uma sessão nesta semana." },
       { status: 400 }
     );
   }
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     usuario.clinicaId,
     usuario.id,
     "ADIAR",
-    `Adiou ${aMover.length} ${sessaoOuSessoes} de ${paciente.nome} a partir da sessão ${corte.numeroSessao}`
+    `Trouxe ${aMover.length} ${sessaoOuSessoes} de ${paciente.nome} a partir da sessão ${corte.numeroSessao}`
   );
 
   return NextResponse.json({ adiadas: aMover.length, aPartirDe: corte.numeroSessao });

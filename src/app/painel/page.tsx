@@ -463,7 +463,7 @@ export default function PainelPage() {
   const [erroEmpurrar, setErroEmpurrar] = useState("");
 
   // Modal: adiar sessões a partir de uma sessão de corte
-  const [modalAdiar, setModalAdiar] = useState(false);
+  const [modalTrazer, setModalTrazer] = useState(false);
   const [sessaoCorteId, setSessaoCorteId] = useState("");
   const [salvandoAdiar, setSalvandoAdiar] = useState(false);
   const [erroAdiar, setErroAdiar] = useState("");
@@ -1113,14 +1113,14 @@ export default function PainelPage() {
   }
 
   // Adiar sessões a partir de uma sessão de corte escolhida
-  function abrirModalAdiar() {
+  function abrirModalTrazer() {
     const primeiraDisponivel = sessoes.find((s) => !STATUS_TRAVADOS.includes(s.status));
     setSessaoCorteId(primeiraDisponivel?.id ?? "");
     setErroAdiar("");
-    setModalAdiar(true);
+    setModalTrazer(true);
   }
 
-  async function handleSalvarAdiar(e: React.FormEvent) {
+  async function handleSalvarTrazer(e: React.FormEvent) {
     e.preventDefault();
     if (!pacienteSelecionado || !sessaoCorteId) return;
     setErroAdiar("");
@@ -1135,15 +1135,15 @@ export default function PainelPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setErroAdiar(data?.erro ?? "não foi possível adiar as sessões");
+        setErroAdiar(data?.erro ?? "não foi possível trazer as sessões");
         return;
       }
 
-      setModalAdiar(false);
+      setModalTrazer(false);
       await carregarSessoes(pacienteSelecionado.id);
       await carregarNotificacoes();
     } catch {
-      setErroAdiar("não foi possível adiar as sessões");
+      setErroAdiar("não foi possível trazer as sessões");
     } finally {
       setSalvandoAdiar(false);
     }
@@ -2047,10 +2047,10 @@ export default function PainelPage() {
                     Empurrar
                   </button>
                   <button
-                    onClick={abrirModalAdiar}
+                    onClick={abrirModalTrazer}
                     className="rounded-lg border border-orange px-3 py-1.5 text-sm font-medium text-orange hover:bg-orange/10"
                   >
-                    Adiar
+                    Trazer
                   </button>
                 </>
               )}
@@ -2867,13 +2867,13 @@ export default function PainelPage() {
       )}
 
       {/* Modal: adiar sessões a partir de uma sessão de corte */}
-      {modalAdiar && (
+      {modalTrazer && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              Adiar sessões
+              Trazer sessões
             </h2>
-            <form onSubmit={handleSalvarAdiar} className="space-y-4">
+            <form onSubmit={handleSalvarTrazer} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
                   A partir da sessão
@@ -2901,7 +2901,7 @@ export default function PainelPage() {
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setModalAdiar(false)}
+                  onClick={() => setModalTrazer(false)}
                   disabled={salvandoAdiar}
                   className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -2912,7 +2912,7 @@ export default function PainelPage() {
                   disabled={salvandoAdiar}
                   className="rounded-lg bg-orange px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {salvandoAdiar ? "Adiando..." : "Adiar"}
+                  {salvandoAdiar ? "Trazendo..." : "Trazer"}
                 </button>
               </div>
             </form>
