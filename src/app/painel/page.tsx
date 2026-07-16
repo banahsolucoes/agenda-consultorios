@@ -12,6 +12,7 @@ import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
 import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import { estiloFundoTela } from "@/lib/fundo";
+import { dataEhFutura } from "@/lib/validacaoSessao";
 import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
@@ -468,6 +469,12 @@ export default function PainelPage() {
   const [salvandoAdiar, setSalvandoAdiar] = useState(false);
   const [erroAdiar, setErroAdiar] = useState("");
 
+  // Modal: reverter sessões futuras marcadas incorretamente
+  const [modalReverterFuturas, setModalReverterFuturas] = useState(false);
+  const [salvandoReverterFuturas, setSalvandoReverterFuturas] = useState(false);
+  const [erroReverterFuturas, setErroReverterFuturas] = useState("");
+  const [feedbackReverterFuturas, setFeedbackReverterFuturas] = useState("");
+
   // Modal: cancelar sessão com motivo obrigatório
   const [sessaoCancelando, setSessaoCancelando] = useState<Sessao | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
@@ -688,6 +695,16 @@ export default function PainelPage() {
 
   const totalPendencias = notificacoes.reagendadas.length + notificacoes.tarefas.length;
 
+  // Sessões futuras marcadas incorretamente como Realizada/Não realizada —
+  // mesmo critério da trava do servidor (validarStatusSessao/dataEhFutura).
+  const sessoesFuturasParaReverter = useMemo(
+    () =>
+      sessoes.filter(
+        (s) => (s.status === "REALIZADA" || s.status === "NAO_REALIZADA") && dataEhFutura(new Date(s.inicio))
+      ),
+    [sessoes]
+  );
+
   function abrirModal() {
     setPacienteEditando(null);
     setForm({ ...FORM_VAZIO, tipoSessaoId: tiposSessao[0]?.id ?? "" });
@@ -828,6 +845,7 @@ export default function PainelPage() {
     setSessoesSelecionadas(new Set());
     setErroLote("");
     setFeedbackLote(null);
+    setFeedbackReverterFuturas("");
     carregarSessoes(p.id);
   }
 
@@ -1146,6 +1164,34 @@ export default function PainelPage() {
       setErroAdiar("não foi possível trazer as sessões");
     } finally {
       setSalvandoAdiar(false);
+    }
+  }
+
+  // Reverte sessões futuras marcadas incorretamente como Realizada/Não realizada
+  async function handleReverterFuturas() {
+    if (!pacienteSelecionado) return;
+    setErroReverterFuturas("");
+    setSalvandoReverterFuturas(true);
+
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}/reverter-futuras`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroReverterFuturas(data?.erro ?? "não foi possível reverter as sessões");
+        return;
+      }
+
+      setModalReverterFuturas(false);
+      setFeedbackReverterFuturas(`${data.revertidas} ${data.revertidas === 1 ? "sessão revertida" : "sessões revertidas"} para Agendada`);
+      await carregarSessoes(pacienteSelecionado.id);
+      await carregarNotificacoes();
+    } catch {
+      setErroReverterFuturas("não foi possível reverter as sessões");
+    } finally {
+      setSalvandoReverterFuturas(false);
     }
   }
 
@@ -2052,9 +2098,28 @@ export default function PainelPage() {
                   >
                     Trazer
                   </button>
+                  <button
+                    onClick={() => {
+                      setErroReverterFuturas("");
+                      setModalReverterFuturas(true);
+                    }}
+                    disabled={sessoesFuturasParaReverter.length === 0}
+                    title={
+                      sessoesFuturasParaReverter.length === 0
+                        ? "nenhuma sessão a corrigir"
+                        : "Reverter sessões futuras marcadas incorretamente"
+                    }
+                    className="rounded-lg border border-red px-3 py-1.5 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Reverter sessões futuras marcadas incorretamente
+                  </button>
                 </>
               )}
             </div>
+
+            {feedbackReverterFuturas && (
+              <p className="mb-4 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">{feedbackReverterFuturas}</p>
+            )}
 
             {/* Atendimento finalizado: histórico continua visível, mas cabe renovar */}
             {sessoes.length > 0 && pacienteSelecionado.statusGeral === "FINALIZADO" && (
@@ -2916,6 +2981,48 @@ export default function PainelPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: reverter sessões futuras marcadas incorretamente */}
+      {modalReverterFuturas && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Reverter sessões futuras marcadas incorretamente
+            </h2>
+            <p className="text-sm text-fg">
+              {sessoesFuturasParaReverter.length}{" "}
+              {sessoesFuturasParaReverter.length === 1
+                ? "sessão futura está marcada"
+                : "sessões futuras estão marcadas"}{" "}
+              como Realizada/Não realizada. Confirmar a reversão{" "}
+              {sessoesFuturasParaReverter.length === 1 ? "dela" : "de todas"} para Agendada?
+            </p>
+
+            {erroReverterFuturas && (
+              <p className="mt-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroReverterFuturas}</p>
+            )}
+
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setModalReverterFuturas(false)}
+                disabled={salvandoReverterFuturas}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleReverterFuturas}
+                disabled={salvandoReverterFuturas}
+                className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvandoReverterFuturas ? "Revertendo..." : "Reverter"}
+              </button>
+            </div>
           </div>
         </div>
       )}

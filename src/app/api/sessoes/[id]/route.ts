@@ -9,6 +9,7 @@ import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
 import { statusLabel } from "@/lib/labels";
 import { pode } from "@/lib/permissoes";
+import { validarStatusSessao } from "@/lib/validacaoSessao";
 
 // Sessões nesses status são somente-leitura — nem data/horário nem tipo de
 // atendimento podem mudar.
@@ -93,6 +94,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       );
       const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
       return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
+    }
+
+    const validacaoStatus = validarStatusSessao(body.status, sessao.inicio);
+    if (!validacaoStatus.valido) {
+      return NextResponse.json({ erro: validacaoStatus.erro }, { status: 400 });
     }
 
     const atualizada = await prisma.agendamento.update({

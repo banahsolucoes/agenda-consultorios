@@ -10,6 +10,7 @@ import {
   resolverNomePaciente,
   statusLoteValido,
 } from "@/lib/loteSessoes";
+import { validarStatusSessao } from "@/lib/validacaoSessao";
 
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
@@ -45,7 +46,13 @@ export async function POST(req: NextRequest) {
   // Toda sessão fora da clínica do usuário logado é tratada como "não
   // encontrada" (mesmo critério 404 da rota individual) — nunca revela a
   // existência do recurso de outra clínica.
-  const validas = filtrarSessoesElegiveis(sessoes, usuario.clinicaId);
+  const elegiveis = filtrarSessoesElegiveis(sessoes, usuario.clinicaId);
+
+  // Mesma trava da rota individual (validarStatusSessao): sessão futura não
+  // pode ir para Realizada/Não realizada. Consistente com o resto do lote —
+  // nunca rejeita a operação inteira, só pula a sessão inválida (mesmo
+  // critério "puladas" já usado para sessão de outra clínica/já consumida).
+  const validas = elegiveis.filter((s) => validarStatusSessao(status, s.inicio).valido);
   const puladas = ids.length - validas.length;
 
   if (validas.length === 0) {
