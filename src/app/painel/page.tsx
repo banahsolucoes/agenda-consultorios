@@ -392,7 +392,7 @@ function MenuStatus({
 export default function PainelPage() {
   const router = useRouter();
 
-  const [abaAtiva, setAbaAtiva] = useState<"pacientes" | "agenda">("pacientes");
+  const [abaAtiva, setAbaAtiva] = useState<"pacientes" | "agenda">("agenda");
 
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
@@ -1611,20 +1611,20 @@ export default function PainelPage() {
         {/* Abas: lista de pacientes ou calendário da agenda — fixo, não rola */}
         <div className="mb-6 flex shrink-0 gap-2">
           <button
-            onClick={() => setAbaAtiva("pacientes")}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
-              abaAtiva === "pacientes" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
-            }`}
-          >
-            Pacientes
-          </button>
-          <button
             onClick={() => setAbaAtiva("agenda")}
             className={`rounded-lg border px-4 py-2 text-sm font-medium ${
               abaAtiva === "agenda" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
             }`}
           >
             Agenda
+          </button>
+          <button
+            onClick={() => setAbaAtiva("pacientes")}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+              abaAtiva === "pacientes" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+            }`}
+          >
+            Pacientes
           </button>
           <button
             onClick={() => router.push("/tarefas")}
