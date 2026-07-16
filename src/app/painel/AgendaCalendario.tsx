@@ -27,6 +27,10 @@ const ROW_PX_PADRAO = 36;
 const ROW_PX_MIN = 34;
 const ROW_PX_MAX = 52;
 const ALTURA_CABECALHO_DIA = 40; // h-10
+// Altura mínima do card em px — cobre as duas linhas do bloco (nome/nº e
+// horário) mesmo com rowPx no piso (ROW_PX_MIN). Aplicada ANTES do desconto
+// fixo de fresta, pra o desconto valer igual em cards no piso e fora dele.
+const FRESTA_MIN = 46;
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
@@ -799,8 +803,10 @@ function BlocoSessao({
   // Enquanto o mouse está arrastando a borda inferior, a altura reflete a
   // duração-preview (ainda não confirmada no servidor) em vez da real.
   const duracaoExibida = previewDuracaoMin ?? sessao.duracaoMin;
-  // Altura mínima cobre as duas linhas do bloco (nome/nº e horário/ícones) mesmo com rowPx no piso (ROW_PX_MIN)
-  const altura = Math.max(46, (duracaoExibida / ROW_MIN) * rowPx - 2);
+  // Altura proporcional pura (sem piso de legibilidade aqui) — o piso
+  // (FRESTA_MIN) entra só no cálculo do style.height, ANTES do desconto fixo
+  // de fresta, pra o desconto valer igual em cards no piso e fora dele.
+  const altura = (duracaoExibida / ROW_MIN) * rowPx - 2;
   const cor = sessao.tipoSessao?.cor ?? "#c9a96e";
   // Sessão cujo horário de início já passou fica esmaecida, igual Google Agenda — independe do status
   const jaComecou = inicio.getTime() < agora;
@@ -813,12 +819,11 @@ function BlocoSessao({
 
   const style: React.CSSProperties = {
     // Posicionamento é 100% via top/height (absolute) — margin não separa
-    // cards vizinhos nesse modelo. A fresta entra só como desconto fixo na
-    // height (não mexe em top nem na base de altura por hora), pra sobrar o
-    // mesmo respiro visual entre quaisquer duas sessões consecutivas,
-    // inclusive as de 30min.
+    // cards vizinhos nesse modelo. Piso de legibilidade aplicado antes do
+    // desconto de fresta (não depois), pra o desconto de 4px valer igual em
+    // cards no piso e fora dele.
     top,
-    height: Math.max(0, altura - 4),
+    height: Math.max(FRESTA_MIN, altura) - 4,
     backgroundColor: cor,
     opacity: jaComecou ? 0.5 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
@@ -913,13 +918,13 @@ function BlocoSessao({
       className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex items-center justify-between gap-1 overflow-hidden rounded-md px-1.5 py-0 text-left text-white shadow-sm`}
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <p className="truncate text-xs font-medium leading-none">
+        <p className="truncate text-[11px] font-medium leading-none">
           {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
         </p>
         {copiado ? (
-          <p className="truncate text-xs font-medium leading-none">Copiado!</p>
+          <p className="truncate text-[11px] font-medium leading-none">Copiado!</p>
         ) : (
-          <p className="truncate text-xs leading-none opacity-90">
+          <p className="truncate text-[11px] leading-none opacity-90">
             {formatarHorario(inicio)}–{formatarHorario(fim)}
           </p>
         )}
