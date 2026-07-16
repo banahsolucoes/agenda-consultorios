@@ -812,11 +812,13 @@ function BlocoSessao({
   const larguraPercent = 100 / layout.totalColunas;
 
   const style: React.CSSProperties = {
-    // Posicionamento é 100% via top/height (absolute) — margin não cria
-    // respiro entre sessões vizinhas nesse modelo, então a fresta entra como
-    // inset (top +1px, height -2px) em vez de tocar na fórmula de altura.
-    top: top + 1,
-    height: Math.max(0, altura - 2),
+    // Posicionamento é 100% via top/height (absolute) — margin não separa
+    // cards vizinhos nesse modelo. A fresta entra só como desconto fixo na
+    // height (não mexe em top nem na base de altura por hora), pra sobrar o
+    // mesmo respiro visual entre quaisquer duas sessões consecutivas,
+    // inclusive as de 30min.
+    top,
+    height: Math.max(0, altura - 4),
     backgroundColor: cor,
     opacity: jaComecou ? 0.5 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
