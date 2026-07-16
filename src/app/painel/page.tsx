@@ -1545,12 +1545,6 @@ export default function PainelPage() {
               )}
             </div>
             <button
-              onClick={() => router.push("/tarefas")}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-            >
-              Tarefas
-            </button>
-            <button
               onClick={() => router.push("/painel/configuracoes")}
               className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
             >
@@ -1585,6 +1579,12 @@ export default function PainelPage() {
             }`}
           >
             Agenda
+          </button>
+          <button
+            onClick={() => router.push("/tarefas")}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+          >
+            Tarefas
           </button>
         </div>
 
