@@ -33,7 +33,7 @@ const ALTURA_CABECALHO_DIA = 40; // h-10
 // de fonte) — não medida em navegador; ajuste aqui se a tela mostrar corte.
 const FRESTA_MIN = 32;
 // Vão fixo abaixo de cada card, igual em qualquer duração.
-const GAP = 4;
+const GAP = 2;
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const STATUS_TRAVADOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
