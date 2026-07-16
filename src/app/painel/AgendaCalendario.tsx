@@ -908,13 +908,13 @@ function BlocoSessao({
       className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex items-center justify-between gap-1 overflow-hidden rounded-md px-1.5 py-0 text-left text-white shadow-sm`}
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <p className="truncate text-xs font-medium leading-none">
+        <p className="truncate text-[11px] font-medium leading-none">
           {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
         </p>
         {copiado ? (
-          <p className="truncate text-xs font-medium leading-none">Copiado!</p>
+          <p className="truncate text-[11px] font-medium leading-none">Copiado!</p>
         ) : (
-          <p className="truncate text-xs leading-none opacity-90">
+          <p className="truncate text-[11px] leading-none opacity-90">
             {formatarHorario(inicio)}–{formatarHorario(fim)}
           </p>
         )}
