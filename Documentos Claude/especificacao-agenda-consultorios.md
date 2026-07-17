@@ -270,3 +270,102 @@ Registrado para não se perder. Nada disso entra no MVP — mas o modelo de dado
 | **Relatórios e financeiro** | Faturamento por pacote, taxa de comparecimento, etc. | — |
 
 **Sequência sugerida da v2:** (1) módulo de anamnese — maior valor percebido pela profissional; (2) formulário de cadastro próprio; (3) envio automático de mensagens; (4) integrações externas.
+
+---
+
+## 12. Módulo Mentoria
+
+### 12.1 Visão geral
+
+Módulo de controle financeiro das mentorias da Pâmela — um serviço à parte do consultório (não é atendimento clínico, é o negócio de mentoria dela). Exclusivo da clínica `pamela-rachid`, ligado/desligado por uma flag (`mentoriaAtivada`) na `Clinica`. Não é pensado para ser multi-clínica — é uma extensão específica para essa clínica, não um recurso genérico do SaaS.
+
+Acesso restrito aos papéis **PROFISSIONAL** e **ADMIN** (papel OPERADOR não entra). Toda rota do módulo exige os dois pré-requisitos: papel liberado **e** `mentoriaAtivada = true` na clínica do usuário logado.
+
+### 12.2 Modelo de dados
+
+#### MentoriaAluno
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | uuid (PK) | |
+| clinicaId | uuid (FK) | |
+| nomeCompleto, cpf, rg | text | |
+| estadoCivil, profissao, nacionalidade | text | opcionais |
+| enderecoCompleto, cep, cidadeUf | text | |
+| dataNascimento | date | |
+| contato (telefone/e-mail) | text | |
+| aceiteTermos, aceiteTermosTexto | boolean / text | |
+| submitter, submissionData, submissionId | text / timestamp | metadados de submissão — preparação para integração futura via planilha (mesmo padrão do forms.app usado no consultório) |
+
+Dedupe por `(clinicaId, cpf)` e por `(clinicaId, submissionId)`.
+
+#### MentoriaContrato
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | uuid (PK) | |
+| alunoId | uuid (FK) | um aluno pode ter vários contratos |
+| pacote | text | |
+| valorTotal | decimal | |
+| taxaImpostoPct | decimal | default 0.06 |
+| assinaturaContrato | date | |
+| totalParcelas | int | |
+| status | enum `StatusContrato` | ATIVO, CONCLUIDO, CANCELADO |
+| canceladoEm, motivoCancelamento | timestamp / text | preenchidos só no distrato |
+
+#### MentoriaParcela
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | uuid (PK) | |
+| contratoId | uuid (FK) | |
+| numero | int | |
+| valorBruto, valorLiquido | decimal | líquido = bruto menos taxa de cartão, informado na baixa |
+| vencimento | date | |
+| dataPagamento, formaPagamento | timestamp / enum `FormaPagamento` | preenchidos na baixa |
+| estornoEm, valorEstornado | timestamp / decimal | preenchidos no estorno |
+
+Status **derivado** (nunca uma coluna): ESTORNADA / PAGA / CANCELADA / ABERTA, nessa ordem de prioridade.
+
+#### Comissionado
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | uuid (PK) | |
+| clinicaId | uuid (FK) | |
+| nome, contato | text | |
+| percentualComissao | decimal | fração fixa da pessoa (ex.: 0.20 = 20%) — vale para todos os contratos dela |
+| formaRecebimento | enum `FormaRecebimentoComissao` | ADIANTADO, POR_PARCELA — default POR_PARCELA |
+| ativo | boolean | |
+
+#### MentoriaComissao
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | uuid (PK) | |
+| contratoId, comissionadoId | uuid (FK) | vínculo comissionado ↔ contrato |
+| papel | enum `PapelComissao` | SELLER, CLOSER, PRODUTOR |
+| percentual, formaRecebimento | decimal / enum | **copiados e travados** do `Comissionado` no momento do vínculo — mudanças posteriores no cadastro do comissionado não afetam vínculos já criados |
+| status | enum `StatusComissao` | PENDENTE, PAGO, ESTORNADO |
+
+### 12.3 Regras de negócio
+
+- `clinicaId` sempre vem de `getUsuarioLogado()` — nunca do corpo da requisição.
+- Status e valores financeiros são **derivados**, não persistidos: o status da parcela vem de `dataPagamento`/`estornoEm`/status do contrato; o valor de comissão é sempre recalculado, nunca gravado numa coluna.
+- **Base comissionável** = `valorTotal * (1 - taxaImpostoPct)`. O imposto do contrato é **sempre** descontado **antes** de aplicar o percentual do comissionado — vale tanto para a comissão sobre o contrato inteiro quanto para a comissão por parcela.
+- **Comissão ADIANTADO:** `base * percentual`, devida na data de assinatura do contrato, independe de quais parcelas já foram pagas.
+- **Comissão POR_PARCELA:** por parcela paga, `valorLiquido * (1 - taxaImpostoPct) * percentual`. Parcela estornada ou contrato cancelado zera a comissão daquela parcela.
+- Percentual e forma de recebimento do comissionado são atributos fixos da pessoa, copiados e travados em cada vínculo — contratos antigos não mudam se o cadastro do comissionado for editado depois.
+- Operações são não-destrutivas: o **distrato** cancela o contrato, estorna as parcelas já pagas e estorna automaticamente todas as comissões vinculadas, tudo numa transação atômica. A **exclusão** de contrato só é permitida quando ele já está CANCELADO (cascata completa) ou quando está ATIVO mas sem nenhum pagamento/comissão registrada.
+- Máscara monetária padrão do módulo: formato contábil brasileiro (`R$ x.xxx,xx`), negativos entre parênteses em vez de sinal de menos.
+
+### 12.4 O que já foi construído
+
+- Cadastro de aluno, contrato e grid de parcelas editável, com a entrada (quando houver) sempre virando a parcela 1, ancorada na data de assinatura do contrato.
+- Edição e exclusão de contrato (com as travas de 12.3).
+- Baixa e estorno de parcela, inclusive baixa direto na lista "Parcelas do mês" do dashboard, sem precisar abrir o contrato.
+- Distrato (cancelamento com reversão em cascata).
+- Dashboard: cards globais (contratos ativos, total a receber da carteira), cards mensais (recebido líquido, a receber, inadimplência, comissões a pagar, impostos no mês, líquido Pâmela), lista "Parcelas do mês", visão por aluno, comissões a pagar por comissionado.
+- Cadastro de comissionado com percentual fixo e forma de recebimento.
+- Extrato do comissionado: o que já tem a receber (por contrato ou por parcela paga) e o que está previsto (parcelas ainda em aberto), com resumo por mês.
+- Comissão gerada por parcela exibida tanto no grid de parcelas do contrato quanto na lista "Parcelas do mês" do dashboard.
+
+### 12.5 Pendências conhecidas
+
+- Integração de importação de aluno via planilha (mesmo padrão usado hoje com o forms.app no consultório) ainda não implementada — os campos de metadados de submissão em `MentoriaAluno` já estão preparados para receber isso.
+- Ajustes finos no cadastro de comissionados seguem em andamento.
