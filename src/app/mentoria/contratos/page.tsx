@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 import { statusLabel } from "@/lib/labels";
+import ContextoSwitcher from "../../_components/ContextoSwitcher";
 
 interface ContratoLinha {
   id: string;
@@ -112,12 +113,15 @@ export default function MentoriaContratosPage() {
             </button>
             <h1 className="font-serif text-lg font-semibold text-fg">Mentoria — Contratos</h1>
           </div>
-          <button
-            onClick={handleSair}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-          >
-            Sair
-          </button>
+          <div className="flex items-center gap-3">
+            <ContextoSwitcher />
+            <button
+              onClick={handleSair}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 

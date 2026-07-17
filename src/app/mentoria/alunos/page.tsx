@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { TIMEZONE, componentesSP } from "@/lib/timezone";
+import ContextoSwitcher from "../../_components/ContextoSwitcher";
 
 interface Aluno {
   id: string;
@@ -268,12 +269,15 @@ export default function MentoriaAlunosPage() {
             </button>
             <h1 className="font-serif text-lg font-semibold text-fg">Mentoria — Alunos</h1>
           </div>
-          <button
-            onClick={handleSair}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-          >
-            Sair
-          </button>
+          <div className="flex items-center gap-3">
+            <ContextoSwitcher />
+            <button
+              onClick={handleSair}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 

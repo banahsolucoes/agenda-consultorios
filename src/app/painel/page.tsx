@@ -18,6 +18,7 @@ import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
 import AnamneseEditor from "./AnamneseEditor";
 import { pode, type Papel } from "@/lib/permissoes";
+import ContextoSwitcher from "../_components/ContextoSwitcher";
 
 // Opções dos selects do formulário, na mesma ordem dos enums do Prisma
 const DIAS_SEMANA = [
@@ -1511,7 +1512,10 @@ export default function PainelPage() {
               {clinica?.nomeExibicao || clinica?.nome || "Agenda Consultórios"}
             </span>
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <ContextoSwitcher
+              mentoriaDisponivel={clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN")}
+            />
             {/* Sino de notificações: sessões reagendadas + pacientes finalizados */}
             <div
               className="relative"
@@ -1669,14 +1673,6 @@ export default function PainelPage() {
               >
                 Tarefas
               </button>
-              {clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
-                <button
-                  onClick={() => router.push("/mentoria/dashboard")}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-                >
-                  Mentoria
-                </button>
-              )}
             </>
           ) : (
             <>

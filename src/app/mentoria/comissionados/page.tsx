@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { papelComissaoLabel } from "@/lib/labels";
+import ContextoSwitcher from "../../_components/ContextoSwitcher";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
 const FORMAS_RECEBIMENTO = ["ADIANTADO", "POR_PARCELA"] as const;
@@ -147,12 +148,15 @@ export default function ComissionadosPage() {
             </button>
             <h1 className="font-serif text-lg font-semibold text-fg">Mentoria — Comissionados</h1>
           </div>
-          <button
-            onClick={handleSair}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-          >
-            Sair
-          </button>
+          <div className="flex items-center gap-3">
+            <ContextoSwitcher />
+            <button
+              onClick={handleSair}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 

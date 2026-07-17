@@ -22,21 +22,24 @@ export async function GET() {
   const erroAcesso = await exigirAcessoMentoria(usuario);
   if (erroAcesso) return erroAcesso;
 
+  // Contagem de "parcelas em aberto" agregada no banco (_count filtrado) em
+  // vez de trazer as linhas de parcelas e filtrar em JS — a rota também é
+  // chamada pelo detalhe do contrato (navegação prev/next), então evitar
+  // esse over-fetch importa nos dois usos.
   const contratos = await prisma.mentoriaContrato.findMany({
     where: { clinicaId: usuario.clinicaId },
     include: {
       aluno: { select: { id: true, nomeCompleto: true } },
-      parcelas: { select: { dataPagamento: true, estornoEm: true } },
+      _count: {
+        select: { parcelas: { where: { dataPagamento: null, estornoEm: null } } },
+      },
     },
   });
 
   const resultado = contratos.map((c) => {
     // Mesma regra de derivarStatusParcela: contrato CANCELADO não tem
     // parcela "em aberto" — todas contam como canceladas.
-    const parcelasEmAberto =
-      c.status === "CANCELADO"
-        ? 0
-        : c.parcelas.filter((p) => p.dataPagamento === null && p.estornoEm === null).length;
+    const parcelasEmAberto = c.status === "CANCELADO" ? 0 : c._count.parcelas;
 
     return {
       id: c.id,
