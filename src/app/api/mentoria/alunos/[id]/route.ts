@@ -5,7 +5,45 @@ import { registrarLog } from "@/lib/auditoria";
 import { soDigitos } from "@/lib/importacao";
 import { exigirAcessoMentoria } from "@/lib/mentoria";
 
-const CAMPOS_EDITAVEIS = ["nomeCompleto", "cpf", "email", "telefone", "observacoes"] as const;
+const CAMPOS_EDITAVEIS = [
+  "nomeCompleto",
+  "cpf",
+  "email",
+  "telefone",
+  "observacoes",
+  "rg",
+  "estadoCivil",
+  "profissao",
+  "nacionalidade",
+  "enderecoCompleto",
+  "cep",
+  "cidadeUf",
+  "dataNascimento",
+  "aceiteTermos",
+  "aceiteTermosTexto",
+  "submitter",
+  "submissionData",
+  "submissionId",
+] as const;
+
+function parseData(valor: unknown): Date | null | undefined {
+  if (valor === undefined) return undefined;
+  if (valor === null || valor === "") return null;
+  const data = new Date(valor as string);
+  return Number.isNaN(data.getTime()) ? undefined : data;
+}
+
+// Erro de unique constraint (P2002) — identifica se foi cpf ou submissionId
+// pelo campo indicado em err.meta.target, pro erro devolvido fazer sentido.
+function erroDedupe(err: unknown): NextResponse | null {
+  const prismaErr = err as { code?: string; meta?: { target?: string[] } } | null;
+  if (prismaErr?.code !== "P2002") return null;
+  const alvo = prismaErr.meta?.target ?? [];
+  if (alvo.some((c) => c.toLowerCase().includes("submissionid"))) {
+    return NextResponse.json({ erro: "submissionId já cadastrado nesta clínica" }, { status: 409 });
+  }
+  return NextResponse.json({ erro: "CPF já cadastrado nesta clínica" }, { status: 409 });
+}
 
 // GET /api/mentoria/alunos/[id] — aluno + contratos, escopado pela clínica logada
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -51,12 +89,34 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ erro: "nomeCompleto não pode ser vazio" }, { status: 400 });
   }
 
+  const dataNascimento = parseData(body.dataNascimento);
+  if (dataNascimento === undefined && body.dataNascimento !== undefined && body.dataNascimento !== null) {
+    return NextResponse.json({ erro: "dataNascimento inválida" }, { status: 400 });
+  }
+  const submissionData = parseData(body.submissionData);
+  if (submissionData === undefined && body.submissionData !== undefined && body.submissionData !== null) {
+    return NextResponse.json({ erro: "submissionData inválida" }, { status: 400 });
+  }
+
   const data: Record<string, unknown> = {};
   if (body.nomeCompleto !== undefined) data.nomeCompleto = body.nomeCompleto;
   if (body.cpf !== undefined) data.cpf = soDigitos(String(body.cpf ?? "")) || null;
   if (body.email !== undefined) data.email = body.email || null;
   if (body.telefone !== undefined) data.telefone = body.telefone || null;
   if (body.observacoes !== undefined) data.observacoes = body.observacoes || null;
+  if (body.rg !== undefined) data.rg = body.rg || null;
+  if (body.estadoCivil !== undefined) data.estadoCivil = body.estadoCivil || null;
+  if (body.profissao !== undefined) data.profissao = body.profissao || null;
+  if (body.nacionalidade !== undefined) data.nacionalidade = body.nacionalidade || null;
+  if (body.enderecoCompleto !== undefined) data.enderecoCompleto = body.enderecoCompleto || null;
+  if (body.cep !== undefined) data.cep = body.cep || null;
+  if (body.cidadeUf !== undefined) data.cidadeUf = body.cidadeUf || null;
+  if (body.dataNascimento !== undefined) data.dataNascimento = dataNascimento;
+  if (body.aceiteTermos !== undefined) data.aceiteTermos = body.aceiteTermos;
+  if (body.aceiteTermosTexto !== undefined) data.aceiteTermosTexto = body.aceiteTermosTexto || null;
+  if (body.submitter !== undefined) data.submitter = body.submitter || null;
+  if (body.submissionData !== undefined) data.submissionData = submissionData;
+  if (body.submissionId !== undefined) data.submissionId = body.submissionId || null;
 
   const camposAlterados = Object.keys(data);
   if (camposAlterados.length === 0) {
@@ -67,10 +127,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   try {
     atualizado = await prisma.mentoriaAluno.update({ where: { id }, data });
   } catch (err) {
-    const codigo = (err as { code?: string } | null)?.code;
-    if (codigo === "P2002") {
-      return NextResponse.json({ erro: "CPF já cadastrado nesta clínica" }, { status: 409 });
-    }
+    const resposta = erroDedupe(err);
+    if (resposta) return resposta;
     throw err;
   }
 

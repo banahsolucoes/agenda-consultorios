@@ -395,10 +395,30 @@ model MentoriaAluno {
   email        String?
   telefone     String?
   observacoes  String?  @db.Text
+
+  // Dados pessoais/cadastrais adicionais
+  rg               String?
+  estadoCivil      String?
+  profissao        String?
+  nacionalidade    String?
+  enderecoCompleto String?
+  cep              String?
+  cidadeUf         String?
+  dataNascimento   DateTime?
+
+  // Metadados de submissão — preparo para futura integração com planilha
+  // (mesmo padrão da integração forms.app já existente). Não usados nesta fase.
+  aceiteTermos      Boolean?
+  aceiteTermosTexto String?
+  submitter         String?
+  submissionData    DateTime?
+  submissionId      String?
+
   contratos    MentoriaContrato[]
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   @@unique([clinicaId, cpf])
+  @@unique([clinicaId, submissionId])
   @@index([clinicaId])
 }
 

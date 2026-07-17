@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 import { statusLabel } from "@/lib/labels";
+import DatePickerSP from "../../../painel/DatePickerSP";
 
 interface Contrato {
   id: string;
@@ -21,8 +22,32 @@ interface Aluno {
   email: string | null;
   telefone: string | null;
   observacoes: string | null;
+  rg: string | null;
+  estadoCivil: string | null;
+  profissao: string | null;
+  nacionalidade: string | null;
+  enderecoCompleto: string | null;
+  cep: string | null;
+  cidadeUf: string | null;
+  dataNascimento: string | null;
   contratos: Contrato[];
 }
+
+const FORM_VAZIO = {
+  nomeCompleto: "",
+  rg: "",
+  cpf: "",
+  dataNascimento: "",
+  estadoCivil: "",
+  profissao: "",
+  nacionalidade: "",
+  telefone: "",
+  email: "",
+  enderecoCompleto: "",
+  cep: "",
+  cidadeUf: "",
+  observacoes: "",
+};
 
 function formatarMoeda(valor: string) {
   const n = Number(valor);
@@ -56,7 +81,7 @@ export default function DetalheAlunoMentoriaPage() {
   const [erroCarregar, setErroCarregar] = useState("");
 
   const [modalEdicao, setModalEdicao] = useState(false);
-  const [form, setForm] = useState({ nomeCompleto: "", cpf: "", email: "", telefone: "", observacoes: "" });
+  const [form, setForm] = useState(FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [erroCpf, setErroCpf] = useState("");
@@ -84,9 +109,17 @@ export default function DetalheAlunoMentoriaPage() {
     if (!aluno) return;
     setForm({
       nomeCompleto: aluno.nomeCompleto,
+      rg: aluno.rg ?? "",
       cpf: aluno.cpf ?? "",
-      email: aluno.email ?? "",
+      dataNascimento: aluno.dataNascimento ? aluno.dataNascimento.slice(0, 10) : "",
+      estadoCivil: aluno.estadoCivil ?? "",
+      profissao: aluno.profissao ?? "",
+      nacionalidade: aluno.nacionalidade ?? "",
       telefone: aluno.telefone ?? "",
+      email: aluno.email ?? "",
+      enderecoCompleto: aluno.enderecoCompleto ?? "",
+      cep: aluno.cep ?? "",
+      cidadeUf: aluno.cidadeUf ?? "",
       observacoes: aluno.observacoes ?? "",
     });
     setErro("");
@@ -110,9 +143,17 @@ export default function DetalheAlunoMentoriaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nomeCompleto: form.nomeCompleto.trim(),
+          rg: form.rg || null,
           cpf: form.cpf || null,
-          email: form.email || null,
+          dataNascimento: form.dataNascimento || null,
+          estadoCivil: form.estadoCivil || null,
+          profissao: form.profissao || null,
+          nacionalidade: form.nacionalidade || null,
           telefone: form.telefone || null,
+          email: form.email || null,
+          enderecoCompleto: form.enderecoCompleto || null,
+          cep: form.cep || null,
+          cidadeUf: form.cidadeUf || null,
           observacoes: form.observacoes || null,
         }),
       });
@@ -172,11 +213,36 @@ export default function DetalheAlunoMentoriaPage() {
 
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         <div className="rounded-xl border border-border bg-surface p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Dados pessoais</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">RG</p>
+              <p className="text-fg">{aluno.rg || "—"}</p>
+            </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted">CPF</p>
               <p className="text-fg">{aluno.cpf || "—"}</p>
             </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Data de nascimento</p>
+              <p className="text-fg">{aluno.dataNascimento ? formatarDataCurta(aluno.dataNascimento) : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Estado civil</p>
+              <p className="text-fg">{aluno.estadoCivil || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Profissão</p>
+              <p className="text-fg">{aluno.profissao || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Nacionalidade</p>
+              <p className="text-fg">{aluno.nacionalidade || "—"}</p>
+            </div>
+          </div>
+
+          <h2 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">Contato</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted">Telefone</p>
               <p className="text-fg">{aluno.telefone || "—"}</p>
@@ -186,8 +252,25 @@ export default function DetalheAlunoMentoriaPage() {
               <p className="text-fg">{aluno.email || "—"}</p>
             </div>
           </div>
+
+          <h2 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">Endereço</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Endereço completo</p>
+              <p className="text-fg">{aluno.enderecoCompleto || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">CEP</p>
+              <p className="text-fg">{aluno.cep || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Cidade/UF</p>
+              <p className="text-fg">{aluno.cidadeUf || "—"}</p>
+            </div>
+          </div>
+
           {aluno.observacoes && (
-            <div className="mt-4">
+            <div className="mt-6">
               <p className="text-xs font-medium uppercase tracking-wide text-muted">Observações</p>
               <p className="whitespace-pre-wrap text-fg">{aluno.observacoes}</p>
             </div>
@@ -249,10 +332,10 @@ export default function DetalheAlunoMentoriaPage() {
       </div>
 
       {modalEdicao && (
-        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center overflow-y-auto bg-black/60 px-4 py-8">
           <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Editar aluno</h2>
-            <form onSubmit={handleSalvarEdicao} className="space-y-4">
+            <form onSubmit={handleSalvarEdicao} className="space-y-6">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Nome completo</label>
                 <input
@@ -263,37 +346,126 @@ export default function DetalheAlunoMentoriaPage() {
                   className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
               </div>
+
               <div>
-                <label className="mb-1 block text-sm font-medium text-fg">CPF</label>
-                <input
-                  type="text"
-                  value={form.cpf}
-                  onChange={(e) => {
-                    setForm((f) => ({ ...f, cpf: e.target.value }));
-                    setErroCpf("");
-                  }}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-                {erroCpf && <p className="mt-1 text-xs text-red">{erroCpf}</p>}
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Dados pessoais</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">RG</label>
+                    <input
+                      type="text"
+                      value={form.rg}
+                      onChange={(e) => setForm((f) => ({ ...f, rg: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">CPF</label>
+                    <input
+                      type="text"
+                      value={form.cpf}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, cpf: e.target.value }));
+                        setErroCpf("");
+                      }}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                    {erroCpf && <p className="mt-1 text-xs text-red">{erroCpf}</p>}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Data de nascimento</label>
+                    <DatePickerSP
+                      value={form.dataNascimento}
+                      onChange={(v) => setForm((f) => ({ ...f, dataNascimento: v }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Estado civil</label>
+                    <input
+                      type="text"
+                      value={form.estadoCivil}
+                      onChange={(e) => setForm((f) => ({ ...f, estadoCivil: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Profissão</label>
+                    <input
+                      type="text"
+                      value={form.profissao}
+                      onChange={(e) => setForm((f) => ({ ...f, profissao: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Nacionalidade</label>
+                    <input
+                      type="text"
+                      value={form.nacionalidade}
+                      onChange={(e) => setForm((f) => ({ ...f, nacionalidade: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                </div>
               </div>
+
               <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Telefone</label>
-                <input
-                  type="text"
-                  value={form.telefone}
-                  onChange={(e) => setForm((f) => ({ ...f, telefone: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Contato</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Telefone</label>
+                    <input
+                      type="text"
+                      value={form.telefone}
+                      onChange={(e) => setForm((f) => ({ ...f, telefone: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">E-mail</label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                </div>
               </div>
+
               <div>
-                <label className="mb-1 block text-sm font-medium text-fg">E-mail</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Endereço</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Endereço completo</label>
+                    <input
+                      type="text"
+                      value={form.enderecoCompleto}
+                      onChange={(e) => setForm((f) => ({ ...f, enderecoCompleto: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">CEP</label>
+                    <input
+                      type="text"
+                      value={form.cep}
+                      onChange={(e) => setForm((f) => ({ ...f, cep: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-fg">Cidade/UF</label>
+                    <input
+                      type="text"
+                      value={form.cidadeUf}
+                      onChange={(e) => setForm((f) => ({ ...f, cidadeUf: e.target.value }))}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </div>
+                </div>
               </div>
+
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Observações</label>
                 <textarea
