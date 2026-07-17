@@ -497,7 +497,7 @@ export default function DetalheContratoMentoriaPage() {
   return (
     <div className="min-h-screen bg-bg">
       <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push(`/mentoria/alunos/${contrato.aluno.id}`)}
@@ -532,7 +532,7 @@ export default function DetalheContratoMentoriaPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         {!editavel && (
           <p className="rounded-lg bg-bg px-3 py-2 text-sm text-muted">
             Este contrato não está ativo — cabeçalho e parcelas não podem ser editados.

@@ -199,7 +199,7 @@ export default function DetalheAlunoMentoriaPage() {
   return (
     <div className="min-h-screen bg-bg">
       <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push("/mentoria/alunos")} className="text-sm text-muted hover:text-fg">
               ← Alunos
@@ -215,7 +215,7 @@ export default function DetalheAlunoMentoriaPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Dados pessoais</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

@@ -261,7 +261,7 @@ export default function MentoriaAlunosPage() {
   return (
     <div className="min-h-screen bg-bg">
       <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push("/painel")} className="text-sm text-muted hover:text-fg">
               ← Painel
@@ -277,7 +277,7 @@ export default function MentoriaAlunosPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-6 py-8">
+      <div className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-2">
             <button
