@@ -16,6 +16,7 @@ interface Resumo {
   aReceberNoMes: number;
   inadimplenteNoMes: number;
   totalComissoesAPagar: number;
+  impostoNoMes: number;
   liquidoPamelaNoMes: number;
 }
 
@@ -292,7 +293,7 @@ export default function DashboardMentoriaPage() {
         ) : !resumo ? (
           <p className="text-sm text-muted">Não foi possível carregar o resumo do mês.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
             <div className="rounded-xl border border-border bg-surface p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-muted">Recebido líquido no mês</p>
               <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.recebidoLiquidoNoMes)}</p>
@@ -308,6 +309,10 @@ export default function DashboardMentoriaPage() {
             <div className="rounded-xl border border-border bg-surface p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-muted">Comissões a pagar</p>
               <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.totalComissoesAPagar)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Impostos no mês</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.impostoNoMes)}</p>
             </div>
             <div className="rounded-xl border border-border bg-surface p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-muted">Líquido Pâmela no mês</p>

@@ -5,8 +5,9 @@ import {
   exigirAcessoMentoria,
   parseMesParam,
   calcularAgregadosMensais,
-  calcularBaseComissionavel,
-  calcularValorComissao,
+  calcularValorComissaoVinculo,
+  calcularImpostoNoMes,
+  calcularComissaoNoMes,
   arred2,
 } from "@/lib/mentoria";
 
@@ -30,26 +31,42 @@ export async function GET(req: NextRequest) {
     mesInfo.fim
   );
 
-  const [comissoesPendentes, comissoesPagasNoMes] = await Promise.all([
+  const [comissoesPendentes, impostoNoMes, comissaoNoMes] = await Promise.all([
     prisma.mentoriaComissao.findMany({
       where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
-      include: { contrato: { select: { valorTotal: true, taxaImpostoPct: true } } },
+      include: {
+        contrato: {
+          select: {
+            valorTotal: true,
+            taxaImpostoPct: true,
+            status: true,
+            parcelas: { where: { dataPagamento: { not: null }, estornoEm: null }, select: { valorLiquido: true } },
+          },
+        },
+      },
     }),
-    prisma.mentoriaComissao.findMany({
-      where: { clinicaId: usuario.clinicaId, status: "PAGO", dataPagamento: { gte: mesInfo.inicio, lt: mesInfo.fim } },
-      include: { contrato: { select: { valorTotal: true, taxaImpostoPct: true } } },
-    }),
+    calcularImpostoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+    calcularComissaoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
   ]);
 
-  const somaComissoes = (lista: typeof comissoesPendentes) =>
-    lista.reduce((soma, c) => {
-      const base = calcularBaseComissionavel(Number(c.contrato.valorTotal), Number(c.contrato.taxaImpostoPct));
-      return soma + calcularValorComissao(base, Number(c.percentual));
-    }, 0);
+  // Saldo de dívida — comissões PENDENTE, independente do mês selecionado.
+  const totalComissoesAPagar = arred2(
+    comissoesPendentes.reduce((soma, c) => {
+      const parcelasPagas = c.contrato.parcelas.map((p) => ({ valorLiquido: Number(p.valorLiquido) }));
+      return (
+        soma +
+        calcularValorComissaoVinculo(
+          { status: c.status, formaRecebimento: c.formaRecebimento, percentual: Number(c.percentual) },
+          { valorTotal: Number(c.contrato.valorTotal), taxaImpostoPct: Number(c.contrato.taxaImpostoPct), status: c.contrato.status },
+          parcelasPagas
+        )
+      );
+    }, 0)
+  );
 
-  const totalComissoesAPagar = arred2(somaComissoes(comissoesPendentes));
-  const totalComissoesPagasNoMes = somaComissoes(comissoesPagasNoMes);
-  const liquidoPamelaNoMes = arred2(recebidoLiquidoNoMes - totalComissoesPagasNoMes);
+  // Líquido Pâmela por competência: recebido líquido do mês, menos imposto e
+  // comissão devidos naquele mês (independe de a comissão já ter sido repassada).
+  const liquidoPamelaNoMes = arred2(recebidoLiquidoNoMes - impostoNoMes - comissaoNoMes);
 
   return NextResponse.json({
     mes: `${mesInfo.ano}${String(mesInfo.mes).padStart(2, "0")}`,
@@ -57,6 +74,7 @@ export async function GET(req: NextRequest) {
     aReceberNoMes,
     inadimplenteNoMes,
     totalComissoesAPagar,
+    impostoNoMes,
     liquidoPamelaNoMes,
   });
 }

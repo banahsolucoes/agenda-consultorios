@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
-import { exigirAcessoMentoria, calcularBaseComissionavel, calcularValorComissao } from "@/lib/mentoria";
+import { exigirAcessoMentoria, calcularBaseComissionavel, calcularValorComissaoVinculo } from "@/lib/mentoria";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"];
 
@@ -20,16 +20,33 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     return NextResponse.json({ erro: "contrato não encontrado" }, { status: 404 });
   }
 
-  const comissoes = await prisma.mentoriaComissao.findMany({
-    where: { contratoId: id },
-    include: { comissionado: { select: { id: true, nome: true } } },
-    orderBy: { criadoEm: "asc" },
-  });
+  const [comissoes, parcelasPagas] = await Promise.all([
+    prisma.mentoriaComissao.findMany({
+      where: { contratoId: id },
+      include: { comissionado: { select: { id: true, nome: true } } },
+      orderBy: { criadoEm: "asc" },
+    }),
+    prisma.mentoriaParcela.findMany({
+      where: { contratoId: id, dataPagamento: { not: null }, estornoEm: null },
+      select: { valorLiquido: true },
+    }),
+  ]);
 
-  const baseComissionavel = calcularBaseComissionavel(Number(contrato.valorTotal), Number(contrato.taxaImpostoPct));
+  const contratoParaCalculo = {
+    valorTotal: Number(contrato.valorTotal),
+    taxaImpostoPct: Number(contrato.taxaImpostoPct),
+    status: contrato.status,
+  };
+  const parcelasPagasNum = parcelasPagas.map((p) => ({ valorLiquido: Number(p.valorLiquido) }));
+
+  const baseComissionavel = calcularBaseComissionavel(contratoParaCalculo.valorTotal, contratoParaCalculo.taxaImpostoPct);
   const comissoesCalculadas = comissoes.map((c) => ({
     ...c,
-    valorComissao: calcularValorComissao(baseComissionavel, Number(c.percentual)),
+    valorComissao: calcularValorComissaoVinculo(
+      { status: c.status, formaRecebimento: c.formaRecebimento, percentual: Number(c.percentual) },
+      contratoParaCalculo,
+      parcelasPagasNum
+    ),
   }));
   const somaComissoes = comissoesCalculadas.reduce((soma, c) => soma + c.valorComissao, 0);
   const liquidoPamela = Math.round((baseComissionavel - somaComissoes) * 100) / 100;

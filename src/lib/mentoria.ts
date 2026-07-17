@@ -55,6 +55,27 @@ export function calcularValorComissao(baseComissionavel: number, percentual: num
   return Math.round(baseComissionavel * percentual * 100) / 100;
 }
 
+// valorComissao de um vínculo (MentoriaComissao), por forma de recebimento —
+// nunca persistido, sempre derivado. ADIANTADO: valor cheio sobre a base do
+// contrato. POR_PARCELA: soma de valorLiquido * percentual das parcelas já
+// PAGAS (dataPagamento != null e estornoEm == null) desse contrato. Contrato
+// CANCELADO ou vínculo ESTORNADO sempre valem 0.
+export function calcularValorComissaoVinculo(
+  comissao: { status: string; formaRecebimento: string; percentual: number },
+  contrato: { valorTotal: number; taxaImpostoPct: number; status: string },
+  parcelasPagasDoContrato: { valorLiquido: number }[]
+): number {
+  if (comissao.status === "ESTORNADO" || contrato.status === "CANCELADO") return 0;
+
+  if (comissao.formaRecebimento === "ADIANTADO") {
+    const base = calcularBaseComissionavel(contrato.valorTotal, contrato.taxaImpostoPct);
+    return calcularValorComissao(base, comissao.percentual);
+  }
+
+  const soma = parcelasPagasDoContrato.reduce((s, p) => s + p.valorLiquido * comissao.percentual, 0);
+  return arred2(soma);
+}
+
 // Arredondamento padrão de valores monetários — 2 casas, tolerância de
 // arredondamento em todas as somas do dashboard.
 export function arred2(n: number): number {
@@ -155,4 +176,69 @@ export async function calcularAgregadosMensais(clinicaId: string, inicio: Date, 
   );
 
   return { recebidoNoMes, estornadoNoMes, recebidoLiquidoNoMes, aReceberNoMes, inadimplenteNoMes };
+}
+
+// Imposto no mês, por competência de caixa: soma, sobre as parcelas pagas
+// (dataPagamento no mês, estornoEm == null), de valorLiquido * a
+// taxaImpostoPct DO CONTRATO daquela parcela (nunca um valor global fixo).
+export async function calcularImpostoNoMes(clinicaId: string, inicio: Date, fim: Date): Promise<number> {
+  const parcelasPagas = await prisma.mentoriaParcela.findMany({
+    where: { clinicaId, dataPagamento: { gte: inicio, lt: fim }, estornoEm: null },
+    select: { valorLiquido: true, contrato: { select: { taxaImpostoPct: true } } },
+  });
+
+  const total = parcelasPagas.reduce(
+    (soma, p) => soma + numOrZero(p.valorLiquido) * Number(p.contrato.taxaImpostoPct),
+    0
+  );
+  return arred2(total);
+}
+
+// Comissão devida no mês por competência (independe de status PAGO/PENDENTE
+// do vínculo — só exclui ESTORNADO e contratos CANCELADOS):
+// - ADIANTADO: vínculos cujo contrato.assinaturaContrato cai no mês, valor cheio (base * percentual).
+// - POR_PARCELA: parcelas pagas no mês, valorLiquido * percentual de cada vínculo POR_PARCELA do contrato.
+export async function calcularComissaoNoMes(clinicaId: string, inicio: Date, fim: Date): Promise<number> {
+  const [adiantadas, parcelasPagas] = await Promise.all([
+    prisma.mentoriaComissao.findMany({
+      where: {
+        clinicaId,
+        formaRecebimento: "ADIANTADO",
+        status: { not: "ESTORNADO" },
+        contrato: { assinaturaContrato: { gte: inicio, lt: fim }, status: { not: "CANCELADO" } },
+      },
+      include: { contrato: { select: { valorTotal: true, taxaImpostoPct: true } } },
+    }),
+    prisma.mentoriaParcela.findMany({
+      where: {
+        clinicaId,
+        dataPagamento: { gte: inicio, lt: fim },
+        estornoEm: null,
+        contrato: { status: { not: "CANCELADO" } },
+      },
+      select: {
+        valorLiquido: true,
+        contrato: {
+          select: {
+            comissoes: {
+              where: { formaRecebimento: "POR_PARCELA", status: { not: "ESTORNADO" } },
+              select: { percentual: true },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const somaAdiantado = adiantadas.reduce((soma, c) => {
+    const base = calcularBaseComissionavel(Number(c.contrato.valorTotal), Number(c.contrato.taxaImpostoPct));
+    return soma + calcularValorComissao(base, Number(c.percentual));
+  }, 0);
+
+  const somaPorParcela = parcelasPagas.reduce((soma, p) => {
+    const somaPercentuais = p.contrato.comissoes.reduce((s, c) => s + Number(c.percentual), 0);
+    return soma + numOrZero(p.valorLiquido) * somaPercentuais;
+  }, 0);
+
+  return arred2(somaAdiantado + somaPorParcela);
 }

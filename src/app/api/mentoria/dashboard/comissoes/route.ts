@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { exigirAcessoMentoria, arred2, calcularBaseComissionavel, calcularValorComissao } from "@/lib/mentoria";
+import { exigirAcessoMentoria, arred2, calcularValorComissaoVinculo } from "@/lib/mentoria";
 
 // GET /api/mentoria/dashboard/comissoes — total a pagar por comissionado
 // ativo (só as comissões PENDENTE contam; PAGO e ESTORNADO ficam de fora).
@@ -16,7 +16,17 @@ export async function GET() {
     include: {
       comissoes: {
         where: { status: "PENDENTE" },
-        include: { contrato: { select: { id: true, valorTotal: true, taxaImpostoPct: true } } },
+        include: {
+          contrato: {
+            select: {
+              id: true,
+              valorTotal: true,
+              taxaImpostoPct: true,
+              status: true,
+              parcelas: { where: { dataPagamento: { not: null }, estornoEm: null }, select: { valorLiquido: true } },
+            },
+          },
+        },
       },
     },
     orderBy: { nome: "asc" },
@@ -27,8 +37,16 @@ export async function GET() {
     const contratosSet = new Set<string>();
     let totalAPagar = 0;
     for (const comissao of c.comissoes) {
-      const base = calcularBaseComissionavel(Number(comissao.contrato.valorTotal), Number(comissao.contrato.taxaImpostoPct));
-      totalAPagar += calcularValorComissao(base, Number(comissao.percentual));
+      const parcelasPagas = comissao.contrato.parcelas.map((p) => ({ valorLiquido: Number(p.valorLiquido) }));
+      totalAPagar += calcularValorComissaoVinculo(
+        { status: comissao.status, formaRecebimento: comissao.formaRecebimento, percentual: Number(comissao.percentual) },
+        {
+          valorTotal: Number(comissao.contrato.valorTotal),
+          taxaImpostoPct: Number(comissao.contrato.taxaImpostoPct),
+          status: comissao.contrato.status,
+        },
+        parcelasPagas
+      );
       contratosSet.add(comissao.contrato.id);
     }
     totalAPagar = arred2(totalAPagar);
