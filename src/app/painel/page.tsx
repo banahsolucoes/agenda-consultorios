@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   diaSemanaLabel,
@@ -402,6 +402,9 @@ export default function PainelPage() {
   const [statusPacienteSalvandoId, setStatusPacienteSalvandoId] = useState<string | null>(null);
   const [saindo, setSaindo] = useState(false);
   const [clinica, setClinica] = useState<Clinica | null>(null);
+  // Controla o aparecimento sincronizado do grupo de botões de navegação
+  // (Agenda/Pacientes/Tarefas/Mentoria) — ver useEffect de carregarClinica/carregarPapel.
+  const [acessoErro, setAcessoErro] = useState(false);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [tiposSessao, setTiposSessao] = useState<TipoSessao[]>([]);
 
@@ -434,6 +437,11 @@ export default function PainelPage() {
   // no servidor (src/lib/permissoes.ts + cada rota).
   const [papel, setPapel] = useState<Papel | null>(null);
   const podeExcluirPaciente = papel !== null && pode(papel, "excluirPaciente");
+  // Aparecimento sincronizado do grupo de botões de navegação: só "resolvido"
+  // quando os dois fetches (clínica e papel) já chegaram.
+  const acessoResolvido = clinica !== null && papel !== null;
+  const acessoResolvidoRef = useRef(acessoResolvido);
+  acessoResolvidoRef.current = acessoResolvido;
   const [sessoes, setSessoes] = useState<Sessao[]>([]);
   const [carregandoSessoes, setCarregandoSessoes] = useState(false);
   const [statusSalvandoId, setStatusSalvandoId] = useState<string | null>(null);
@@ -558,13 +566,23 @@ export default function PainelPage() {
   }
 
   async function carregarClinica() {
-    const res = await fetch("/api/clinica");
-    if (res.ok) setClinica(await res.json());
+    try {
+      const res = await fetch("/api/clinica");
+      if (res.ok) setClinica(await res.json());
+      else setAcessoErro(true);
+    } catch {
+      setAcessoErro(true);
+    }
   }
 
   async function carregarPapel() {
-    const res = await fetch("/api/auth/usuario");
-    if (res.ok) setPapel((await res.json()).papel);
+    try {
+      const res = await fetch("/api/auth/usuario");
+      if (res.ok) setPapel((await res.json()).papel);
+      else setAcessoErro(true);
+    } catch {
+      setAcessoErro(true);
+    }
   }
 
   async function carregarGoogleStatus() {
@@ -679,6 +697,15 @@ export default function PainelPage() {
     carregarTiposSessao();
     carregarNotificacoes();
     carregarGoogleStatus();
+  }, []);
+
+  // Fail-safe: se clínica/papel não resolverem em ~4s (fetch pendurado), trata
+  // como erro em vez de deixar o skeleton do grupo de botões para sempre.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!acessoResolvidoRef.current) setAcessoErro(true);
+    }, 4000);
+    return () => clearTimeout(timer);
   }, []);
 
   // Recarrega a lista sempre que a aba de filtro (Ativos/Finalizados/Cancelados/Todos) muda
@@ -1611,39 +1638,46 @@ export default function PainelPage() {
       <main className="mx-auto flex w-full min-h-0 max-w-5xl flex-1 flex-col overflow-hidden px-6 pb-6 pt-8">
         {/* Abas: lista de pacientes ou calendário da agenda — fixo, não rola */}
         <div className="mb-6 flex shrink-0 gap-2">
-          <button
-            onClick={() => setAbaAtiva("agenda")}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
-              abaAtiva === "agenda" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
-            }`}
-          >
-            Agenda
-          </button>
-          <button
-            onClick={() => setAbaAtiva("pacientes")}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
-              abaAtiva === "pacientes" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
-            }`}
-          >
-            Pacientes
-          </button>
-          <button
-            onClick={() => router.push("/tarefas")}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-          >
-            Tarefas
-          </button>
-          {(() => {
-            console.log("[debug Mentoria]", { mentoriaAtivada: clinica?.mentoriaAtivada, papel });
-            return null;
-          })()}
-          {clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
-            <button
-              onClick={() => router.push("/mentoria/dashboard")}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-            >
-              Mentoria
-            </button>
+          {!acessoResolvido && !acessoErro ? (
+            <>
+              <div className="h-9 w-20 animate-pulse rounded-lg border border-border bg-bg" />
+              <div className="h-9 w-24 animate-pulse rounded-lg border border-border bg-bg" />
+              <div className="h-9 w-20 animate-pulse rounded-lg border border-border bg-bg" />
+              <div className="h-9 w-24 animate-pulse rounded-lg border border-border bg-bg" />
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setAbaAtiva("agenda")}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                  abaAtiva === "agenda" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                }`}
+              >
+                Agenda
+              </button>
+              <button
+                onClick={() => setAbaAtiva("pacientes")}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                  abaAtiva === "pacientes" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                }`}
+              >
+                Pacientes
+              </button>
+              <button
+                onClick={() => router.push("/tarefas")}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Tarefas
+              </button>
+              {acessoResolvido && clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
+                <button
+                  onClick={() => router.push("/mentoria/dashboard")}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+                >
+                  Mentoria
+                </button>
+              )}
+            </>
           )}
         </div>
 
