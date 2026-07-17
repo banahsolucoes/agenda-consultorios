@@ -5,6 +5,7 @@ import { registrarLog } from "@/lib/auditoria";
 import { exigirAcessoMentoria } from "@/lib/mentoria";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"];
+const FORMAS_RECEBIMENTO = ["ADIANTADO", "POR_PARCELA"];
 
 // PATCH /api/mentoria/comissionados/[id] — edita o cadastro do comissionado
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -28,6 +29,18 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.papelPadrao !== undefined && body.papelPadrao !== null && !PAPEIS_COMISSAO.includes(body.papelPadrao)) {
     return NextResponse.json({ erro: "papelPadrao inválido" }, { status: 400 });
   }
+  if (
+    body.percentualComissao !== undefined &&
+    (typeof body.percentualComissao !== "number" || !(body.percentualComissao > 0) || body.percentualComissao > 1)
+  ) {
+    return NextResponse.json(
+      { erro: "percentualComissao deve ser um número maior que zero e menor ou igual a 1" },
+      { status: 400 }
+    );
+  }
+  if (body.formaRecebimento !== undefined && !FORMAS_RECEBIMENTO.includes(body.formaRecebimento)) {
+    return NextResponse.json({ erro: "formaRecebimento inválido" }, { status: 400 });
+  }
 
   const data: Record<string, unknown> = {};
   if (body.nome !== undefined) data.nome = body.nome;
@@ -35,6 +48,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.telefone !== undefined) data.telefone = body.telefone || null;
   if (body.papelPadrao !== undefined) data.papelPadrao = body.papelPadrao;
   if (body.ativo !== undefined) data.ativo = Boolean(body.ativo);
+  if (body.percentualComissao !== undefined) data.percentualComissao = body.percentualComissao;
+  if (body.formaRecebimento !== undefined) data.formaRecebimento = body.formaRecebimento;
 
   const camposAlterados = Object.keys(data);
   if (camposAlterados.length === 0) {

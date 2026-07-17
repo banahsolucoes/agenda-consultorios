@@ -380,6 +380,11 @@ enum StatusComissao {
   ESTORNADO
 }
 
+enum FormaRecebimentoComissao {
+  ADIANTADO
+  POR_PARCELA
+}
+
 enum StatusContrato {
   ATIVO
   CONCLUIDO
@@ -475,6 +480,8 @@ model Comissionado {
   telefone     String?
   papelPadrao  PapelComissao?
   ativo        Boolean  @default(true)
+  percentualComissao Decimal? @db.Decimal(5,4)
+  formaRecebimento   FormaRecebimentoComissao @default(POR_PARCELA)
   comissoes    MentoriaComissao[]
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -491,6 +498,7 @@ model MentoriaComissao {
   comissionado   Comissionado @relation(fields: [comissionadoId], references: [id])
   papel          PapelComissao
   percentual     Decimal  @db.Decimal(5,4)
+  formaRecebimento FormaRecebimentoComissao @default(POR_PARCELA)
   status         StatusComissao @default(PENDENTE)
   dataPagamento  DateTime?
   estornoEm      DateTime?

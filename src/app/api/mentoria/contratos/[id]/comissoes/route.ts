@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ erro: "corpo da requisição inválido" }, { status: 400 });
 
-  const { comissionadoId, papel, percentual } = body;
+  const { comissionadoId, papel } = body;
   if (!comissionadoId || typeof comissionadoId !== "string") {
     return NextResponse.json({ erro: "comissionadoId é obrigatório" }, { status: 400 });
   }
@@ -69,9 +69,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!PAPEIS_COMISSAO.includes(papel)) {
     return NextResponse.json({ erro: "papel é obrigatório e deve ser um valor válido" }, { status: 400 });
   }
-  if (typeof percentual !== "number" || !(percentual > 0) || percentual > 1) {
-    return NextResponse.json({ erro: "percentual deve ser um número maior que zero e menor ou igual a 1" }, { status: 400 });
+  // Percentual e forma de recebimento são atributos fixos do comissionado —
+  // copiados e travados no vínculo, nunca aceitos do corpo da requisição.
+  if (comissionado.percentualComissao === null) {
+    return NextResponse.json(
+      { erro: "este comissionado não tem percentual de comissão definido — complete o cadastro dele antes de vincular" },
+      { status: 422 }
+    );
   }
+  const percentual = Number(comissionado.percentualComissao);
 
   const comissao = await prisma.mentoriaComissao.create({
     data: {
@@ -80,6 +86,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       comissionadoId,
       papel,
       percentual,
+      formaRecebimento: comissionado.formaRecebimento,
     },
   });
 
@@ -87,7 +94,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     usuario.clinicaId,
     usuario.id,
     "CRIAR_COMISSAO_MENTORIA",
-    `Vinculou comissão de ${comissionado.nome} (${papel}, ${percentual * 100}%) ao contrato "${contrato.pacote}"`
+    `Vinculou comissão de ${comissionado.nome} (${papel}, ${percentual * 100}%, ${comissionado.formaRecebimento}) ao contrato "${contrato.pacote}"`
   );
 
   return NextResponse.json(comissao, { status: 201 });

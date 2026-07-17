@@ -14,6 +14,8 @@ const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
 interface Comissionado {
   id: string;
   nome: string;
+  percentualComissao: string | null;
+  formaRecebimento: string;
 }
 
 interface Comissao {
@@ -22,8 +24,13 @@ interface Comissao {
   comissionado: { id: string; nome: string };
   papel: string;
   percentual: string;
+  formaRecebimento: string;
   status: "PENDENTE" | "PAGO" | "ESTORNADO";
   valorComissao: number;
+}
+
+function formaRecebimentoLabel(f: string): string {
+  return f === "ADIANTADO" ? "Adiantado" : "Por parcela";
 }
 
 interface ComissoesData {
@@ -144,7 +151,7 @@ export default function DetalheContratoMentoriaPage() {
   const [comissionadosDisponiveis, setComissionadosDisponiveis] = useState<Comissionado[]>([]);
 
   const [modalComissao, setModalComissao] = useState(false);
-  const [formComissao, setFormComissao] = useState({ comissionadoId: "", papel: "", percentual: "" });
+  const [formComissao, setFormComissao] = useState({ comissionadoId: "", papel: "" });
   const [salvandoComissao, setSalvandoComissao] = useState(false);
   const [erroComissao, setErroComissao] = useState("");
 
@@ -359,7 +366,7 @@ export default function DetalheContratoMentoriaPage() {
   }
 
   function abrirModalComissao() {
-    setFormComissao({ comissionadoId: "", papel: "", percentual: "" });
+    setFormComissao({ comissionadoId: "", papel: "" });
     setErroComissao("");
     setModalComissao(true);
   }
@@ -374,11 +381,6 @@ export default function DetalheContratoMentoriaPage() {
       setErroComissao("selecione o papel");
       return;
     }
-    const percentualFracao = Number(formComissao.percentual) / 100;
-    if (!formComissao.percentual || !(percentualFracao > 0) || percentualFracao > 1) {
-      setErroComissao("percentual deve ser maior que 0% e no máximo 100%");
-      return;
-    }
 
     setErroComissao("");
     setSalvandoComissao(true);
@@ -389,7 +391,6 @@ export default function DetalheContratoMentoriaPage() {
         body: JSON.stringify({
           comissionadoId: formComissao.comissionadoId,
           papel: formComissao.papel,
-          percentual: percentualFracao,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -723,6 +724,7 @@ export default function DetalheContratoMentoriaPage() {
                     <th className="px-3 py-2">Comissionado</th>
                     <th className="px-3 py-2">Papel</th>
                     <th className="px-3 py-2">Percentual</th>
+                    <th className="px-3 py-2">Recebimento</th>
                     <th className="px-3 py-2">Valor (R$)</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2"></th>
@@ -731,7 +733,7 @@ export default function DetalheContratoMentoriaPage() {
                 <tbody>
                   {comissoesData.comissoes.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-4 text-center text-muted">
+                      <td colSpan={7} className="px-3 py-4 text-center text-muted">
                         Nenhuma comissão vinculada.
                       </td>
                     </tr>
@@ -741,6 +743,7 @@ export default function DetalheContratoMentoriaPage() {
                         <td className="px-3 py-2 font-medium text-fg">{c.comissionado.nome}</td>
                         <td className="px-3 py-2 text-fg">{c.papel}</td>
                         <td className="px-3 py-2 text-fg">{(Number(c.percentual) * 100).toLocaleString("pt-BR")}%</td>
+                        <td className="px-3 py-2 text-fg">{formaRecebimentoLabel(c.formaRecebimento)}</td>
                         <td className="px-3 py-2 text-fg">{formatarMoeda(c.valorComissao)}</td>
                         <td className="px-3 py-2">
                           <span
@@ -969,18 +972,31 @@ export default function DetalheContratoMentoriaPage() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Percentual (%)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={formComissao.percentual}
-                    onChange={(e) => setFormComissao((f) => ({ ...f, percentual: e.target.value }))}
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
-                </div>
+                {formComissao.comissionadoId &&
+                  (() => {
+                    const selecionado = comissionadosDisponiveis.find((c) => c.id === formComissao.comissionadoId);
+                    if (!selecionado) return null;
+                    return (
+                      <div className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg">
+                        <p>
+                          Percentual (fixo):{" "}
+                          <span className="font-medium">
+                            {selecionado.percentualComissao !== null
+                              ? `${(Number(selecionado.percentualComissao) * 100).toLocaleString("pt-BR")}%`
+                              : "não definido"}
+                          </span>
+                        </p>
+                        <p>
+                          Forma de recebimento: <span className="font-medium">{formaRecebimentoLabel(selecionado.formaRecebimento)}</span>
+                        </p>
+                        {selecionado.percentualComissao === null && (
+                          <p className="mt-1 text-xs text-red">
+                            Complete o percentual no cadastro do comissionado antes de vincular.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                 {erroComissao && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroComissao}</p>}
 

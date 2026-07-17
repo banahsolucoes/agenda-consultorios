@@ -22,6 +22,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!body || (body.status !== "PAGO" && body.status !== "PENDENTE")) {
     return NextResponse.json({ erro: "status deve ser PAGO ou PENDENTE" }, { status: 400 });
   }
+  if (body.percentual !== undefined || body.formaRecebimento !== undefined) {
+    return NextResponse.json(
+      { erro: "percentual e formaRecebimento são travados no momento do vínculo e não podem ser alterados" },
+      { status: 400 }
+    );
+  }
   if (comissao.status === "ESTORNADO") {
     return NextResponse.json({ erro: "comissão estornada não pode ter o status alterado por esta rota" }, { status: 409 });
   }

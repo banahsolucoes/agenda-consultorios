@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
+const FORMAS_RECEBIMENTO = ["ADIANTADO", "POR_PARCELA"] as const;
+
+function formaRecebimentoLabel(f: string): string {
+  return f === "ADIANTADO" ? "Adiantado" : "Por parcela";
+}
 
 interface Comissionado {
   id: string;
@@ -12,9 +17,19 @@ interface Comissionado {
   telefone: string | null;
   papelPadrao: string | null;
   ativo: boolean;
+  percentualComissao: string | null;
+  formaRecebimento: string;
 }
 
-const FORM_VAZIO = { nome: "", email: "", telefone: "", papelPadrao: "", ativo: true };
+const FORM_VAZIO = {
+  nome: "",
+  email: "",
+  telefone: "",
+  papelPadrao: "",
+  ativo: true,
+  percentualComissao: "",
+  formaRecebimento: "POR_PARCELA",
+};
 
 export default function ComissionadosPage() {
   const router = useRouter();
@@ -58,6 +73,8 @@ export default function ComissionadosPage() {
       telefone: c.telefone ?? "",
       papelPadrao: c.papelPadrao ?? "",
       ativo: c.ativo,
+      percentualComissao: c.percentualComissao !== null ? String(Number(c.percentualComissao) * 100) : "",
+      formaRecebimento: c.formaRecebimento,
     });
     setErro("");
     setModalAberto(true);
@@ -67,6 +84,11 @@ export default function ComissionadosPage() {
     e.preventDefault();
     if (!form.nome.trim()) {
       setErro("informe o nome");
+      return;
+    }
+    const percentualFracao = Number(form.percentualComissao) / 100;
+    if (!form.percentualComissao || !(percentualFracao > 0) || percentualFracao > 1) {
+      setErro("percentual de comissão deve ser maior que 0% e no máximo 100%");
       return;
     }
     setErro("");
@@ -79,6 +101,8 @@ export default function ComissionadosPage() {
         telefone: form.telefone || null,
         papelPadrao: form.papelPadrao || null,
         ativo: form.ativo,
+        percentualComissao: percentualFracao,
+        formaRecebimento: form.formaRecebimento,
       };
       const res = editando
         ? await fetch(`/api/mentoria/comissionados/${editando.id}`, {
@@ -174,6 +198,8 @@ export default function ComissionadosPage() {
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Contatos</th>
                 <th className="px-4 py-3">Papel padrão</th>
+                <th className="px-4 py-3">% Comissão</th>
+                <th className="px-4 py-3">Recebimento</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -181,13 +207,13 @@ export default function ComissionadosPage() {
             <tbody>
               {carregando ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={7} className="px-4 py-6 text-center text-muted">
                     Carregando...
                   </td>
                 </tr>
               ) : comissionados.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={7} className="px-4 py-6 text-center text-muted">
                     Nenhum comissionado cadastrado.
                   </td>
                 </tr>
@@ -197,6 +223,10 @@ export default function ComissionadosPage() {
                     <td className="px-4 py-3 font-medium text-fg">{c.nome}</td>
                     <td className="px-4 py-3 text-fg">{[c.email, c.telefone].filter(Boolean).join(" · ") || "—"}</td>
                     <td className="px-4 py-3 text-fg">{c.papelPadrao ?? "—"}</td>
+                    <td className="px-4 py-3 text-fg">
+                      {c.percentualComissao !== null ? `${(Number(c.percentualComissao) * 100).toLocaleString("pt-BR")}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-fg">{formaRecebimentoLabel(c.formaRecebimento)}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -265,6 +295,36 @@ export default function ComissionadosPage() {
                   {PAPEIS_COMISSAO.map((p) => (
                     <option key={p} value={p}>
                       {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Percentual de comissão (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  required
+                  value={form.percentualComissao}
+                  onChange={(e) => setForm((f) => ({ ...f, percentualComissao: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Fixo — vale para todos os contratos deste comissionado, copiado no momento de cada vínculo.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Forma de recebimento</label>
+                <select
+                  value={form.formaRecebimento}
+                  onChange={(e) => setForm((f) => ({ ...f, formaRecebimento: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  {FORMAS_RECEBIMENTO.map((f) => (
+                    <option key={f} value={f}>
+                      {formaRecebimentoLabel(f)}
                     </option>
                   ))}
                 </select>

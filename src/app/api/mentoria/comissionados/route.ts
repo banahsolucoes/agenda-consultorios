@@ -5,6 +5,7 @@ import { registrarLog } from "@/lib/auditoria";
 import { exigirAcessoMentoria } from "@/lib/mentoria";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"];
+const FORMAS_RECEBIMENTO = ["ADIANTADO", "POR_PARCELA"];
 
 // GET /api/mentoria/comissionados — lista os comissionados da clínica logada
 export async function GET() {
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest) {
   if (body.papelPadrao !== undefined && body.papelPadrao !== null && !PAPEIS_COMISSAO.includes(body.papelPadrao)) {
     return NextResponse.json({ erro: "papelPadrao inválido" }, { status: 400 });
   }
+  if (typeof body.percentualComissao !== "number" || !(body.percentualComissao > 0) || body.percentualComissao > 1) {
+    return NextResponse.json(
+      { erro: "percentualComissao é obrigatório e deve ser um número maior que zero e menor ou igual a 1" },
+      { status: 400 }
+    );
+  }
+  if (body.formaRecebimento !== undefined && !FORMAS_RECEBIMENTO.includes(body.formaRecebimento)) {
+    return NextResponse.json({ erro: "formaRecebimento inválido" }, { status: 400 });
+  }
 
   const comissionado = await prisma.comissionado.create({
     data: {
@@ -46,6 +56,8 @@ export async function POST(req: NextRequest) {
       telefone: body.telefone ?? null,
       papelPadrao: body.papelPadrao ?? null,
       ativo: body.ativo === undefined ? true : Boolean(body.ativo),
+      percentualComissao: body.percentualComissao,
+      formaRecebimento: body.formaRecebimento ?? "POR_PARCELA",
     },
   });
 
