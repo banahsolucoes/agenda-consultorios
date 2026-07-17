@@ -83,6 +83,14 @@ model Clinica {
   mentoriaParcelas   MentoriaParcela[]
   comissionados      Comissionado[]
   mentoriaComissoes  MentoriaComissao[]
+
+  // Assinatura recorrente (Mercado Pago) — estado sempre derivado do
+  // webhook + consulta à API do MP, nunca do redirect do usuário.
+  statusAssinatura        StatusAssinatura @default(TRIAL)
+  mpPreapprovalId         String?
+  mpPayerEmail            String?
+  trialFim                DateTime?
+  assinaturaAtualizadaEm  DateTime?
 }
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
@@ -389,6 +397,13 @@ enum StatusContrato {
   ATIVO
   CONCLUIDO
   CANCELADO
+}
+
+enum StatusAssinatura {
+  TRIAL
+  ATIVA
+  INADIMPLENTE
+  CANCELADA
 }
 
 model MentoriaAluno {
