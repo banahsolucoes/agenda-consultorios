@@ -1,0 +1,386 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { TIMEZONE } from "@/lib/timezone";
+
+const NOMES_MES = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+interface Resumo {
+  recebidoLiquidoNoMes: number;
+  aReceberNoMes: number;
+  inadimplenteNoMes: number;
+  totalComissoesAPagar: number;
+  liquidoPamelaNoMes: number;
+}
+
+interface ParcelaDoMes {
+  alunoNome: string;
+  contratoId: string;
+  registro: string;
+  vencimento: string;
+  valorBruto: number;
+  valorLiquido: number | null;
+  statusDerivado: "ESTORNADA" | "PAGA" | "CANCELADA" | "ABERTA";
+}
+
+interface Mensal {
+  parcelasDoMes: ParcelaDoMes[];
+}
+
+interface AlunoLinha {
+  alunoNome: string;
+  contratoId: string;
+  pacote: string;
+  parcelaAtual: number;
+  totalParcelas: number;
+  recebidoAcumulado: number;
+  saldoAReceber: number;
+}
+
+interface ComissaoLinha {
+  nome: string;
+  totalAPagar: number;
+  qtdContratos: number;
+}
+
+interface Comissoes {
+  comissionados: ComissaoLinha[];
+  totalGeralAPagar: number;
+}
+
+function formatarMesParam(d: Date): string {
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function labelMes(mesParam: string): string {
+  const ano = Number(mesParam.slice(0, 4));
+  const mes = Number(mesParam.slice(4, 6));
+  return `${NOMES_MES[mes - 1]} de ${ano}`;
+}
+
+function deslocarMes(mesParam: string, deslocamento: number): string {
+  const ano = Number(mesParam.slice(0, 4));
+  const mes = Number(mesParam.slice(4, 6));
+  const data = new Date(Date.UTC(ano, mes - 1 + deslocamento, 1));
+  return `${data.getUTCFullYear()}${String(data.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatarMoeda(valor: number): string {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatarDataCurta(iso: string) {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TIMEZONE });
+}
+
+function statusParcelaLabel(status: string): string {
+  switch (status) {
+    case "ESTORNADA":
+      return "Estornada";
+    case "PAGA":
+      return "Paga";
+    case "CANCELADA":
+      return "Cancelada";
+    default:
+      return "Aberta";
+  }
+}
+
+function corStatusParcela(status: string): string {
+  switch (status) {
+    case "ESTORNADA":
+      return "bg-muted/10 text-muted";
+    case "PAGA":
+      return "bg-green/10 text-green";
+    case "CANCELADA":
+      return "bg-muted/10 text-muted";
+    default:
+      return "bg-blue/10 text-blue";
+  }
+}
+
+export default function DashboardMentoriaPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [mes, setMes] = useState(() => formatarMesParam(new Date()));
+
+  const [resumo, setResumo] = useState<Resumo | null>(null);
+  const [carregandoResumo, setCarregandoResumo] = useState(true);
+
+  const [mensal, setMensal] = useState<Mensal | null>(null);
+  const [carregandoMensal, setCarregandoMensal] = useState(true);
+
+  const [alunosData, setAlunosData] = useState<AlunoLinha[] | null>(null);
+  const [carregandoAlunos, setCarregandoAlunos] = useState(true);
+
+  const [comissoesData, setComissoesData] = useState<Comissoes | null>(null);
+  const [carregandoComissoes, setCarregandoComissoes] = useState(true);
+
+  useEffect(() => {
+    setCarregandoResumo(true);
+    fetch(`/api/mentoria/dashboard/resumo?mes=${mes}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setResumo)
+      .finally(() => setCarregandoResumo(false));
+
+    setCarregandoMensal(true);
+    fetch(`/api/mentoria/dashboard/mensal?mes=${mes}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setMensal)
+      .finally(() => setCarregandoMensal(false));
+  }, [mes]);
+
+  useEffect(() => {
+    fetch("/api/mentoria/dashboard/alunos")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAlunosData)
+      .finally(() => setCarregandoAlunos(false));
+
+    fetch("/api/mentoria/dashboard/comissoes")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setComissoesData)
+      .finally(() => setCarregandoComissoes(false));
+  }, []);
+
+  async function handleSair() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-bg">
+      <header className="border-b border-border bg-surface">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <button onClick={() => router.push("/painel")} className="text-sm text-muted hover:text-fg">
+              ← Painel
+            </button>
+            <h1 className="font-serif text-lg font-semibold text-fg">Mentoria — Dashboard</h1>
+          </div>
+          <button
+            onClick={handleSair}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+          >
+            Sair
+          </button>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-5xl space-y-6 px-6 py-8">
+        <div className="flex items-center justify-between">
+          <div className="flex gap-2">
+            <button
+              onClick={() => router.push("/mentoria/dashboard")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/dashboard") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => router.push("/mentoria/alunos")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/alunos") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Alunos
+            </button>
+            <button
+              onClick={() => router.push("/mentoria/comissionados")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/comissionados") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Comissionados
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMes((m) => deslocarMes(m, -1))}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-fg hover:bg-bg"
+              aria-label="Mês anterior"
+            >
+              ←
+            </button>
+            <span className="min-w-[160px] text-center text-sm font-medium text-fg">{labelMes(mes)}</span>
+            <button
+              onClick={() => setMes((m) => deslocarMes(m, 1))}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-fg hover:bg-bg"
+              aria-label="Próximo mês"
+            >
+              →
+            </button>
+          </div>
+        </div>
+
+        {/* Faixa de resumo */}
+        {carregandoResumo ? (
+          <p className="text-sm text-muted">Carregando resumo...</p>
+        ) : !resumo ? (
+          <p className="text-sm text-muted">Não foi possível carregar o resumo do mês.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Recebido líquido no mês</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.recebidoLiquidoNoMes)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">A receber no mês</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.aReceberNoMes)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Inadimplência no mês</p>
+              <p className="mt-1 text-lg font-semibold text-red">{formatarMoeda(resumo.inadimplenteNoMes)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Comissões a pagar</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.totalComissoesAPagar)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Líquido Pâmela no mês</p>
+              <p className={`mt-1 text-lg font-semibold ${resumo.liquidoPamelaNoMes < 0 ? "text-red" : "text-fg"}`}>
+                {formatarMoeda(resumo.liquidoPamelaNoMes)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Parcelas do mês */}
+        <div className="space-y-3 rounded-xl border border-border bg-surface p-6">
+          <h2 className="font-serif text-base font-semibold text-fg">Parcelas do mês</h2>
+          {carregandoMensal ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : !mensal || mensal.parcelasDoMes.length === 0 ? (
+            <p className="text-sm text-muted">Nenhuma parcela com vencimento em {labelMes(mes)}.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                    <th className="px-3 py-2">Aluno</th>
+                    <th className="px-3 py-2">Registro</th>
+                    <th className="px-3 py-2">Vencimento</th>
+                    <th className="px-3 py-2">Valor bruto</th>
+                    <th className="px-3 py-2">Valor líquido</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mensal.parcelasDoMes.map((p, i) => (
+                    <tr
+                      key={i}
+                      onClick={() => router.push(`/mentoria/contratos/${p.contratoId}`)}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
+                    >
+                      <td className="px-3 py-2 font-medium text-fg">{p.alunoNome}</td>
+                      <td className="px-3 py-2 text-fg">{p.registro}</td>
+                      <td className="px-3 py-2 text-fg">{formatarDataCurta(p.vencimento)}</td>
+                      <td className="px-3 py-2 text-fg">{formatarMoeda(p.valorBruto)}</td>
+                      <td className="px-3 py-2 text-fg">{p.valorLiquido !== null ? formatarMoeda(p.valorLiquido) : "—"}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatusParcela(p.statusDerivado)}`}>
+                          {statusParcelaLabel(p.statusDerivado)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Visão por aluno */}
+        <div className="space-y-3 rounded-xl border border-border bg-surface p-6">
+          <h2 className="font-serif text-base font-semibold text-fg">Visão por aluno</h2>
+          {carregandoAlunos ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : !alunosData || alunosData.length === 0 ? (
+            <p className="text-sm text-muted">Nenhum contrato ativo no momento.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                    <th className="px-3 py-2">Aluno</th>
+                    <th className="px-3 py-2">Pacote</th>
+                    <th className="px-3 py-2">Parcela atual</th>
+                    <th className="px-3 py-2">Recebido acumulado</th>
+                    <th className="px-3 py-2">Saldo a receber</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {alunosData.map((a) => (
+                    <tr
+                      key={a.contratoId}
+                      onClick={() => router.push(`/mentoria/contratos/${a.contratoId}`)}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
+                    >
+                      <td className="px-3 py-2 font-medium text-fg">{a.alunoNome}</td>
+                      <td className="px-3 py-2 text-fg">{a.pacote}</td>
+                      <td className="px-3 py-2 text-fg">
+                        {a.parcelaAtual} de {a.totalParcelas}
+                      </td>
+                      <td className="px-3 py-2 text-fg">{formatarMoeda(a.recebidoAcumulado)}</td>
+                      <td className="px-3 py-2 text-fg">{formatarMoeda(a.saldoAReceber)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Comissões a pagar */}
+        <div className="space-y-3 rounded-xl border border-border bg-surface p-6">
+          <h2 className="font-serif text-base font-semibold text-fg">Comissões a pagar</h2>
+          {carregandoComissoes ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : !comissoesData || comissoesData.comissionados.length === 0 ? (
+            <p className="text-sm text-muted">Nenhuma comissão pendente.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                    <th className="px-3 py-2">Comissionado</th>
+                    <th className="px-3 py-2">Qtd. contratos</th>
+                    <th className="px-3 py-2">Total a pagar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comissoesData.comissionados.map((c, i) => (
+                    <tr
+                      key={i}
+                      onClick={() => router.push("/mentoria/comissionados")}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
+                    >
+                      <td className="px-3 py-2 font-medium text-fg">{c.nome}</td>
+                      <td className="px-3 py-2 text-fg">{c.qtdContratos}</td>
+                      <td className="px-3 py-2 text-fg">{formatarMoeda(c.totalAPagar)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="px-3 py-2 text-xs font-medium text-muted">Total geral</td>
+                    <td className="px-3 py-2"></td>
+                    <td className="px-3 py-2 text-sm font-medium text-fg">
+                      {formatarMoeda(comissoesData.totalGeralAPagar)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

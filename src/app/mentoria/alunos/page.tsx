@@ -52,6 +52,14 @@ export default function MentoriaAlunosPage() {
         <div className="mb-4 flex items-center justify-between">
           <div className="flex gap-2">
             <button
+              onClick={() => router.push("/mentoria/dashboard")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/dashboard") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Dashboard
+            </button>
+            <button
               onClick={() => router.push("/mentoria/alunos")}
               className={`rounded-lg border px-4 py-2 text-sm font-medium ${
                 pathname?.startsWith("/mentoria/alunos") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
