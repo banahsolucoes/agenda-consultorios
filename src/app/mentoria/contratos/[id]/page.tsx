@@ -7,8 +7,8 @@ import { TIMEZONE } from "@/lib/timezone";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
 import DatePickerSP from "../../../painel/DatePickerSP";
 import InputMoedaBR from "../../_components/InputMoedaBR";
+import ModalBaixaParcela from "../../_components/ModalBaixaParcela";
 
-const FORMAS_PAGAMENTO = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA"] as const;
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
 
 interface Comissionado {
@@ -133,9 +133,6 @@ export default function DetalheContratoMentoriaPage() {
   const [erroExcluir, setErroExcluir] = useState("");
 
   const [parcelaBaixa, setParcelaBaixa] = useState<Parcela | null>(null);
-  const [formBaixa, setFormBaixa] = useState({ dataPagamento: "", valorLiquido: "", formaPagamento: "" });
-  const [salvandoBaixa, setSalvandoBaixa] = useState(false);
-  const [erroBaixa, setErroBaixa] = useState("");
 
   const [parcelaEstorno, setParcelaEstorno] = useState<Parcela | null>(null);
   const [valorEstornoParcial, setValorEstornoParcial] = useState("");
@@ -323,56 +320,7 @@ export default function DetalheContratoMentoriaPage() {
   }
 
   function abrirBaixa(p: Parcela) {
-    const hoje = new Date().toISOString().slice(0, 10);
-    setFormBaixa({
-      dataPagamento: hoje,
-      valorLiquido: p.valorLiquido ?? "",
-      formaPagamento: "",
-    });
-    setErroBaixa("");
     setParcelaBaixa(p);
-  }
-
-  async function handleConfirmarBaixa(e: React.FormEvent) {
-    e.preventDefault();
-    if (!parcelaBaixa) return;
-    if (!formBaixa.dataPagamento) {
-      setErroBaixa("informe a data de pagamento");
-      return;
-    }
-    if (!formBaixa.valorLiquido || Number(formBaixa.valorLiquido) <= 0) {
-      setErroBaixa("valorLiquido deve ser maior que zero");
-      return;
-    }
-    if (!formBaixa.formaPagamento) {
-      setErroBaixa("selecione a forma de pagamento");
-      return;
-    }
-
-    setErroBaixa("");
-    setSalvandoBaixa(true);
-    try {
-      const res = await fetch(`/api/mentoria/parcelas/${parcelaBaixa.id}/baixa`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dataPagamento: formBaixa.dataPagamento,
-          valorLiquido: Number(formBaixa.valorLiquido),
-          formaPagamento: formBaixa.formaPagamento,
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setErroBaixa(data?.erro ?? "não foi possível registrar o pagamento");
-        return;
-      }
-      setParcelaBaixa(null);
-      await carregarContrato();
-    } catch {
-      setErroBaixa("não foi possível registrar o pagamento");
-    } finally {
-      setSalvandoBaixa(false);
-    }
   }
 
   function abrirEstorno(p: Parcela) {
@@ -925,64 +873,11 @@ export default function DetalheContratoMentoriaPage() {
         </div>
       )}
 
-      {parcelaBaixa && (
-        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
-            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Dar baixa — parcela {parcelaBaixa.numero}</h2>
-            <form onSubmit={handleConfirmarBaixa} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Data de pagamento</label>
-                <DatePickerSP
-                  value={formBaixa.dataPagamento}
-                  onChange={(v) => setFormBaixa((f) => ({ ...f, dataPagamento: v }))}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Valor líquido</label>
-                <InputMoedaBR
-                  value={Number(formBaixa.valorLiquido) || 0}
-                  onChange={(v) => setFormBaixa((f) => ({ ...f, valorLiquido: String(v) }))}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Forma de pagamento</label>
-                <select
-                  value={formBaixa.formaPagamento}
-                  onChange={(e) => setFormBaixa((f) => ({ ...f, formaPagamento: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
-                  <option value="">Selecione...</option>
-                  {FORMAS_PAGAMENTO.map((f) => (
-                    <option key={f} value={f}>
-                      {formaPagamentoLabel(f)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {erroBaixa && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroBaixa}</p>}
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setParcelaBaixa(null)}
-                  disabled={salvandoBaixa}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={salvandoBaixa}
-                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvandoBaixa ? "Salvando..." : "Confirmar baixa"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ModalBaixaParcela
+        parcela={parcelaBaixa}
+        onClose={() => setParcelaBaixa(null)}
+        onSucesso={carregarContrato}
+      />
 
       {parcelaEstorno && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">

@@ -29,6 +29,8 @@ export async function GET(req: NextRequest) {
   });
 
   const parcelasDoMes = parcelas.map((p) => ({
+    parcelaId: p.id,
+    numero: p.numero,
     alunoNome: p.contrato.aluno.nomeCompleto,
     contratoId: p.contratoId,
     registro: `${p.numero} de ${p.contrato.totalParcelas}`,

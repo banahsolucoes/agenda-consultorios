@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
+import ModalBaixaParcela from "../_components/ModalBaixaParcela";
 
 const NOMES_MES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -19,6 +20,8 @@ interface Resumo {
 }
 
 interface ParcelaDoMes {
+  parcelaId: string;
+  numero: number;
   alunoNome: string;
   contratoId: string;
   registro: string;
@@ -130,18 +133,44 @@ export default function DashboardMentoriaPage() {
   const [geral, setGeral] = useState<Geral | null>(null);
   const [carregandoGeral, setCarregandoGeral] = useState(true);
 
-  useEffect(() => {
-    setCarregandoResumo(true);
-    fetch(`/api/mentoria/dashboard/resumo?mes=${mes}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setResumo)
-      .finally(() => setCarregandoResumo(false));
+  const [parcelaBaixa, setParcelaBaixa] = useState<{ id: string; numero: number; valorLiquido: number | null } | null>(
+    null
+  );
 
+  async function carregarResumo() {
+    setCarregandoResumo(true);
+    try {
+      const r = await fetch(`/api/mentoria/dashboard/resumo?mes=${mes}`);
+      setResumo(r.ok ? await r.json() : null);
+    } finally {
+      setCarregandoResumo(false);
+    }
+  }
+
+  async function carregarMensal() {
     setCarregandoMensal(true);
-    fetch(`/api/mentoria/dashboard/mensal?mes=${mes}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setMensal)
-      .finally(() => setCarregandoMensal(false));
+    try {
+      const r = await fetch(`/api/mentoria/dashboard/mensal?mes=${mes}`);
+      setMensal(r.ok ? await r.json() : null);
+    } finally {
+      setCarregandoMensal(false);
+    }
+  }
+
+  async function carregarGeral() {
+    setCarregandoGeral(true);
+    try {
+      const r = await fetch("/api/mentoria/dashboard/geral");
+      setGeral(r.ok ? await r.json() : null);
+    } finally {
+      setCarregandoGeral(false);
+    }
+  }
+
+  useEffect(() => {
+    carregarResumo();
+    carregarMensal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mes]);
 
   useEffect(() => {
@@ -157,11 +186,15 @@ export default function DashboardMentoriaPage() {
 
     // Indicadores globais — independentes do mês selecionado, buscados uma
     // única vez (não entram no useEffect que depende de `mes`).
-    fetch("/api/mentoria/dashboard/geral")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setGeral)
-      .finally(() => setCarregandoGeral(false));
+    carregarGeral();
   }, []);
+
+  // Baixa direto na lista "Parcelas do mês" — sem navegar para o contrato.
+  // Após sucesso, revalida só o que pode ter mudado: a própria lista, os
+  // cards do mês e o card global "Total a Receber".
+  async function recarregarAposBaixa() {
+    await Promise.all([carregarMensal(), carregarResumo(), carregarGeral()]);
+  }
 
   async function handleSair() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -303,16 +336,21 @@ export default function DashboardMentoriaPage() {
                     <th className="px-3 py-2">Valor bruto</th>
                     <th className="px-3 py-2">Valor líquido</th>
                     <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {mensal.parcelasDoMes.map((p, i) => (
-                    <tr
-                      key={i}
-                      onClick={() => router.push(`/mentoria/contratos/${p.contratoId}`)}
-                      className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
-                    >
-                      <td className="px-3 py-2 font-medium text-fg">{p.alunoNome}</td>
+                    <tr key={i} className="border-b border-border last:border-0 hover:bg-bg">
+                      <td className="px-3 py-2 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/mentoria/contratos/${p.contratoId}`)}
+                          className="text-fg underline-offset-2 hover:text-gold hover:underline"
+                        >
+                          {p.alunoNome}
+                        </button>
+                      </td>
                       <td className="px-3 py-2 text-fg">{p.registro}</td>
                       <td className="px-3 py-2 text-fg">{formatarDataCurta(p.vencimento)}</td>
                       <td className="px-3 py-2 text-fg">{formatarMoeda(p.valorBruto)}</td>
@@ -321,6 +359,19 @@ export default function DashboardMentoriaPage() {
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatusParcela(p.statusDerivado)}`}>
                           {statusParcelaLabel(p.statusDerivado)}
                         </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {p.statusDerivado === "ABERTA" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setParcelaBaixa({ id: p.parcelaId, numero: p.numero, valorLiquido: p.valorLiquido })
+                            }
+                            className="rounded-lg border border-gold px-3 py-1 text-xs font-medium text-gold hover:bg-gold/10"
+                          >
+                            Dar baixa
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -415,6 +466,12 @@ export default function DashboardMentoriaPage() {
           )}
         </div>
       </div>
+
+      <ModalBaixaParcela
+        parcela={parcelaBaixa}
+        onClose={() => setParcelaBaixa(null)}
+        onSucesso={recarregarAposBaixa}
+      />
     </div>
   );
 }
