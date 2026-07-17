@@ -11,22 +11,136 @@ interface Aluno {
   _count: { contratos: number };
 }
 
+function soDigitos(s: string): string {
+  return (s || "").replace(/\D/g, "");
+}
+
 export default function MentoriaAlunosPage() {
   const router = useRouter();
   const pathname = usePathname();
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [carregando, setCarregando] = useState(true);
 
-  useEffect(() => {
-    fetch("/api/mentoria/alunos")
+  // Modal: pré-visualização e confirmação da importação de clientes
+  // (planilha fixa da Mentoria) — mesma UX da importação de pacientes da
+  // Agenda (src/app/painel/page.tsx).
+  const [carregandoPreviewImportacao, setCarregandoPreviewImportacao] = useState(false);
+  const [erroPreviewImportacao, setErroPreviewImportacao] = useState("");
+  const [previewImportacaoAberto, setPreviewImportacaoAberto] = useState(false);
+  const [previewImportacao, setPreviewImportacao] = useState<{
+    total: number;
+    novos: number;
+    existentes: number;
+    registros: Array<{ nomeCompleto?: string; cpf?: string; status: string }>;
+  } | null>(null);
+  const [cpfsSelecionadosImportacao, setCpfsSelecionadosImportacao] = useState<Set<string>>(new Set());
+  const [confirmandoImportacao, setConfirmandoImportacao] = useState(false);
+  const [erroExecutarImportacao, setErroExecutarImportacao] = useState("");
+  const [resultadoImportacao, setResultadoImportacao] = useState<{
+    criados: number;
+    pulados: number;
+    erros: number;
+  } | null>(null);
+
+  function carregarAlunos() {
+    setCarregando(true);
+    return fetch("/api/mentoria/alunos")
       .then((r) => (r.ok ? r.json() : []))
       .then(setAlunos)
       .finally(() => setCarregando(false));
+  }
+
+  useEffect(() => {
+    carregarAlunos();
   }, []);
 
   async function handleSair() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
+  }
+
+  async function handleAbrirPreviewImportacao() {
+    setCarregandoPreviewImportacao(true);
+    setErroPreviewImportacao("");
+    setResultadoImportacao(null);
+
+    try {
+      const res = await fetch("/api/mentoria/importacao/preview");
+      const dados = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroPreviewImportacao(dados?.erro ?? "não foi possível pré-visualizar a importação");
+        return;
+      }
+
+      setPreviewImportacao(dados);
+      const registrosNovos = (dados?.registros ?? []) as Array<{ cpf?: string; status: string }>;
+      setCpfsSelecionadosImportacao(
+        new Set(
+          registrosNovos
+            .filter((r) => r.status === "novo")
+            .map((r) => soDigitos(r.cpf || ""))
+            .filter(Boolean)
+        )
+      );
+      setPreviewImportacaoAberto(true);
+    } catch {
+      setErroPreviewImportacao("não foi possível pré-visualizar a importação");
+    } finally {
+      setCarregandoPreviewImportacao(false);
+    }
+  }
+
+  function alternarSelecaoTodosImportacao(novosRegistros: Array<{ cpf?: string }>) {
+    const todasAsChaves = novosRegistros.map((r) => soDigitos(r.cpf || "")).filter(Boolean);
+    setCpfsSelecionadosImportacao((atual) =>
+      atual.size === todasAsChaves.length ? new Set() : new Set(todasAsChaves)
+    );
+  }
+
+  function alternarSelecaoImportacao(cpf: string) {
+    const chave = soDigitos(cpf || "");
+    if (!chave) return;
+    setCpfsSelecionadosImportacao((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(chave)) novo.delete(chave);
+      else novo.add(chave);
+      return novo;
+    });
+  }
+
+  async function handleConfirmarImportacao() {
+    setConfirmandoImportacao(true);
+    setErroExecutarImportacao("");
+
+    try {
+      const res = await fetch("/api/mentoria/importacao/executar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cpfs: Array.from(cpfsSelecionadosImportacao) }),
+      });
+      const dados = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErroExecutarImportacao(dados?.erro ?? "não foi possível concluir a importação");
+        return;
+      }
+
+      setResultadoImportacao(dados);
+      await carregarAlunos();
+    } catch {
+      setErroExecutarImportacao("não foi possível concluir a importação");
+    } finally {
+      setConfirmandoImportacao(false);
+    }
+  }
+
+  function fecharPreviewImportacao() {
+    setPreviewImportacaoAberto(false);
+    setPreviewImportacao(null);
+    setResultadoImportacao(null);
+    setErroExecutarImportacao("");
+    setCpfsSelecionadosImportacao(new Set());
   }
 
   return (
@@ -76,13 +190,25 @@ export default function MentoriaAlunosPage() {
               Comissionados
             </button>
           </div>
-          <button
-            onClick={() => router.push("/mentoria/alunos/novo")}
-            className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
-          >
-            Novo aluno
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={handleAbrirPreviewImportacao}
+              disabled={carregandoPreviewImportacao}
+              className="rounded-lg border border-gold px-4 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {carregandoPreviewImportacao ? "Carregando..." : "Importar clientes"}
+            </button>
+            <button
+              onClick={() => router.push("/mentoria/alunos/novo")}
+              className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+            >
+              Novo aluno
+            </button>
+          </div>
         </div>
+        {erroPreviewImportacao && (
+          <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroPreviewImportacao}</p>
+        )}
 
         <div className="overflow-x-auto rounded-xl border border-border bg-surface">
           <table className="w-full text-sm">
@@ -125,6 +251,122 @@ export default function MentoriaAlunosPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal: pré-visualização e confirmação da importação de clientes */}
+      {previewImportacaoAberto && previewImportacao && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Importar clientes da planilha
+            </h2>
+
+            {resultadoImportacao ? (
+              <>
+                <p className="mb-4 rounded-lg bg-green/10 px-3 py-2 text-sm text-green">
+                  {resultadoImportacao.criados} cliente(s) criado(s), {resultadoImportacao.pulados} pulado(s)
+                  {resultadoImportacao.erros > 0 ? `, ${resultadoImportacao.erros} com erro` : ""}.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={fecharPreviewImportacao}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mb-3 text-sm text-fg">
+                  <strong>{previewImportacao.novos}</strong> novo(s), <strong>{previewImportacao.existentes}</strong> já
+                  existem na clínica.
+                </p>
+
+                {previewImportacao.novos > 0 ? (
+                  <>
+                    <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={
+                            cpfsSelecionadosImportacao.size > 0 &&
+                            cpfsSelecionadosImportacao.size ===
+                              previewImportacao.registros
+                                .filter((r) => r.status === "novo")
+                                .map((r) => soDigitos(r.cpf || ""))
+                                .filter(Boolean).length
+                          }
+                          onChange={() =>
+                            alternarSelecaoTodosImportacao(
+                              previewImportacao.registros.filter((r) => r.status === "novo")
+                            )
+                          }
+                          className="h-4 w-4 rounded border-border"
+                        />
+                        Selecionar todos
+                      </label>
+                      <span>
+                        {cpfsSelecionadosImportacao.size} de {previewImportacao.novos} selecionados
+                      </span>
+                    </div>
+                    <div className="mb-4 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border bg-bg p-2">
+                      {previewImportacao.registros
+                        .filter((r) => r.status === "novo")
+                        .map((r, i) => {
+                          const chave = soDigitos(r.cpf || "");
+                          return (
+                            <label
+                              key={i}
+                              className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm hover:bg-surface"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={chave ? cpfsSelecionadosImportacao.has(chave) : false}
+                                  disabled={!chave}
+                                  onChange={() => alternarSelecaoImportacao(r.cpf || "")}
+                                  className="h-4 w-4 shrink-0 rounded border-border disabled:cursor-not-allowed"
+                                />
+                                <span className="truncate text-fg">{r.nomeCompleto || "(sem nome)"}</span>
+                              </span>
+                              <span className="shrink-0 font-mono text-xs text-muted">{r.cpf || "sem CPF"}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </>
+                ) : (
+                  <p className="mb-4 text-sm text-muted">Nenhum cliente novo para importar.</p>
+                )}
+
+                {erroExecutarImportacao && (
+                  <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroExecutarImportacao}</p>
+                )}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={fecharPreviewImportacao}
+                    disabled={confirmandoImportacao}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarImportacao}
+                    disabled={confirmandoImportacao || cpfsSelecionadosImportacao.size === 0}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {confirmandoImportacao ? "Importando..." : "Confirmar importação"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
