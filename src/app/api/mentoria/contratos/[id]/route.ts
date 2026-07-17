@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
-import { exigirAcessoMentoria } from "@/lib/mentoria";
+import { exigirAcessoMentoria, arred2, numOrZero } from "@/lib/mentoria";
 
 function parseData(valor: unknown): Date | null {
   if (valor === undefined || valor === null || valor === "") return null;
@@ -23,13 +23,48 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     include: {
       aluno: true,
       parcelas: { orderBy: { numero: "asc" } },
+      comissoes: {
+        where: { status: { not: "ESTORNADO" } },
+        include: { comissionado: { select: { id: true, nome: true } } },
+      },
     },
   });
   if (!contrato || contrato.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "contrato não encontrado" }, { status: 404 });
   }
 
-  return NextResponse.json(contrato);
+  // Comissão gerada por parcela — só para vínculos POR_PARCELA; derivada,
+  // nunca persistida. Contrato CANCELADO ou parcela estornada zeram a lista.
+  const comissoesPorParcela = contrato.comissoes.filter((c) => c.formaRecebimento === "POR_PARCELA");
+  const comissionadosAdiantado = contrato.comissoes
+    .filter((c) => c.formaRecebimento === "ADIANTADO")
+    .map((c) => c.comissionado.nome);
+
+  const parcelasComComissao = contrato.parcelas.map((p) => {
+    const parcelaEstornada = p.estornoEm !== null;
+    const contratoCancelado = contrato.status === "CANCELADO";
+    const comissoesDaParcela =
+      parcelaEstornada || contratoCancelado
+        ? []
+        : comissoesPorParcela.map((c) => ({
+            comissionadoId: c.comissionadoId,
+            comissionadoNome: c.comissionado.nome,
+            papel: c.papel,
+            percentual: Number(c.percentual),
+            valor: arred2(numOrZero(p.valorLiquido) * Number(c.percentual)),
+            devida: p.dataPagamento !== null && p.estornoEm === null,
+          }));
+    return { ...p, comissoesDaParcela };
+  });
+
+  const { comissoes: _comissoes, ...contratoSemComissoes } = contrato;
+  void _comissoes;
+
+  return NextResponse.json({
+    ...contratoSemComissoes,
+    parcelas: parcelasComComissao,
+    comissionadosAdiantado,
+  });
 }
 
 // PATCH /api/mentoria/contratos/[id] — edita o cabeçalho do contrato

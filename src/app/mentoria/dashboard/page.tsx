@@ -20,6 +20,14 @@ interface Resumo {
   liquidoPamelaNoMes: number;
 }
 
+interface ComissaoDaParcela {
+  comissionadoId: string;
+  comissionadoNome: string;
+  percentual: number;
+  valor: number;
+  devida: boolean;
+}
+
 interface ParcelaDoMes {
   parcelaId: string;
   numero: number;
@@ -30,6 +38,8 @@ interface ParcelaDoMes {
   valorBruto: number;
   valorLiquido: number | null;
   statusDerivado: "ESTORNADA" | "PAGA" | "CANCELADA" | "ABERTA";
+  comissoesDaParcela: ComissaoDaParcela[];
+  totalComissaoParcela: number;
 }
 
 interface Mensal {
@@ -342,6 +352,7 @@ export default function DashboardMentoriaPage() {
                     <th className="px-3 py-2">Valor bruto</th>
                     <th className="px-3 py-2">Valor líquido</th>
                     <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Comissão</th>
                     <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -361,6 +372,21 @@ export default function DashboardMentoriaPage() {
                       <td className="px-3 py-2 text-fg">{formatarDataCurta(p.vencimento)}</td>
                       <td className="px-3 py-2 text-fg">{formatarMoeda(p.valorBruto)}</td>
                       <td className="px-3 py-2 text-fg">{p.valorLiquido !== null ? formatarMoeda(p.valorLiquido) : "—"}</td>
+                      <td className="px-3 py-2">
+                        {p.comissoesDaParcela.length === 0 ? (
+                          <span className="text-xs text-muted">—</span>
+                        ) : (
+                          <div title={p.comissoesDaParcela.map((c) => `${c.comissionadoNome}: ${formatarMoeda(c.valor)}`).join(" · ")}>
+                            <p className={p.comissoesDaParcela.every((c) => c.devida) ? "text-fg" : "text-muted"}>
+                              {formatarMoeda(p.totalComissaoParcela)}
+                            </p>
+                            <p className="text-[11px] text-muted">
+                              {p.comissoesDaParcela.map((c) => c.comissionadoNome).join(", ")}
+                              {!p.comissoesDaParcela.every((c) => c.devida) && " (prevista)"}
+                            </p>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatusParcela(p.statusDerivado)}`}>
                           {statusParcelaLabel(p.statusDerivado)}

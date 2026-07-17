@@ -40,6 +40,15 @@ interface ComissoesData {
   liquidoPamela: number;
 }
 
+interface ComissaoDaParcela {
+  comissionadoId: string;
+  comissionadoNome: string;
+  papel: string;
+  percentual: number;
+  valor: number;
+  devida: boolean;
+}
+
 interface Parcela {
   id: string;
   numero: number;
@@ -50,6 +59,7 @@ interface Parcela {
   formaPagamento: string | null;
   estornoEm: string | null;
   valorEstornado: string | null;
+  comissoesDaParcela: ComissaoDaParcela[];
 }
 
 function formatarDataCurta(iso: string) {
@@ -72,6 +82,7 @@ interface Contrato {
   motivoCancelamento: string | null;
   aluno: { id: string; nomeCompleto: string };
   parcelas: Parcela[];
+  comissionadosAdiantado: string[];
 }
 
 interface ParcelaForm {
@@ -597,6 +608,7 @@ export default function DetalheContratoMentoriaPage() {
                   <th className="px-3 py-2">Valor líquido (R$)</th>
                   <th className="px-3 py-2">Vencimento</th>
                   <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Comissão</th>
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -657,6 +669,26 @@ export default function DetalheContratoMentoriaPage() {
                         )}
                       </td>
                       <td className="px-3 py-2">
+                        {original && original.comissoesDaParcela.length > 0 ? (
+                          <ul className="space-y-0.5">
+                            {original.comissoesDaParcela.map((c) => (
+                              <li key={c.comissionadoId} className={c.devida ? "text-fg" : "text-muted"}>
+                                {c.comissionadoNome}: {formatarMoeda(c.valor)}
+                                <span className="ml-1 text-[10px] uppercase tracking-wide">
+                                  {c.devida ? "(devida)" : "(prevista)"}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : contrato.comissionadosAdiantado.length > 0 ? (
+                          <span className="text-xs text-muted">
+                            {contrato.comissionadosAdiantado.join(", ")}: adiantado (sobre o contrato)
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-2">
                           {editavel && p.aberta && (
                             <button type="button" onClick={() => removerParcela(i)} className="text-xs text-red hover:underline">
@@ -690,7 +722,7 @@ export default function DetalheContratoMentoriaPage() {
               <tfoot>
                 <tr>
                   <td className="px-3 py-2 text-xs font-medium text-muted">Soma líquido</td>
-                  <td colSpan={5} className="px-3 py-2">
+                  <td colSpan={6} className="px-3 py-2">
                     <span className={`text-sm font-medium ${somaBate ? "text-green" : "text-red"}`}>
                       {formatarMoeda(somaLiquido)}
                       {!somaBate && ` — diferença de ${formatarMoeda(diferenca)} em relação ao valor total`}
