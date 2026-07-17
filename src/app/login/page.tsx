@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // Página de login da clínica: autentica via /api/auth/login e redireciona para /painel
 export default function LoginPage() {
@@ -90,6 +91,11 @@ export default function LoginPage() {
               className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
               placeholder="••••••••"
             />
+            <div className="mt-2 text-right">
+              <Link href="/esqueci-senha" className="text-sm text-muted hover:text-gold hover:underline">
+                Esqueci minha senha
+              </Link>
+            </div>
           </div>
 
           {erro && (
