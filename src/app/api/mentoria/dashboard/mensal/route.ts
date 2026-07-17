@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
         select: {
           status: true,
           totalParcelas: true,
+          taxaImpostoPct: true,
           aluno: { select: { nomeCompleto: true } },
           comissoes: {
             where: { formaRecebimento: "POR_PARCELA", status: { not: "ESTORNADO" } },
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
     const parcelaEstornada = p.estornoEm !== null;
     const contratoCancelado = p.contrato.status === "CANCELADO";
     const valorLiquido = numOrZero(p.valorLiquido);
+    const taxaImposto = Number(p.contrato.taxaImpostoPct);
     const comissoesDaParcela =
       parcelaEstornada || contratoCancelado
         ? []
@@ -58,7 +60,7 @@ export async function GET(req: NextRequest) {
             comissionadoId: c.comissionadoId,
             comissionadoNome: c.comissionado.nome,
             percentual: Number(c.percentual),
-            valor: arred2(valorLiquido * Number(c.percentual)),
+            valor: arred2(valorLiquido * (1 - taxaImposto) * Number(c.percentual)),
             devida: p.dataPagamento !== null && p.estornoEm === null,
           }));
     const totalComissaoParcela = arred2(comissoesDaParcela.reduce((soma, c) => soma + c.valor, 0));

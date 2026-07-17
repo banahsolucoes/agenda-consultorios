@@ -40,6 +40,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     .filter((c) => c.formaRecebimento === "ADIANTADO")
     .map((c) => c.comissionado.nome);
 
+  const taxaImposto = Number(contrato.taxaImpostoPct);
   const parcelasComComissao = contrato.parcelas.map((p) => {
     const parcelaEstornada = p.estornoEm !== null;
     const contratoCancelado = contrato.status === "CANCELADO";
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
             comissionadoNome: c.comissionado.nome,
             papel: c.papel,
             percentual: Number(c.percentual),
-            valor: arred2(numOrZero(p.valorLiquido) * Number(c.percentual)),
+            valor: arred2(numOrZero(p.valorLiquido) * (1 - taxaImposto) * Number(c.percentual)),
             devida: p.dataPagamento !== null && p.estornoEm === null,
           }));
     return { ...p, comissoesDaParcela };

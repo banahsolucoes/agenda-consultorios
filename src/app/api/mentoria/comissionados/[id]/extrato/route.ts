@@ -110,7 +110,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       continue;
     }
 
-    // POR_PARCELA
+    // POR_PARCELA — o imposto do contrato sai do líquido da parcela antes de
+    // aplicar o percentual do comissionado.
+    const taxaImposto = Number(c.contrato.taxaImpostoPct);
     for (const p of c.contrato.parcelas) {
       const registro = `${p.numero} de ${c.contrato.totalParcelas}`;
       const paga = p.dataPagamento !== null && p.estornoEm === null;
@@ -118,7 +120,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
       if (paga) {
         const valorLiquido = numOrZero(p.valorLiquido);
-        const comissaoParcela = arred2(valorLiquido * percentual);
+        const comissaoParcela = arred2(valorLiquido * (1 - taxaImposto) * percentual);
         aReceber.push({
           contratoId: c.contrato.id,
           alunoNome,
@@ -133,7 +135,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         acumularMes(p.dataPagamento as Date, comissaoParcela);
       } else if (aberta) {
         const valorLiquidoPrevisto = numOrZero(p.valorLiquido);
-        const comissaoPrevista = arred2(valorLiquidoPrevisto * percentual);
+        const comissaoPrevista = arred2(valorLiquidoPrevisto * (1 - taxaImposto) * percentual);
         previsto.push({
           contratoId: c.contrato.id,
           alunoNome,

@@ -57,8 +57,10 @@ export function calcularValorComissao(baseComissionavel: number, percentual: num
 
 // valorComissao de um vínculo (MentoriaComissao), por forma de recebimento —
 // nunca persistido, sempre derivado. ADIANTADO: valor cheio sobre a base do
-// contrato. POR_PARCELA: soma de valorLiquido * percentual das parcelas já
-// PAGAS (dataPagamento != null e estornoEm == null) desse contrato. Contrato
+// contrato. POR_PARCELA: soma de valorLiquido * (1 - taxaImpostoPct do
+// contrato) * percentual das parcelas já PAGAS (dataPagamento != null e
+// estornoEm == null) desse contrato — o imposto do contrato sai do líquido
+// da parcela ANTES de aplicar o percentual do comissionado. Contrato
 // CANCELADO ou vínculo ESTORNADO sempre valem 0.
 export function calcularValorComissaoVinculo(
   comissao: { status: string; formaRecebimento: string; percentual: number },
@@ -72,7 +74,10 @@ export function calcularValorComissaoVinculo(
     return calcularValorComissao(base, comissao.percentual);
   }
 
-  const soma = parcelasPagasDoContrato.reduce((s, p) => s + p.valorLiquido * comissao.percentual, 0);
+  const soma = parcelasPagasDoContrato.reduce(
+    (s, p) => s + p.valorLiquido * (1 - contrato.taxaImpostoPct) * comissao.percentual,
+    0
+  );
   return arred2(soma);
 }
 
@@ -197,7 +202,8 @@ export async function calcularImpostoNoMes(clinicaId: string, inicio: Date, fim:
 // Comissão devida no mês por competência (independe de status PAGO/PENDENTE
 // do vínculo — só exclui ESTORNADO e contratos CANCELADOS):
 // - ADIANTADO: vínculos cujo contrato.assinaturaContrato cai no mês, valor cheio (base * percentual).
-// - POR_PARCELA: parcelas pagas no mês, valorLiquido * percentual de cada vínculo POR_PARCELA do contrato.
+// - POR_PARCELA: parcelas pagas no mês, valorLiquido * (1 - taxaImpostoPct do contrato) * percentual
+//   de cada vínculo POR_PARCELA do contrato (imposto sai do líquido antes do percentual).
 export async function calcularComissaoNoMes(clinicaId: string, inicio: Date, fim: Date): Promise<number> {
   const [adiantadas, parcelasPagas] = await Promise.all([
     prisma.mentoriaComissao.findMany({
@@ -220,6 +226,7 @@ export async function calcularComissaoNoMes(clinicaId: string, inicio: Date, fim
         valorLiquido: true,
         contrato: {
           select: {
+            taxaImpostoPct: true,
             comissoes: {
               where: { formaRecebimento: "POR_PARCELA", status: { not: "ESTORNADO" } },
               select: { percentual: true },
@@ -237,7 +244,8 @@ export async function calcularComissaoNoMes(clinicaId: string, inicio: Date, fim
 
   const somaPorParcela = parcelasPagas.reduce((soma, p) => {
     const somaPercentuais = p.contrato.comissoes.reduce((s, c) => s + Number(c.percentual), 0);
-    return soma + numOrZero(p.valorLiquido) * somaPercentuais;
+    const liquidoAposImposto = numOrZero(p.valorLiquido) * (1 - Number(p.contrato.taxaImpostoPct));
+    return soma + liquidoAposImposto * somaPercentuais;
   }, 0);
 
   return arred2(somaAdiantado + somaPorParcela);
