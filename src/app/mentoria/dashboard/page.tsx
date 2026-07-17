@@ -53,6 +53,11 @@ interface Comissoes {
   totalGeralAPagar: number;
 }
 
+interface Geral {
+  contratosAtivos: number;
+  totalAReceberGeral: number;
+}
+
 function formatarMesParam(d: Date): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -122,6 +127,9 @@ export default function DashboardMentoriaPage() {
   const [comissoesData, setComissoesData] = useState<Comissoes | null>(null);
   const [carregandoComissoes, setCarregandoComissoes] = useState(true);
 
+  const [geral, setGeral] = useState<Geral | null>(null);
+  const [carregandoGeral, setCarregandoGeral] = useState(true);
+
   useEffect(() => {
     setCarregandoResumo(true);
     fetch(`/api/mentoria/dashboard/resumo?mes=${mes}`)
@@ -146,6 +154,13 @@ export default function DashboardMentoriaPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then(setComissoesData)
       .finally(() => setCarregandoComissoes(false));
+
+    // Indicadores globais — independentes do mês selecionado, buscados uma
+    // única vez (não entram no useEffect que depende de `mes`).
+    fetch("/api/mentoria/dashboard/geral")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setGeral)
+      .finally(() => setCarregandoGeral(false));
   }, []);
 
   async function handleSair() {
@@ -220,7 +235,25 @@ export default function DashboardMentoriaPage() {
           </div>
         </div>
 
-        {/* Faixa de resumo */}
+        {/* Indicadores globais — carteira inteira, independentes do mês selecionado no topo */}
+        {carregandoGeral ? (
+          <p className="text-sm text-muted">Carregando indicadores gerais...</p>
+        ) : !geral ? (
+          <p className="text-sm text-muted">Não foi possível carregar os indicadores gerais.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Contratos Ativos</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{geral.contratosAtivos}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Total a Receber</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(geral.totalAReceberGeral)}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Faixa de resumo — só estes cards mudam com o mês selecionado acima */}
         {carregandoResumo ? (
           <p className="text-sm text-muted">Carregando resumo...</p>
         ) : !resumo ? (
