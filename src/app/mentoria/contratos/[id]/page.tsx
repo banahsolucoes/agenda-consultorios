@@ -55,6 +55,8 @@ interface Contrato {
   assinaturaContrato: string;
   totalParcelas: number;
   status: "ATIVO" | "CONCLUIDO" | "CANCELADO";
+  canceladoEm: string | null;
+  motivoCancelamento: string | null;
   aluno: { id: string; nomeCompleto: string };
   parcelas: Parcela[];
 }
@@ -142,6 +144,11 @@ export default function DetalheContratoMentoriaPage() {
   const [formComissao, setFormComissao] = useState({ comissionadoId: "", papel: "", percentual: "" });
   const [salvandoComissao, setSalvandoComissao] = useState(false);
   const [erroComissao, setErroComissao] = useState("");
+
+  const [modalDistrato, setModalDistrato] = useState(false);
+  const [formDistrato, setFormDistrato] = useState({ motivoCancelamento: "", estornarParcelasPagas: true });
+  const [salvandoDistrato, setSalvandoDistrato] = useState(false);
+  const [erroDistrato, setErroDistrato] = useState("");
 
   async function carregarComissoes() {
     setCarregandoComissoes(true);
@@ -459,6 +466,45 @@ export default function DetalheContratoMentoriaPage() {
     if (res.ok) await carregarComissoes();
   }
 
+  function abrirModalDistrato() {
+    setFormDistrato({ motivoCancelamento: "", estornarParcelasPagas: true });
+    setErroDistrato("");
+    setModalDistrato(true);
+  }
+
+  async function handleConfirmarDistrato(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formDistrato.motivoCancelamento.trim()) {
+      setErroDistrato("informe o motivo do cancelamento");
+      return;
+    }
+
+    setErroDistrato("");
+    setSalvandoDistrato(true);
+    try {
+      const res = await fetch(`/api/mentoria/contratos/${contratoId}/distrato`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          motivoCancelamento: formDistrato.motivoCancelamento.trim(),
+          estornarParcelasPagas: formDistrato.estornarParcelasPagas,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroDistrato(data?.erro ?? "não foi possível distratar o contrato");
+        return;
+      }
+      setModalDistrato(false);
+      await carregarContrato();
+      await carregarComissoes();
+    } catch {
+      setErroDistrato("não foi possível distratar o contrato");
+    } finally {
+      setSalvandoDistrato(false);
+    }
+  }
+
   if (carregando) {
     return <div className="flex min-h-screen items-center justify-center bg-bg text-sm text-muted">Carregando...</div>;
   }
@@ -490,15 +536,25 @@ export default function DetalheContratoMentoriaPage() {
               {statusLabel(contrato.status)}
             </span>
           </div>
-          <button
-            onClick={() => {
-              setErroExcluir("");
-              setModalExcluir(true);
-            }}
-            className="rounded-lg border border-red px-4 py-2 text-sm font-medium text-red hover:bg-red/10"
-          >
-            Excluir contrato
-          </button>
+          <div className="flex items-center gap-2">
+            {editavel && (
+              <button
+                onClick={abrirModalDistrato}
+                className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+              >
+                Distratar contrato
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setErroExcluir("");
+                setModalExcluir(true);
+              }}
+              className="rounded-lg border border-red px-4 py-2 text-sm font-medium text-red hover:bg-red/10"
+            >
+              Excluir contrato
+            </button>
+          </div>
         </div>
       </header>
 
@@ -506,6 +562,13 @@ export default function DetalheContratoMentoriaPage() {
         {!editavel && (
           <p className="rounded-lg bg-bg px-3 py-2 text-sm text-muted">
             Este contrato não está ativo — cabeçalho e parcelas não podem ser editados.
+          </p>
+        )}
+
+        {contrato.status === "CANCELADO" && (
+          <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+            Contrato distratado{contrato.canceladoEm && ` em ${formatarDataCurta(contrato.canceladoEm)}`}
+            {contrato.motivoCancelamento && ` — motivo: ${contrato.motivoCancelamento}`}
           </p>
         )}
 
@@ -698,9 +761,11 @@ export default function DetalheContratoMentoriaPage() {
         <div className="space-y-3 rounded-xl border border-border bg-surface p-6">
           <div className="flex items-center justify-between">
             <h2 className="font-serif text-base font-semibold text-fg">Comissões</h2>
-            <button type="button" onClick={abrirModalComissao} className="text-sm font-medium text-gold hover:underline">
-              + Adicionar comissão
-            </button>
+            {editavel && (
+              <button type="button" onClick={abrirModalComissao} className="text-sm font-medium text-gold hover:underline">
+                + Adicionar comissão
+              </button>
+            )}
           </div>
 
           {carregandoComissoes ? (
@@ -1058,6 +1123,58 @@ export default function DetalheContratoMentoriaPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {modalDistrato && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Distratar contrato</h2>
+            <p className="text-sm text-fg">
+              Esta ação cancela o contrato e <strong>estorna automaticamente TODAS as comissões</strong> vinculadas a ele,
+              inclusive as já pagas. Não pode ser desfeita.
+            </p>
+            <form onSubmit={handleConfirmarDistrato} className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Motivo do cancelamento</label>
+                <textarea
+                  required
+                  value={formDistrato.motivoCancelamento}
+                  onChange={(e) => setFormDistrato((f) => ({ ...f, motivoCancelamento: e.target.value }))}
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  checked={formDistrato.estornarParcelasPagas}
+                  onChange={(e) => setFormDistrato((f) => ({ ...f, estornarParcelasPagas: e.target.checked }))}
+                />
+                Estornar parcelas já pagas
+              </label>
+
+              {erroDistrato && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroDistrato}</p>}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalDistrato(false)}
+                  disabled={salvandoDistrato}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoDistrato || !formDistrato.motivoCancelamento.trim()}
+                  className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoDistrato ? "Distratando..." : "Confirmar distrato"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
