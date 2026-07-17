@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DatePickerSP from "../../../painel/DatePickerSP";
+import InputMoedaBR from "../../_components/InputMoedaBR";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
 
 type Modalidade = "AVISTA" | "PARCELADO";
@@ -283,16 +284,8 @@ export default function NovoContratoMentoriaPage() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Valor total (R$)</label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  required
-                  value={valorTotal}
-                  onChange={(e) => setValorTotal(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
+                <label className="mb-1 block text-sm font-medium text-fg">Valor total</label>
+                <InputMoedaBR value={Number(valorTotal) || 0} onChange={(v) => setValorTotal(String(v))} required />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Taxa de imposto (%)</label>
@@ -354,26 +347,12 @@ export default function NovoContratoMentoriaPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Valor da entrada (R$, opcional)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={valorEntrada}
-                    onChange={(e) => setValorEntrada(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
+                  <label className="mb-1 block text-sm font-medium text-fg">Valor da entrada (opcional)</label>
+                  <InputMoedaBR value={Number(valorEntrada) || 0} onChange={(v) => setValorEntrada(String(v))} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Valor da parcela recorrente (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={valorParcela}
-                    onChange={(e) => setValorParcela(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                  />
+                  <label className="mb-1 block text-sm font-medium text-fg">Valor da parcela recorrente</label>
+                  <InputMoedaBR value={Number(valorParcela) || 0} onChange={(v) => setValorParcela(String(v))} />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-fg">Dia de vencimento (1–31)</label>
@@ -440,23 +419,17 @@ export default function NovoContratoMentoriaPage() {
                       <tr key={i} className="border-b border-border last:border-0">
                         <td className="px-3 py-2 text-fg">{i + 1}</td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={p.valorBruto}
-                            onChange={(e) => alterarParcela(i, "valorBruto", e.target.value)}
-                            className="w-32 rounded-lg border border-border bg-bg px-2 py-1 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                          <InputMoedaBR
+                            value={Number(p.valorBruto) || 0}
+                            onChange={(v) => alterarParcela(i, "valorBruto", String(v))}
+                            className="w-32 rounded-lg border border-border bg-bg py-1 pl-8 pr-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                           />
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={p.valorLiquido}
-                            onChange={(e) => alterarParcela(i, "valorLiquido", e.target.value)}
-                            className="w-32 rounded-lg border border-border bg-bg px-2 py-1 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                          <InputMoedaBR
+                            value={Number(p.valorLiquido) || 0}
+                            onChange={(v) => alterarParcela(i, "valorLiquido", String(v))}
+                            className="w-32 rounded-lg border border-border bg-bg py-1 pl-8 pr-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                           />
                         </td>
                         <td className="px-3 py-2">

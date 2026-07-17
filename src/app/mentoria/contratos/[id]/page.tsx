@@ -6,6 +6,7 @@ import { statusLabel, formaPagamentoLabel } from "@/lib/labels";
 import { TIMEZONE } from "@/lib/timezone";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
 import DatePickerSP from "../../../painel/DatePickerSP";
+import InputMoedaBR from "../../_components/InputMoedaBR";
 
 const FORMAS_PAGAMENTO = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA"] as const;
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
@@ -593,15 +594,11 @@ export default function DetalheContratoMentoriaPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-sm font-medium text-fg">Valor total (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={valorTotal}
+              <label className="mb-1 block text-sm font-medium text-fg">Valor total</label>
+              <InputMoedaBR
+                value={Number(valorTotal) || 0}
+                onChange={(v) => setValorTotal(String(v))}
                 disabled={!editavel}
-                onChange={(e) => setValorTotal(e.target.value)}
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
             <div>
@@ -664,25 +661,19 @@ export default function DetalheContratoMentoriaPage() {
                     <tr key={p.id ?? `nova-${i}`} className="border-b border-border last:border-0">
                       <td className="px-3 py-2 text-fg">{i + 1}</td>
                       <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={p.valorBruto}
+                        <InputMoedaBR
+                          value={Number(p.valorBruto) || 0}
+                          onChange={(v) => alterarParcela(i, "valorBruto", String(v))}
                           disabled={!podeEditarLinha}
-                          onChange={(e) => alterarParcela(i, "valorBruto", e.target.value)}
-                          className="w-28 rounded-lg border border-border bg-bg px-2 py-1 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="w-28 rounded-lg border border-border bg-bg py-1 pl-8 pr-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={p.valorLiquido}
+                        <InputMoedaBR
+                          value={Number(p.valorLiquido) || 0}
+                          onChange={(v) => alterarParcela(i, "valorLiquido", String(v))}
                           disabled={!podeEditarLinha}
-                          onChange={(e) => alterarParcela(i, "valorLiquido", e.target.value)}
-                          className="w-28 rounded-lg border border-border bg-bg px-2 py-1 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="w-28 rounded-lg border border-border bg-bg py-1 pl-8 pr-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -947,14 +938,10 @@ export default function DetalheContratoMentoriaPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Valor líquido (R$)</label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={formBaixa.valorLiquido}
-                  onChange={(e) => setFormBaixa((f) => ({ ...f, valorLiquido: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                <label className="mb-1 block text-sm font-medium text-fg">Valor líquido</label>
+                <InputMoedaBR
+                  value={Number(formBaixa.valorLiquido) || 0}
+                  onChange={(v) => setFormBaixa((f) => ({ ...f, valorLiquido: String(v) }))}
                 />
               </div>
               <div>
@@ -1007,16 +994,11 @@ export default function DetalheContratoMentoriaPage() {
             </p>
             <div className="mt-4">
               <label className="mb-1 block text-sm font-medium text-fg">
-                Valor a estornar (R$, opcional — em branco estorna o valor total)
+                Valor a estornar (opcional — deixe em R$ 0,00 para estornar o valor total)
               </label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder={parcelaEstorno.valorLiquido ?? ""}
-                value={valorEstornoParcial}
-                onChange={(e) => setValorEstornoParcial(e.target.value)}
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              <InputMoedaBR
+                value={Number(valorEstornoParcial) || 0}
+                onChange={(v) => setValorEstornoParcial(v > 0 ? String(v) : "")}
               />
             </div>
 
