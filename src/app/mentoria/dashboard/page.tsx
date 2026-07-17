@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
+import { formatarMoedaBR } from "@/lib/mentoria/format";
 
 const NOMES_MES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -70,7 +71,7 @@ function deslocarMes(mesParam: string, deslocamento: number): string {
 }
 
 function formatarMoeda(valor: number): string {
-  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return formatarMoedaBR(valor);
 }
 
 function formatarDataCurta(iso: string) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { statusLabel, formaPagamentoLabel } from "@/lib/labels";
 import { TIMEZONE } from "@/lib/timezone";
+import { formatarMoedaBR } from "@/lib/mentoria/format";
 import DatePickerSP from "../../../painel/DatePickerSP";
 
 const FORMAS_PAGAMENTO = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA"] as const;
@@ -45,6 +46,10 @@ interface Parcela {
 
 function formatarDataCurta(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TIMEZONE });
+}
+
+function formatarMoeda(valor: number): string {
+  return formatarMoedaBR(valor);
 }
 
 interface Contrato {
@@ -249,7 +254,7 @@ export default function DetalheContratoMentoriaPage() {
       }
     }
     if (!somaBate) {
-      setErro(`a soma dos valores líquidos (${somaLiquido.toFixed(2)}) não bate com o valor total (${Number(valorTotal).toFixed(2)})`);
+      setErro(`a soma dos valores líquidos (${formatarMoeda(somaLiquido)}) não bate com o valor total (${formatarMoeda(Number(valorTotal))})`);
       return;
     }
 
@@ -703,7 +708,7 @@ export default function DetalheContratoMentoriaPage() {
                               <p className="text-xs text-muted">
                                 Estornado em {formatarDataCurta(original.estornoEm)}
                                 {original.valorEstornado &&
-                                  ` — ${Number(original.valorEstornado).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`}
+                                  ` — ${formatarMoeda(Number(original.valorEstornado))}`}
                               </p>
                             )}
                           </div>
@@ -747,9 +752,8 @@ export default function DetalheContratoMentoriaPage() {
                   <td className="px-3 py-2 text-xs font-medium text-muted">Soma líquido</td>
                   <td colSpan={5} className="px-3 py-2">
                     <span className={`text-sm font-medium ${somaBate ? "text-green" : "text-red"}`}>
-                      {somaLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                      {!somaBate &&
-                        ` — diferença de ${diferenca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em relação ao valor total`}
+                      {formatarMoeda(somaLiquido)}
+                      {!somaBate && ` — diferença de ${formatarMoeda(diferenca)} em relação ao valor total`}
                     </span>
                   </td>
                 </tr>
@@ -798,9 +802,7 @@ export default function DetalheContratoMentoriaPage() {
                         <td className="px-3 py-2 font-medium text-fg">{c.comissionado.nome}</td>
                         <td className="px-3 py-2 text-fg">{c.papel}</td>
                         <td className="px-3 py-2 text-fg">{(Number(c.percentual) * 100).toLocaleString("pt-BR")}%</td>
-                        <td className="px-3 py-2 text-fg">
-                          {c.valorComissao.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                        </td>
+                        <td className="px-3 py-2 text-fg">{formatarMoeda(c.valorComissao)}</td>
                         <td className="px-3 py-2">
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -855,7 +857,7 @@ export default function DetalheContratoMentoriaPage() {
                       Base comissionável
                     </td>
                     <td colSpan={3} className="px-3 py-2 text-sm font-medium text-fg">
-                      {comissoesData.baseComissionavel.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      {formatarMoeda(comissoesData.baseComissionavel)}
                     </td>
                   </tr>
                   <tr>
@@ -863,7 +865,7 @@ export default function DetalheContratoMentoriaPage() {
                       Total de comissões
                     </td>
                     <td colSpan={3} className="px-3 py-2 text-sm font-medium text-fg">
-                      {comissoesData.somaComissoes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      {formatarMoeda(comissoesData.somaComissoes)}
                     </td>
                   </tr>
                   <tr>
@@ -872,7 +874,7 @@ export default function DetalheContratoMentoriaPage() {
                     </td>
                     <td colSpan={3} className="px-3 py-2">
                       <span className={`text-sm font-medium ${comissoesData.liquidoPamela < 0 ? "text-red" : "text-fg"}`}>
-                        {comissoesData.liquidoPamela.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        {formatarMoeda(comissoesData.liquidoPamela)}
                         {comissoesData.liquidoPamela < 0 && " — comissões excedem a base comissionável"}
                       </span>
                     </td>
@@ -1001,7 +1003,7 @@ export default function DetalheContratoMentoriaPage() {
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Estornar — parcela {parcelaEstorno.numero}</h2>
             <p className="text-sm text-fg">
               Valor pago:{" "}
-              {Number(parcelaEstorno.valorLiquido ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              {formatarMoeda(Number(parcelaEstorno.valorLiquido ?? 0))}
             </p>
             <div className="mt-4">
               <label className="mb-1 block text-sm font-medium text-fg">

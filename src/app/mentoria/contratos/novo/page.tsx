@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DatePickerSP from "../../../painel/DatePickerSP";
+import { formatarMoedaBR } from "@/lib/mentoria/format";
 
 type Modalidade = "AVISTA" | "PARCELADO";
 
@@ -27,6 +28,10 @@ function somarMeses(ano: number, mes: number, dia: number, incremento: number) {
 
 function formatarYMD(c: { ano: number; mes: number; dia: number }): string {
   return `${c.ano}-${String(c.mes).padStart(2, "0")}-${String(c.dia).padStart(2, "0")}`;
+}
+
+function formatarMoeda(valor: number): string {
+  return formatarMoedaBR(valor);
 }
 
 export default function NovoContratoMentoriaPage() {
@@ -194,7 +199,7 @@ export default function NovoContratoMentoriaPage() {
     }
     if (!somaLiquidoBate) {
       setErro(
-        `a soma dos valores líquidos (${somaLiquidos.toFixed(2)}) não bate com o valor total (${Number(valorTotal).toFixed(2)})`
+        `a soma dos valores líquidos (${formatarMoeda(somaLiquidos)}) não bate com o valor total (${formatarMoeda(Number(valorTotal))})`
       );
       return;
     }
@@ -473,17 +478,16 @@ export default function NovoContratoMentoriaPage() {
                     <tr>
                       <td className="px-3 py-2 text-xs font-medium text-muted">Soma</td>
                       <td className="px-3 py-2 text-sm font-medium text-fg">
-                        {somaBrutos.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        {formatarMoeda(somaBrutos)}
                         <span className="ml-1 text-xs font-normal text-muted">(bruto, informativo)</span>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`text-sm font-medium ${somaLiquidoBate ? "text-green" : "text-red"}`}>
-                          {somaLiquidos.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          {formatarMoeda(somaLiquidos)}
                         </span>
                         {!somaLiquidoBate && (
                           <span className="ml-1 text-xs text-red">
-                            diferença de {diferencaLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em
-                            relação ao valor total
+                            diferença de {formatarMoeda(diferencaLiquido)} em relação ao valor total
                           </span>
                         )}
                       </td>

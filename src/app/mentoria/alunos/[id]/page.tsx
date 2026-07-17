@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 import { statusLabel } from "@/lib/labels";
+import { formatarMoedaBR } from "@/lib/mentoria/format";
 import DatePickerSP from "../../../painel/DatePickerSP";
 
 interface Contrato {
@@ -50,8 +51,7 @@ const FORM_VAZIO = {
 };
 
 function formatarMoeda(valor: string) {
-  const n = Number(valor);
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return formatarMoedaBR(Number(valor));
 }
 
 function formatarDataCurta(iso: string) {
