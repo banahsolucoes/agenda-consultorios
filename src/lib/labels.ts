@@ -83,3 +83,15 @@ const LABEL_TAREFA_RECORRENCIA: Record<string, string> = {
 export function tarefaRecorrenciaLabel(valor: string): string {
   return LABEL_TAREFA_RECORRENCIA[valor] ?? valor;
 }
+
+const LABEL_FORMA_PAGAMENTO: Record<string, string> = {
+  PIX: "Pix",
+  CARTAO: "Cartão",
+  BOLETO: "Boleto",
+  DINHEIRO: "Dinheiro",
+  TRANSFERENCIA: "Transferência",
+};
+
+export function formaPagamentoLabel(valor: string): string {
+  return LABEL_FORMA_PAGAMENTO[valor] ?? valor;
+}

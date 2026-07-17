@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { statusLabel } from "@/lib/labels";
+import { statusLabel, formaPagamentoLabel } from "@/lib/labels";
+import { TIMEZONE } from "@/lib/timezone";
 import DatePickerSP from "../../../painel/DatePickerSP";
+
+const FORMAS_PAGAMENTO = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA"] as const;
 
 interface Parcela {
   id: string;
@@ -12,7 +15,13 @@ interface Parcela {
   valorLiquido: string | null;
   vencimento: string;
   dataPagamento: string | null;
+  formaPagamento: string | null;
   estornoEm: string | null;
+  valorEstornado: string | null;
+}
+
+function formatarDataCurta(iso: string) {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TIMEZONE });
 }
 
 interface Contrato {
@@ -40,15 +49,19 @@ function estaAberta(p: Parcela): boolean {
   return p.dataPagamento === null && p.estornoEm === null;
 }
 
-function statusParcelaLabel(p: Parcela): string {
+// Status derivado — nunca persistido. ESTORNADA > PAGA > CANCELADA (contrato
+// cancelado) > ABERTA, nessa ordem de prioridade.
+function statusParcelaLabel(p: Parcela, statusContrato: string): string {
   if (p.estornoEm !== null) return "Estornada";
   if (p.dataPagamento !== null) return "Paga";
+  if (statusContrato === "CANCELADO") return "Cancelada";
   return "Aberta";
 }
 
-function corStatusParcela(p: Parcela): string {
+function corStatusParcela(p: Parcela, statusContrato: string): string {
   if (p.estornoEm !== null) return "bg-muted/10 text-muted";
   if (p.dataPagamento !== null) return "bg-green/10 text-green";
+  if (statusContrato === "CANCELADO") return "bg-muted/10 text-muted";
   return "bg-blue/10 text-blue";
 }
 
@@ -87,6 +100,16 @@ export default function DetalheContratoMentoriaPage() {
   const [modalExcluir, setModalExcluir] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExcluir, setErroExcluir] = useState("");
+
+  const [parcelaBaixa, setParcelaBaixa] = useState<Parcela | null>(null);
+  const [formBaixa, setFormBaixa] = useState({ dataPagamento: "", valorLiquido: "", formaPagamento: "" });
+  const [salvandoBaixa, setSalvandoBaixa] = useState(false);
+  const [erroBaixa, setErroBaixa] = useState("");
+
+  const [parcelaEstorno, setParcelaEstorno] = useState<Parcela | null>(null);
+  const [valorEstornoParcial, setValorEstornoParcial] = useState("");
+  const [salvandoEstorno, setSalvandoEstorno] = useState(false);
+  const [erroEstorno, setErroEstorno] = useState("");
 
   async function carregarContrato() {
     setCarregando(true);
@@ -234,6 +257,94 @@ export default function DetalheContratoMentoriaPage() {
     }
   }
 
+  function abrirBaixa(p: Parcela) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    setFormBaixa({
+      dataPagamento: hoje,
+      valorLiquido: p.valorLiquido ?? "",
+      formaPagamento: "",
+    });
+    setErroBaixa("");
+    setParcelaBaixa(p);
+  }
+
+  async function handleConfirmarBaixa(e: React.FormEvent) {
+    e.preventDefault();
+    if (!parcelaBaixa) return;
+    if (!formBaixa.dataPagamento) {
+      setErroBaixa("informe a data de pagamento");
+      return;
+    }
+    if (!formBaixa.valorLiquido || Number(formBaixa.valorLiquido) <= 0) {
+      setErroBaixa("valorLiquido deve ser maior que zero");
+      return;
+    }
+    if (!formBaixa.formaPagamento) {
+      setErroBaixa("selecione a forma de pagamento");
+      return;
+    }
+
+    setErroBaixa("");
+    setSalvandoBaixa(true);
+    try {
+      const res = await fetch(`/api/mentoria/parcelas/${parcelaBaixa.id}/baixa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataPagamento: formBaixa.dataPagamento,
+          valorLiquido: Number(formBaixa.valorLiquido),
+          formaPagamento: formBaixa.formaPagamento,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroBaixa(data?.erro ?? "não foi possível registrar o pagamento");
+        return;
+      }
+      setParcelaBaixa(null);
+      await carregarContrato();
+    } catch {
+      setErroBaixa("não foi possível registrar o pagamento");
+    } finally {
+      setSalvandoBaixa(false);
+    }
+  }
+
+  function abrirEstorno(p: Parcela) {
+    setValorEstornoParcial("");
+    setErroEstorno("");
+    setParcelaEstorno(p);
+  }
+
+  async function handleConfirmarEstorno() {
+    if (!parcelaEstorno) return;
+    if (valorEstornoParcial && Number(valorEstornoParcial) <= 0) {
+      setErroEstorno("valor do estorno deve ser maior que zero");
+      return;
+    }
+
+    setErroEstorno("");
+    setSalvandoEstorno(true);
+    try {
+      const res = await fetch(`/api/mentoria/parcelas/${parcelaEstorno.id}/estorno`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(valorEstornoParcial ? { valorEstornado: Number(valorEstornoParcial) } : {}),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroEstorno(data?.erro ?? "não foi possível estornar a parcela");
+        return;
+      }
+      setParcelaEstorno(null);
+      await carregarContrato();
+    } catch {
+      setErroEstorno("não foi possível estornar a parcela");
+    } finally {
+      setSalvandoEstorno(false);
+    }
+  }
+
   if (carregando) {
     return <div className="flex min-h-screen items-center justify-center bg-bg text-sm text-muted">Carregando...</div>;
   }
@@ -358,13 +469,15 @@ export default function DetalheContratoMentoriaPage() {
                   <th className="px-3 py-2">Valor líquido (R$)</th>
                   <th className="px-3 py-2">Vencimento</th>
                   <th className="px-3 py-2">Status</th>
-                  {editavel && <th className="px-3 py-2"></th>}
+                  <th className="px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {parcelas.map((p, i) => {
                   const original = p.id ? parcelasOriginais.get(p.id) : undefined;
                   const podeEditarLinha = editavel && p.aberta;
+                  const podeDarBaixa = original && estaAberta(original) && contrato.status === "ATIVO";
+                  const podeEstornar = original && original.dataPagamento !== null && original.estornoEm === null;
                   return (
                     <tr key={p.id ?? `nova-${i}`} className="border-b border-border last:border-0">
                       <td className="px-3 py-2 text-fg">{i + 1}</td>
@@ -399,22 +512,55 @@ export default function DetalheContratoMentoriaPage() {
                       </td>
                       <td className="px-3 py-2">
                         {original ? (
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatusParcela(original)}`}>
-                            {statusParcelaLabel(original)}
-                          </span>
+                          <div>
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatusParcela(original, contrato.status)}`}>
+                              {statusParcelaLabel(original, contrato.status)}
+                            </span>
+                            {original.dataPagamento && (
+                              <p className="mt-1 text-xs text-muted">
+                                {original.estornoEm ? "Pago" : "via"} {formaPagamentoLabel(original.formaPagamento ?? "")} em{" "}
+                                {formatarDataCurta(original.dataPagamento)}
+                              </p>
+                            )}
+                            {original.estornoEm && (
+                              <p className="text-xs text-muted">
+                                Estornado em {formatarDataCurta(original.estornoEm)}
+                                {original.valorEstornado &&
+                                  ` — ${Number(original.valorEstornado).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`}
+                              </p>
+                            )}
+                          </div>
                         ) : (
                           <span className="rounded-full bg-blue/10 px-2 py-0.5 text-xs font-medium text-blue">Nova</span>
                         )}
                       </td>
-                      {editavel && (
-                        <td className="px-3 py-2">
-                          {p.aberta && (
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-2">
+                          {editavel && p.aberta && (
                             <button type="button" onClick={() => removerParcela(i)} className="text-xs text-red hover:underline">
                               Remover
                             </button>
                           )}
-                        </td>
-                      )}
+                          {podeDarBaixa && (
+                            <button
+                              type="button"
+                              onClick={() => abrirBaixa(original!)}
+                              className="text-xs font-medium text-gold hover:underline"
+                            >
+                              Dar baixa
+                            </button>
+                          )}
+                          {podeEstornar && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEstorno(original!)}
+                              className="text-xs font-medium text-red hover:underline"
+                            >
+                              Estornar
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -422,7 +568,7 @@ export default function DetalheContratoMentoriaPage() {
               <tfoot>
                 <tr>
                   <td className="px-3 py-2 text-xs font-medium text-muted">Soma líquido</td>
-                  <td colSpan={editavel ? 5 : 4} className="px-3 py-2">
+                  <td colSpan={5} className="px-3 py-2">
                     <span className={`text-sm font-medium ${somaBate ? "text-green" : "text-red"}`}>
                       {somaLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                       {!somaBate &&
@@ -477,6 +623,116 @@ export default function DetalheContratoMentoriaPage() {
                 className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {excluindo ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {parcelaBaixa && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Dar baixa — parcela {parcelaBaixa.numero}</h2>
+            <form onSubmit={handleConfirmarBaixa} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Data de pagamento</label>
+                <DatePickerSP
+                  value={formBaixa.dataPagamento}
+                  onChange={(v) => setFormBaixa((f) => ({ ...f, dataPagamento: v }))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Valor líquido (R$)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formBaixa.valorLiquido}
+                  onChange={(e) => setFormBaixa((f) => ({ ...f, valorLiquido: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Forma de pagamento</label>
+                <select
+                  value={formBaixa.formaPagamento}
+                  onChange={(e) => setFormBaixa((f) => ({ ...f, formaPagamento: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  <option value="">Selecione...</option>
+                  {FORMAS_PAGAMENTO.map((f) => (
+                    <option key={f} value={f}>
+                      {formaPagamentoLabel(f)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {erroBaixa && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroBaixa}</p>}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setParcelaBaixa(null)}
+                  disabled={salvandoBaixa}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoBaixa}
+                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoBaixa ? "Salvando..." : "Confirmar baixa"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {parcelaEstorno && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Estornar — parcela {parcelaEstorno.numero}</h2>
+            <p className="text-sm text-fg">
+              Valor pago:{" "}
+              {Number(parcelaEstorno.valorLiquido ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </p>
+            <div className="mt-4">
+              <label className="mb-1 block text-sm font-medium text-fg">
+                Valor a estornar (R$, opcional — em branco estorna o valor total)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder={parcelaEstorno.valorLiquido ?? ""}
+                value={valorEstornoParcial}
+                onChange={(e) => setValorEstornoParcial(e.target.value)}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+            </div>
+
+            {erroEstorno && <p className="mt-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroEstorno}</p>}
+
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setParcelaEstorno(null)}
+                disabled={salvandoEstorno}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarEstorno}
+                disabled={salvandoEstorno}
+                className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvandoEstorno ? "Estornando..." : "Confirmar estorno"}
               </button>
             </div>
           </div>
