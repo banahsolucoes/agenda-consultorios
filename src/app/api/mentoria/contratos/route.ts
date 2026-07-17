@@ -4,6 +4,8 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
 import { exigirAcessoMentoria, validarSomaLiquido } from "@/lib/mentoria";
 
+const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"];
+
 function parseData(valor: unknown): Date | null {
   if (valor === undefined || valor === null || valor === "") return null;
   const data = new Date(valor as string);
@@ -20,7 +22,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ erro: "corpo da requisição inválido" }, { status: 400 });
 
-  const { alunoId, pacote, valorTotal, duracaoMeses, totalParcelas, parcelas, prorrogar } = body;
+  const { alunoId, pacote, valorTotal, duracaoMeses, totalParcelas, parcelas, prorrogar, comissoes } = body;
 
   if (!alunoId || typeof alunoId !== "string") {
     return NextResponse.json({ erro: "alunoId é obrigatório" }, { status: 400 });
@@ -127,6 +129,43 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Comissionamento (opcional) — mesma regra da rota individual
+  // (POST /api/mentoria/contratos/[id]/comissoes): percentual e forma de
+  // recebimento são atributos fixos do comissionado, copiados e travados no
+  // vínculo, nunca aceitos do corpo da requisição.
+  const comissoesValidadas: { comissionadoId: string; papel: string; percentual: number; formaRecebimento: string }[] = [];
+  if (comissoes !== undefined) {
+    if (!Array.isArray(comissoes)) {
+      return NextResponse.json({ erro: "comissoes deve ser uma lista" }, { status: 400 });
+    }
+    for (const c of comissoes) {
+      if (!c?.comissionadoId || typeof c.comissionadoId !== "string") {
+        return NextResponse.json({ erro: "comissionadoId é obrigatório em cada item de comissoes" }, { status: 400 });
+      }
+      if (!PAPEIS_COMISSAO.includes(c.papel)) {
+        return NextResponse.json({ erro: "papel é obrigatório e deve ser um valor válido em cada item de comissoes" }, { status: 400 });
+      }
+      const comissionado = await prisma.comissionado.findUnique({ where: { id: c.comissionadoId } });
+      if (!comissionado || comissionado.clinicaId !== usuario.clinicaId) {
+        return NextResponse.json({ erro: "comissionado não encontrado" }, { status: 404 });
+      }
+      if (comissionado.percentualComissao === null) {
+        return NextResponse.json(
+          {
+            erro: `o comissionado "${comissionado.nome}" não tem percentual de comissão definido — complete o cadastro dele antes de vincular`,
+          },
+          { status: 422 }
+        );
+      }
+      comissoesValidadas.push({
+        comissionadoId: comissionado.id,
+        papel: c.papel,
+        percentual: Number(comissionado.percentualComissao),
+        formaRecebimento: comissionado.formaRecebimento,
+      });
+    }
+  }
+
   const { contrato } = await prisma.$transaction(async (tx) => {
     // Prorrogação (Opção B): encerra o contrato ativo atual — reaproveita o
     // status StatusContrato já existente (CONCLUIDO), nunca CANCELADO, pois
@@ -163,6 +202,19 @@ export async function POST(req: NextRequest) {
       })),
     });
 
+    if (comissoesValidadas.length > 0) {
+      await tx.mentoriaComissao.createMany({
+        data: comissoesValidadas.map((c) => ({
+          clinicaId: usuario.clinicaId,
+          contratoId: contrato.id,
+          comissionadoId: c.comissionadoId,
+          papel: c.papel as "SELLER" | "CLOSER" | "PRODUTOR",
+          percentual: c.percentual,
+          formaRecebimento: c.formaRecebimento as "ADIANTADO" | "POR_PARCELA",
+        })),
+      });
+    }
+
     return { contrato };
   });
 
@@ -170,11 +222,13 @@ export async function POST(req: NextRequest) {
     contratoAtivo && prorrogar === true
       ? `Prorrogou o contrato de ${aluno.nomeCompleto} (encerrou "${contratoAtivo.pacote}") — novo contrato "${pacote}"`
       : `Criou o contrato "${pacote}" de ${aluno.nomeCompleto}`;
+  const sufixoComissoes =
+    comissoesValidadas.length > 0 ? `, ${comissoesValidadas.length} comissão(ões) vinculada(s)` : "";
   await registrarLog(
     usuario.clinicaId,
     usuario.id,
     "CRIAR_CONTRATO_MENTORIA",
-    `${prefixoLog} (${totalParcelas} parcela${totalParcelas === 1 ? "" : "s"}, valor total ${valorTotal})`
+    `${prefixoLog} (${totalParcelas} parcela${totalParcelas === 1 ? "" : "s"}, valor total ${valorTotal}${sufixoComissoes})`
   );
 
   return NextResponse.json(contrato, { status: 201 });

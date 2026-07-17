@@ -5,13 +5,32 @@ import { useRouter, useSearchParams } from "next/navigation";
 import DatePickerSP from "../../../painel/DatePickerSP";
 import InputMoedaBR from "../../_components/InputMoedaBR";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
+import { papelComissaoLabel } from "@/lib/labels";
 
 type Modalidade = "AVISTA" | "PARCELADO";
+
+const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
 
 interface ParcelaForm {
   valorBruto: string;
   valorLiquido: string;
   vencimento: string; // "YYYY-MM-DD"
+}
+
+interface Comissionado {
+  id: string;
+  nome: string;
+  percentualComissao: string | null;
+  formaRecebimento: string;
+}
+
+interface ComissaoForm {
+  comissionadoId: string;
+  papel: string;
+}
+
+function formaRecebimentoLabel(f: string): string {
+  return f === "ADIANTADO" ? "Adiantado" : "Por parcela";
 }
 
 function diasNoMes(ano: number, mes: number): number {
@@ -67,6 +86,14 @@ export default function NovoContratoMentoriaPage() {
   const [parcelas, setParcelas] = useState<ParcelaForm[]>([]);
   const [erroGeracao, setErroGeracao] = useState("");
 
+  // Comissionamento — opcional, definido junto com a criação do contrato
+  // (mesma regra de src/app/api/mentoria/contratos/[id]/comissoes: percentual
+  // e forma de recebimento vêm travados do cadastro do comissionado).
+  const [comissionadosDisponiveis, setComissionadosDisponiveis] = useState<Comissionado[]>([]);
+  const [comissoesSelecionadas, setComissoesSelecionadas] = useState<ComissaoForm[]>([]);
+  const [novaComissao, setNovaComissao] = useState<ComissaoForm>({ comissionadoId: "", papel: "" });
+  const [erroComissao, setErroComissao] = useState("");
+
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
 
@@ -87,6 +114,44 @@ export default function NovoContratoMentoriaPage() {
       })
       .finally(() => setCarregandoAluno(false));
   }, [alunoId]);
+
+  useEffect(() => {
+    fetch("/api/mentoria/comissionados")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lista: Comissionado[]) => setComissionadosDisponiveis(lista))
+      .catch(() => {});
+  }, []);
+
+  function handleAdicionarComissao() {
+    setErroComissao("");
+    if (!novaComissao.comissionadoId) {
+      setErroComissao("selecione o comissionado");
+      return;
+    }
+    if (!novaComissao.papel) {
+      setErroComissao("selecione o papel");
+      return;
+    }
+    if (
+      comissoesSelecionadas.some(
+        (c) => c.comissionadoId === novaComissao.comissionadoId && c.papel === novaComissao.papel
+      )
+    ) {
+      setErroComissao("este comissionado já foi adicionado com esse papel");
+      return;
+    }
+    const comissionado = comissionadosDisponiveis.find((c) => c.id === novaComissao.comissionadoId);
+    if (!comissionado || comissionado.percentualComissao === null) {
+      setErroComissao("este comissionado não tem percentual de comissão definido — complete o cadastro dele antes de vincular");
+      return;
+    }
+    setComissoesSelecionadas((atual) => [...atual, novaComissao]);
+    setNovaComissao({ comissionadoId: "", papel: "" });
+  }
+
+  function removerComissao(index: number) {
+    setComissoesSelecionadas((atual) => atual.filter((_, i) => i !== index));
+  }
 
   function handleGerarParcelas() {
     setErroGeracao("");
@@ -243,6 +308,7 @@ export default function NovoContratoMentoriaPage() {
             valorLiquido: Number(p.valorLiquido),
             vencimento: p.vencimento,
           })),
+          comissoes: comissoesSelecionadas,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -511,6 +577,105 @@ export default function NovoContratoMentoriaPage() {
                 </table>
               </div>
             )}
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-border bg-surface p-6">
+            <h2 className="font-serif text-base font-semibold text-fg">Comissionamento (opcional)</h2>
+
+            {comissoesSelecionadas.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
+                      <th className="px-3 py-2">Comissionado</th>
+                      <th className="px-3 py-2">Papel</th>
+                      <th className="px-3 py-2">Percentual</th>
+                      <th className="px-3 py-2">Recebimento</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comissoesSelecionadas.map((c, i) => {
+                      const comissionado = comissionadosDisponiveis.find((cc) => cc.id === c.comissionadoId);
+                      return (
+                        <tr key={i} className="border-b border-border last:border-0">
+                          <td className="px-3 py-2 font-medium text-fg">{comissionado?.nome ?? "—"}</td>
+                          <td className="px-3 py-2 text-fg">{papelComissaoLabel(c.papel)}</td>
+                          <td className="px-3 py-2 text-fg">
+                            {comissionado?.percentualComissao !== null && comissionado?.percentualComissao !== undefined
+                              ? `${(Number(comissionado.percentualComissao) * 100).toLocaleString("pt-BR")}%`
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-fg">
+                            {comissionado ? formaRecebimentoLabel(comissionado.formaRecebimento) : "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => removerComissao(i)}
+                              className="text-xs text-red hover:underline"
+                            >
+                              Remover
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {comissionadosDisponiveis.length === 0 ? (
+              <p className="text-sm text-muted">
+                Nenhum comissionado cadastrado ainda — o contrato pode ser criado sem comissionamento e vinculado
+                depois.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 rounded-lg bg-bg p-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Comissionado</label>
+                  <select
+                    value={novaComissao.comissionadoId}
+                    onChange={(e) => setNovaComissao((f) => ({ ...f, comissionadoId: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    <option value="">Selecione...</option>
+                    {comissionadosDisponiveis.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Papel</label>
+                  <select
+                    value={novaComissao.papel}
+                    onChange={(e) => setNovaComissao((f) => ({ ...f, papel: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    <option value="">Selecione...</option>
+                    {PAPEIS_COMISSAO.map((p) => (
+                      <option key={p} value={p}>
+                        {papelComissaoLabel(p)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={handleAdicionarComissao}
+                    className="rounded-lg border border-gold px-4 py-2 text-sm font-medium text-gold hover:bg-gold/10"
+                  >
+                    + Adicionar comissão
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {erroComissao && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroComissao}</p>}
           </div>
 
           {erro && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
