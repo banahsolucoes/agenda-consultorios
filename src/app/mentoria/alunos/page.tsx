@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 interface Aluno {
   id: string;
@@ -13,6 +13,7 @@ interface Aluno {
 
 export default function MentoriaAlunosPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -48,7 +49,25 @@ export default function MentoriaAlunosPage() {
       </header>
 
       <div className="mx-auto max-w-5xl px-6 py-8">
-        <div className="mb-4 flex items-center justify-end">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex gap-2">
+            <button
+              onClick={() => router.push("/mentoria/alunos")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/alunos") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Alunos
+            </button>
+            <button
+              onClick={() => router.push("/mentoria/comissionados")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/comissionados") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Comissionados
+            </button>
+          </div>
           <button
             onClick={() => router.push("/mentoria/alunos/novo")}
             className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"

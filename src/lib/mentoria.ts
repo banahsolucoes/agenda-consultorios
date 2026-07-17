@@ -43,3 +43,14 @@ export function validarSomaLiquido(parcelas: { valorLiquido: number }[], valorTo
   }
   return { ok: true };
 }
+
+// Comissão é sobre o contrato cheio e adiantada — nunca depende de parcelas
+// pagas nem do quanto o aluno já pagou. Nenhum desses valores é persistido;
+// são sempre recalculados a partir de valorTotal/taxaImpostoPct/percentual.
+export function calcularBaseComissionavel(valorTotal: number, taxaImpostoPct: number): number {
+  return Math.round(valorTotal * (1 - taxaImpostoPct) * 100) / 100;
+}
+
+export function calcularValorComissao(baseComissionavel: number, percentual: number): number {
+  return Math.round(baseComissionavel * percentual * 100) / 100;
+}

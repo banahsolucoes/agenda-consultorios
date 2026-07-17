@@ -7,6 +7,29 @@ import { TIMEZONE } from "@/lib/timezone";
 import DatePickerSP from "../../../painel/DatePickerSP";
 
 const FORMAS_PAGAMENTO = ["PIX", "CARTAO", "BOLETO", "DINHEIRO", "TRANSFERENCIA"] as const;
+const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
+
+interface Comissionado {
+  id: string;
+  nome: string;
+}
+
+interface Comissao {
+  id: string;
+  comissionadoId: string;
+  comissionado: { id: string; nome: string };
+  papel: string;
+  percentual: string;
+  status: "PENDENTE" | "PAGO" | "ESTORNADO";
+  valorComissao: number;
+}
+
+interface ComissoesData {
+  comissoes: Comissao[];
+  baseComissionavel: number;
+  somaComissoes: number;
+  liquidoPamela: number;
+}
 
 interface Parcela {
   id: string;
@@ -111,6 +134,25 @@ export default function DetalheContratoMentoriaPage() {
   const [salvandoEstorno, setSalvandoEstorno] = useState(false);
   const [erroEstorno, setErroEstorno] = useState("");
 
+  const [comissoesData, setComissoesData] = useState<ComissoesData | null>(null);
+  const [carregandoComissoes, setCarregandoComissoes] = useState(true);
+  const [comissionadosDisponiveis, setComissionadosDisponiveis] = useState<Comissionado[]>([]);
+
+  const [modalComissao, setModalComissao] = useState(false);
+  const [formComissao, setFormComissao] = useState({ comissionadoId: "", papel: "", percentual: "" });
+  const [salvandoComissao, setSalvandoComissao] = useState(false);
+  const [erroComissao, setErroComissao] = useState("");
+
+  async function carregarComissoes() {
+    setCarregandoComissoes(true);
+    try {
+      const res = await fetch(`/api/mentoria/contratos/${contratoId}/comissoes`);
+      if (res.ok) setComissoesData(await res.json());
+    } finally {
+      setCarregandoComissoes(false);
+    }
+  }
+
   async function carregarContrato() {
     setCarregando(true);
     try {
@@ -142,9 +184,19 @@ export default function DetalheContratoMentoriaPage() {
   }
 
   useEffect(() => {
-    if (contratoId) carregarContrato();
+    if (contratoId) {
+      carregarContrato();
+      carregarComissoes();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contratoId]);
+
+  useEffect(() => {
+    fetch("/api/mentoria/comissionados")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lista: Comissionado[]) => setComissionadosDisponiveis(lista))
+      .catch(() => {});
+  }, []);
 
   function alterarParcela(index: number, campo: "valorBruto" | "valorLiquido" | "vencimento", valor: string) {
     setParcelas((atual) => atual.map((p, i) => (i === index ? { ...p, [campo]: valor } : p)));
@@ -343,6 +395,68 @@ export default function DetalheContratoMentoriaPage() {
     } finally {
       setSalvandoEstorno(false);
     }
+  }
+
+  function abrirModalComissao() {
+    setFormComissao({ comissionadoId: "", papel: "", percentual: "" });
+    setErroComissao("");
+    setModalComissao(true);
+  }
+
+  async function handleAdicionarComissao(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formComissao.comissionadoId) {
+      setErroComissao("selecione o comissionado");
+      return;
+    }
+    if (!formComissao.papel) {
+      setErroComissao("selecione o papel");
+      return;
+    }
+    const percentualFracao = Number(formComissao.percentual) / 100;
+    if (!formComissao.percentual || !(percentualFracao > 0) || percentualFracao > 1) {
+      setErroComissao("percentual deve ser maior que 0% e no máximo 100%");
+      return;
+    }
+
+    setErroComissao("");
+    setSalvandoComissao(true);
+    try {
+      const res = await fetch(`/api/mentoria/contratos/${contratoId}/comissoes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          comissionadoId: formComissao.comissionadoId,
+          papel: formComissao.papel,
+          percentual: percentualFracao,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroComissao(data?.erro ?? "não foi possível adicionar a comissão");
+        return;
+      }
+      setModalComissao(false);
+      await carregarComissoes();
+    } catch {
+      setErroComissao("não foi possível adicionar a comissão");
+    } finally {
+      setSalvandoComissao(false);
+    }
+  }
+
+  async function handleAlterarStatusComissao(id: string, novoStatus: "PAGO" | "PENDENTE") {
+    const res = await fetch(`/api/mentoria/comissoes/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: novoStatus }),
+    });
+    if (res.ok) await carregarComissoes();
+  }
+
+  async function handleRemoverComissao(id: string) {
+    const res = await fetch(`/api/mentoria/comissoes/${id}`, { method: "DELETE" });
+    if (res.ok) await carregarComissoes();
   }
 
   if (carregando) {
@@ -581,6 +695,129 @@ export default function DetalheContratoMentoriaPage() {
           </div>
         </div>
 
+        <div className="space-y-3 rounded-xl border border-border bg-surface p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-base font-semibold text-fg">Comissões</h2>
+            <button type="button" onClick={abrirModalComissao} className="text-sm font-medium text-gold hover:underline">
+              + Adicionar comissão
+            </button>
+          </div>
+
+          {carregandoComissoes ? (
+            <p className="text-sm text-muted">Carregando...</p>
+          ) : !comissoesData ? (
+            <p className="text-sm text-muted">Não foi possível carregar as comissões.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                    <th className="px-3 py-2">Comissionado</th>
+                    <th className="px-3 py-2">Papel</th>
+                    <th className="px-3 py-2">Percentual</th>
+                    <th className="px-3 py-2">Valor (R$)</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comissoesData.comissoes.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-4 text-center text-muted">
+                        Nenhuma comissão vinculada.
+                      </td>
+                    </tr>
+                  ) : (
+                    comissoesData.comissoes.map((c) => (
+                      <tr key={c.id} className="border-b border-border last:border-0">
+                        <td className="px-3 py-2 font-medium text-fg">{c.comissionado.nome}</td>
+                        <td className="px-3 py-2 text-fg">{c.papel}</td>
+                        <td className="px-3 py-2 text-fg">{(Number(c.percentual) * 100).toLocaleString("pt-BR")}%</td>
+                        <td className="px-3 py-2 text-fg">
+                          {c.valorComissao.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              c.status === "PAGO"
+                                ? "bg-green/10 text-green"
+                                : c.status === "ESTORNADO"
+                                  ? "bg-muted/10 text-muted"
+                                  : "bg-blue/10 text-blue"
+                            }`}
+                          >
+                            {statusLabel(c.status)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-2">
+                            {c.status === "PENDENTE" && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAlterarStatusComissao(c.id, "PAGO")}
+                                  className="text-xs font-medium text-gold hover:underline"
+                                >
+                                  Marcar pago
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoverComissao(c.id)}
+                                  className="text-xs text-red hover:underline"
+                                >
+                                  Remover
+                                </button>
+                              </>
+                            )}
+                            {c.status === "PAGO" && (
+                              <button
+                                type="button"
+                                onClick={() => handleAlterarStatusComissao(c.id, "PENDENTE")}
+                                className="text-xs font-medium text-fg hover:underline"
+                              >
+                                Voltar a pendente
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} className="px-3 py-2 text-xs font-medium text-muted">
+                      Base comissionável
+                    </td>
+                    <td colSpan={3} className="px-3 py-2 text-sm font-medium text-fg">
+                      {comissoesData.baseComissionavel.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="px-3 py-2 text-xs font-medium text-muted">
+                      Total de comissões
+                    </td>
+                    <td colSpan={3} className="px-3 py-2 text-sm font-medium text-fg">
+                      {comissoesData.somaComissoes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="px-3 py-2 text-xs font-medium text-muted">
+                      Líquido Pâmela
+                    </td>
+                    <td colSpan={3} className="px-3 py-2">
+                      <span className={`text-sm font-medium ${comissoesData.liquidoPamela < 0 ? "text-red" : "text-fg"}`}>
+                        {comissoesData.liquidoPamela.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        {comissoesData.liquidoPamela < 0 && " — comissões excedem a base comissionável"}
+                      </span>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+
         {erro && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
 
         {editavel && (
@@ -735,6 +972,92 @@ export default function DetalheContratoMentoriaPage() {
                 {salvandoEstorno ? "Estornando..." : "Confirmar estorno"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {modalComissao && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Adicionar comissão</h2>
+            {comissionadosDisponiveis.length === 0 ? (
+              <p className="text-sm text-muted">
+                Nenhum comissionado cadastrado ainda.{" "}
+                <button
+                  type="button"
+                  onClick={() => router.push("/mentoria/comissionados")}
+                  className="text-gold hover:underline"
+                >
+                  Cadastrar um comissionado
+                </button>
+                .
+              </p>
+            ) : (
+              <form onSubmit={handleAdicionarComissao} className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Comissionado</label>
+                  <select
+                    value={formComissao.comissionadoId}
+                    onChange={(e) => setFormComissao((f) => ({ ...f, comissionadoId: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    <option value="">Selecione...</option>
+                    {comissionadosDisponiveis.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Papel</label>
+                  <select
+                    value={formComissao.papel}
+                    onChange={(e) => setFormComissao((f) => ({ ...f, papel: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  >
+                    <option value="">Selecione...</option>
+                    {PAPEIS_COMISSAO.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-fg">Percentual (%)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={formComissao.percentual}
+                    onChange={(e) => setFormComissao((f) => ({ ...f, percentual: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </div>
+
+                {erroComissao && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroComissao}</p>}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setModalComissao(false)}
+                    disabled={salvandoComissao}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={salvandoComissao}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {salvandoComissao ? "Salvando..." : "Adicionar"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
