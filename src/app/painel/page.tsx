@@ -1645,6 +1645,39 @@ export default function PainelPage() {
               <div className="h-9 w-20 animate-pulse rounded-lg border border-border bg-bg" />
               <div className="h-9 w-24 animate-pulse rounded-lg border border-border bg-bg" />
             </>
+          ) : acessoResolvido ? (
+            <>
+              <button
+                onClick={() => setAbaAtiva("agenda")}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                  abaAtiva === "agenda" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                }`}
+              >
+                Agenda
+              </button>
+              <button
+                onClick={() => setAbaAtiva("pacientes")}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                  abaAtiva === "pacientes" ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+                }`}
+              >
+                Pacientes
+              </button>
+              <button
+                onClick={() => router.push("/tarefas")}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Tarefas
+              </button>
+              {clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
+                <button
+                  onClick={() => router.push("/mentoria/dashboard")}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+                >
+                  Mentoria
+                </button>
+              )}
+            </>
           ) : (
             <>
               <button
@@ -1669,14 +1702,6 @@ export default function PainelPage() {
               >
                 Tarefas
               </button>
-              {acessoResolvido && clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
-                <button
-                  onClick={() => router.push("/mentoria/dashboard")}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
-                >
-                  Mentoria
-                </button>
-              )}
             </>
           )}
         </div>
