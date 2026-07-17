@@ -1633,7 +1633,11 @@ export default function PainelPage() {
           >
             Tarefas
           </button>
-          {clinica?.mentoriaAtivada && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
+          {(() => {
+            console.log("[debug Mentoria]", { mentoriaAtivada: clinica?.mentoriaAtivada, papel });
+            return null;
+          })()}
+          {clinica?.mentoriaAtivada === true && (papel === "PROFISSIONAL" || papel === "ADMIN") && (
             <button
               onClick={() => router.push("/mentoria/alunos")}
               className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
