@@ -56,7 +56,11 @@ export default function NovoContratoMentoriaPage() {
   const [valorEntrada, setValorEntrada] = useState("0");
   const [valorParcela, setValorParcela] = useState("");
   const [diaVencimento, setDiaVencimento] = useState("10");
-  const [mesAnoPrimeiraParcela, setMesAnoPrimeiraParcela] = useState("");
+  // Mês/ano-base das parcelas recorrentes. Com entrada > 0, a entrada em si
+  // vira a parcela 1 (ancorada na assinatura do contrato) e este campo passa
+  // a valer para a parcela 2 em diante; sem entrada, ele volta a valer para
+  // a própria parcela 1 (ver handleGerarParcelas).
+  const [mesAnoSegundaParcela, setMesAnoSegundaParcela] = useState("");
 
   const [parcelas, setParcelas] = useState<ParcelaForm[]>([]);
   const [erroGeracao, setErroGeracao] = useState("");
@@ -116,20 +120,26 @@ export default function NovoContratoMentoriaPage() {
       setErroGeracao("dia de vencimento deve ser um inteiro entre 1 e 31");
       return;
     }
-    const [anoStr, mesStr] = mesAnoPrimeiraParcela.split("-");
+    const [anoStr, mesStr] = mesAnoSegundaParcela.split("-");
     const ano = Number(anoStr);
     const mes = Number(mesStr);
     if (!ano || !mes) {
-      setErroGeracao("informe o mês/ano da primeira parcela");
+      setErroGeracao(entrada > 0 ? "informe o mês/ano da 2ª parcela" : "informe o mês/ano da 1ª parcela");
       return;
     }
 
     const geradas: ParcelaForm[] = [];
-    const primeiroVencimento = formatarYMD(somarMeses(ano, mes, dia, 0));
 
     if (entrada > 0) {
-      geradas.push({ valorBruto: String(entrada), valorLiquido: String(entrada), vencimento: primeiroVencimento });
-      for (let i = 1; i < n; i++) {
+      // Parcela 1 = entrada, sempre ancorada na data de assinatura do
+      // contrato. Parcelas 2..N = recorrentes, mês a mês a partir do
+      // mês/ano informado (que representa a 2ª parcela neste modo).
+      if (!assinaturaContrato) {
+        setErroGeracao("informe a data de assinatura do contrato antes de gerar parcelas com entrada");
+        return;
+      }
+      geradas.push({ valorBruto: String(entrada), valorLiquido: String(entrada), vencimento: assinaturaContrato });
+      for (let i = 0; i < n - 1; i++) {
         geradas.push({
           valorBruto: String(parcela),
           valorLiquido: String(parcela),
@@ -137,6 +147,8 @@ export default function NovoContratoMentoriaPage() {
         });
       }
     } else {
+      // Sem entrada: todas as N parcelas são recorrentes, começando no
+      // mês/ano informado (aqui ele representa a própria 1ª parcela).
       for (let i = 0; i < n; i++) {
         geradas.push({
           valorBruto: String(parcela),
@@ -366,13 +378,16 @@ export default function NovoContratoMentoriaPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-fg">Mês/ano da 1ª parcela</label>
+                  <label className="mb-1 block text-sm font-medium text-fg">Mês/ano da 2ª parcela</label>
                   <input
                     type="month"
-                    value={mesAnoPrimeiraParcela}
-                    onChange={(e) => setMesAnoPrimeiraParcela(e.target.value)}
+                    value={mesAnoSegundaParcela}
+                    onChange={(e) => setMesAnoSegundaParcela(e.target.value)}
                     className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                   />
+                  <p className="mt-1 text-xs text-muted">
+                    Se não houver entrada, este campo vale para a 1ª parcela.
+                  </p>
                 </div>
               </div>
             )}
