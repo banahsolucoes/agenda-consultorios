@@ -54,3 +54,105 @@ export function calcularBaseComissionavel(valorTotal: number, taxaImpostoPct: nu
 export function calcularValorComissao(baseComissionavel: number, percentual: number): number {
   return Math.round(baseComissionavel * percentual * 100) / 100;
 }
+
+// Arredondamento padrão de valores monetários — 2 casas, tolerância de
+// arredondamento em todas as somas do dashboard.
+export function arred2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// Converte um valor possivelmente nulo/indefinido (ex.: campo Decimal? do
+// Prisma) num number seguro, nunca NaN — guarda contra valor nulo nas somas.
+export function numOrZero(valor: unknown): number {
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export interface InfoMes {
+  ano: number;
+  mes: number;
+  inicio: Date;
+  fim: Date;
+}
+
+// Parseia o parâmetro ?mes=YYYYMM. Sem valor → mês atual (válido). Valor
+// presente mas mal formado (não YYYYMM ou mês fora de 1-12) → null, pra rota
+// responder 400.
+export function parseMesParam(valor: string | null): InfoMes | null {
+  let str = valor;
+  if (!str) {
+    const agora = new Date();
+    str = `${agora.getUTCFullYear()}${String(agora.getUTCMonth() + 1).padStart(2, "0")}`;
+  }
+  if (!/^\d{6}$/.test(str)) return null;
+  const ano = Number(str.slice(0, 4));
+  const mes = Number(str.slice(4, 6));
+  if (mes < 1 || mes > 12) return null;
+
+  return {
+    ano,
+    mes,
+    inicio: new Date(Date.UTC(ano, mes - 1, 1)),
+    fim: new Date(Date.UTC(ano, mes, 1)),
+  };
+}
+
+// Status derivado da parcela — mesma regra usada na tela de contrato
+// (src/app/mentoria/contratos/[id]/page.tsx): ESTORNADA > PAGA > CANCELADA
+// (contrato cancelado) > ABERTA. Nunca persistido.
+export function derivarStatusParcela(
+  p: { dataPagamento: Date | null; estornoEm: Date | null },
+  statusContrato: string
+): "ESTORNADA" | "PAGA" | "CANCELADA" | "ABERTA" {
+  if (p.estornoEm !== null) return "ESTORNADA";
+  if (p.dataPagamento !== null) return "PAGA";
+  if (statusContrato === "CANCELADO") return "CANCELADA";
+  return "ABERTA";
+}
+
+export interface AgregadosMensais {
+  recebidoNoMes: number;
+  estornadoNoMes: number;
+  recebidoLiquidoNoMes: number;
+  aReceberNoMes: number;
+  inadimplenteNoMes: number;
+}
+
+// Núcleo de cálculo compartilhado entre /dashboard/mensal e /dashboard/resumo
+// — mesma definição de RECEBIDA/A RECEBER/INADIMPLENTE/ESTORNO nas duas rotas.
+export async function calcularAgregadosMensais(clinicaId: string, inicio: Date, fim: Date): Promise<AgregadosMensais> {
+  const agora = new Date();
+
+  const [recebidas, estornadas, aReceber] = await Promise.all([
+    prisma.mentoriaParcela.findMany({
+      where: { clinicaId, dataPagamento: { gte: inicio, lt: fim }, estornoEm: null },
+      select: { valorLiquido: true },
+    }),
+    prisma.mentoriaParcela.findMany({
+      where: { clinicaId, estornoEm: { gte: inicio, lt: fim } },
+      select: { valorEstornado: true },
+    }),
+    prisma.mentoriaParcela.findMany({
+      where: {
+        clinicaId,
+        dataPagamento: null,
+        estornoEm: null,
+        vencimento: { gte: inicio, lt: fim },
+        contrato: { status: "ATIVO" },
+      },
+      select: { valorBruto: true, vencimento: true },
+    }),
+  ]);
+
+  const recebidoNoMes = arred2(recebidas.reduce((soma, p) => soma + numOrZero(p.valorLiquido), 0));
+  const estornadoNoMes = arred2(estornadas.reduce((soma, p) => soma + numOrZero(p.valorEstornado), 0));
+  const recebidoLiquidoNoMes = arred2(recebidoNoMes - estornadoNoMes);
+  const aReceberNoMes = arred2(aReceber.reduce((soma, p) => soma + numOrZero(p.valorBruto), 0));
+  const inadimplenteNoMes = arred2(
+    aReceber
+      .filter((p) => p.vencimento.getTime() < agora.getTime())
+      .reduce((soma, p) => soma + numOrZero(p.valorBruto), 0)
+  );
+
+  return { recebidoNoMes, estornadoNoMes, recebidoLiquidoNoMes, aReceberNoMes, inadimplenteNoMes };
+}
