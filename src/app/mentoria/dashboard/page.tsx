@@ -47,6 +47,7 @@ interface AlunoLinha {
 }
 
 interface ComissaoLinha {
+  id: string;
   nome: string;
   totalAPagar: number;
   qtdContratos: number;
@@ -445,13 +446,17 @@ export default function DashboardMentoriaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {comissoesData.comissionados.map((c, i) => (
-                    <tr
-                      key={i}
-                      onClick={() => router.push("/mentoria/comissionados")}
-                      className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
-                    >
-                      <td className="px-3 py-2 font-medium text-fg">{c.nome}</td>
+                  {comissoesData.comissionados.map((c) => (
+                    <tr key={c.id} className="border-b border-border last:border-0 hover:bg-bg">
+                      <td className="px-3 py-2 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/mentoria/comissionados/${c.id}`)}
+                          className="text-fg underline-offset-2 hover:text-gold hover:underline"
+                        >
+                          {c.nome}
+                        </button>
+                      </td>
                       <td className="px-3 py-2 text-fg">{c.qtdContratos}</td>
                       <td className="px-3 py-2 text-fg">{formatarMoeda(c.totalAPagar)}</td>
                     </tr>

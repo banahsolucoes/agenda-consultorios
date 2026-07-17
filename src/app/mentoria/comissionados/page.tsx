@@ -220,7 +220,15 @@ export default function ComissionadosPage() {
               ) : (
                 comissionados.map((c) => (
                   <tr key={c.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-medium text-fg">{c.nome}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/mentoria/comissionados/${c.id}`)}
+                        className="text-fg underline-offset-2 hover:text-gold hover:underline"
+                      >
+                        {c.nome}
+                      </button>
+                    </td>
                     <td className="px-4 py-3 text-fg">{[c.email, c.telefone].filter(Boolean).join(" · ") || "—"}</td>
                     <td className="px-4 py-3 text-fg">{c.papelPadrao ?? "—"}</td>
                     <td className="px-4 py-3 text-fg">

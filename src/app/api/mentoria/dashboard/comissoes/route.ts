@@ -52,7 +52,7 @@ export async function GET() {
     totalAPagar = arred2(totalAPagar);
     totalGeralAPagar += totalAPagar;
 
-    return { nome: c.nome, totalAPagar, qtdContratos: contratosSet.size };
+    return { id: c.id, nome: c.nome, totalAPagar, qtdContratos: contratosSet.size };
   });
 
   return NextResponse.json({ comissionados: linhas, totalGeralAPagar: arred2(totalGeralAPagar) });
