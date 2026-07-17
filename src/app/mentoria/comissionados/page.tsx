@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { papelComissaoLabel } from "@/lib/labels";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"] as const;
 const FORMAS_RECEBIMENTO = ["ADIANTADO", "POR_PARCELA"] as const;
@@ -194,7 +195,7 @@ export default function ComissionadosPage() {
         <div className="overflow-x-auto rounded-xl border border-border bg-surface">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+              <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Contatos</th>
                 <th className="px-4 py-3">Papel padrão</th>
@@ -230,7 +231,7 @@ export default function ComissionadosPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-fg">{[c.email, c.telefone].filter(Boolean).join(" · ") || "—"}</td>
-                    <td className="px-4 py-3 text-fg">{c.papelPadrao ?? "—"}</td>
+                    <td className="px-4 py-3 text-fg">{c.papelPadrao ? papelComissaoLabel(c.papelPadrao) : "—"}</td>
                     <td className="px-4 py-3 text-fg">
                       {c.percentualComissao !== null ? `${(Number(c.percentualComissao) * 100).toLocaleString("pt-BR")}%` : "—"}
                     </td>
@@ -302,7 +303,7 @@ export default function ComissionadosPage() {
                   <option value="">Nenhum</option>
                   {PAPEIS_COMISSAO.map((p) => (
                     <option key={p} value={p}>
-                      {p}
+                      {papelComissaoLabel(p)}
                     </option>
                   ))}
                 </select>

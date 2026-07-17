@@ -250,3 +250,63 @@ export async function calcularComissaoNoMes(clinicaId: string, inicio: Date, fim
 
   return arred2(somaAdiantado + somaPorParcela);
 }
+
+// Comissão PENDENTE no mês — mesma fórmula da comissão POR_PARCELA (imposto
+// do contrato descontado antes do percentual), mas sobre parcelas AINDA
+// ABERTAS (não pagas) com vencimento no mês, de contratos ATIVOS. Usa
+// valorLiquido "previsto" da parcela (mesmo critério do extrato do
+// comissionado). Não tem componente ADIANTADO — essa forma não tem noção de
+// "pendente por vencimento de parcela".
+export async function calcularComissaoPendenteNoMes(clinicaId: string, inicio: Date, fim: Date): Promise<number> {
+  const parcelasAbertas = await prisma.mentoriaParcela.findMany({
+    where: {
+      clinicaId,
+      dataPagamento: null,
+      estornoEm: null,
+      vencimento: { gte: inicio, lt: fim },
+      contrato: { status: "ATIVO" },
+    },
+    select: {
+      valorLiquido: true,
+      contrato: {
+        select: {
+          taxaImpostoPct: true,
+          comissoes: {
+            where: { formaRecebimento: "POR_PARCELA", status: { not: "ESTORNADO" } },
+            select: { percentual: true },
+          },
+        },
+      },
+    },
+  });
+
+  const total = parcelasAbertas.reduce((soma, p) => {
+    const somaPercentuais = p.contrato.comissoes.reduce((s, c) => s + Number(c.percentual), 0);
+    const liquidoAposImposto = numOrZero(p.valorLiquido) * (1 - Number(p.contrato.taxaImpostoPct));
+    return soma + liquidoAposImposto * somaPercentuais;
+  }, 0);
+
+  return arred2(total);
+}
+
+// Inadimplência REAL atual — independe do mês selecionado no seletor do
+// dashboard. Parcela em aberto (não paga, não estornada) de contrato ATIVO
+// cujo vencimento cai num mês/ano ANTERIOR ao mês/ano corrente de hoje.
+// Parcela em aberto vencendo no mês corrente NÃO conta como inadimplente.
+export async function calcularInadimplenciaAtual(clinicaId: string): Promise<number> {
+  const agora = new Date();
+  const inicioMesAtual = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1));
+
+  const parcelasVencidas = await prisma.mentoriaParcela.findMany({
+    where: {
+      clinicaId,
+      dataPagamento: null,
+      estornoEm: null,
+      vencimento: { lt: inicioMesAtual },
+      contrato: { status: "ATIVO" },
+    },
+    select: { valorBruto: true },
+  });
+
+  return arred2(parcelasVencidas.reduce((soma, p) => soma + numOrZero(p.valorBruto), 0));
+}

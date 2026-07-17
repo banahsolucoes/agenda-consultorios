@@ -139,7 +139,7 @@ export default function ExtratoComissionadoPage() {
               <h2 className="font-serif text-lg font-semibold text-fg">{extrato.comissionado.nome}</h2>
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted">Percentual fixo</p>
+                  <p className="text-xs font-medium tracking-wide text-muted">Percentual fixo</p>
                   <p className="mt-1 text-lg font-semibold text-fg">
                     {extrato.comissionado.percentualComissao !== null
                       ? `${(Number(extrato.comissionado.percentualComissao) * 100).toLocaleString("pt-BR")}%`
@@ -147,13 +147,13 @@ export default function ExtratoComissionadoPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted">Forma de recebimento</p>
+                  <p className="text-xs font-medium tracking-wide text-muted">Forma de recebimento</p>
                   <p className="mt-1 text-lg font-semibold text-fg">
                     {formaRecebimentoLabel(extrato.comissionado.formaRecebimento)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted">Total a receber (devido)</p>
+                  <p className="text-xs font-medium tracking-wide text-muted">Total a receber (devido)</p>
                   <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(extrato.totalAReceber)}</p>
                 </div>
               </div>
@@ -186,7 +186,7 @@ export default function ExtratoComissionadoPage() {
                   <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                        <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                           <th className="px-3 py-2">Aluno</th>
                           <th className="px-3 py-2">Valor do contrato</th>
                           <th className="px-3 py-2">%</th>
@@ -236,7 +236,7 @@ export default function ExtratoComissionadoPage() {
                     <div className="overflow-x-auto rounded-lg border border-border">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                          <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                             <th className="px-3 py-2">Aluno</th>
                             <th className="px-3 py-2">Parcela</th>
                             <th className="px-3 py-2">Valor líquido</th>
@@ -279,7 +279,7 @@ export default function ExtratoComissionadoPage() {
                     <div className="overflow-x-auto rounded-lg border border-border">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                          <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                             <th className="px-3 py-2">Aluno</th>
                             <th className="px-3 py-2">Parcela</th>
                             <th className="px-3 py-2">Valor líquido previsto</th>

@@ -103,7 +103,7 @@ export default function NovoAlunoMentoriaPage() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Dados pessoais</h2>
+            <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Dados pessoais</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">RG</label>
@@ -162,7 +162,7 @@ export default function NovoAlunoMentoriaPage() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Contato</h2>
+            <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Contato</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Telefone</label>
@@ -186,7 +186,7 @@ export default function NovoAlunoMentoriaPage() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Endereço</h2>
+            <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Endereço</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-fg">Endereço completo</label>

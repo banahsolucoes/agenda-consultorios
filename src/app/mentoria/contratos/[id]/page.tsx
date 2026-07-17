@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { statusLabel, formaPagamentoLabel } from "@/lib/labels";
+import { statusLabel, formaPagamentoLabel, papelComissaoLabel } from "@/lib/labels";
 import { TIMEZONE } from "@/lib/timezone";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
 import DatePickerSP from "../../../painel/DatePickerSP";
@@ -602,7 +602,7 @@ export default function DetalheContratoMentoriaPage() {
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                   <th className="px-3 py-2">Nº</th>
                   <th className="px-3 py-2">Valor bruto (R$)</th>
                   <th className="px-3 py-2">Valor líquido (R$)</th>
@@ -674,7 +674,7 @@ export default function DetalheContratoMentoriaPage() {
                             {original.comissoesDaParcela.map((c) => (
                               <li key={c.comissionadoId} className={c.devida ? "text-fg" : "text-muted"}>
                                 {c.comissionadoNome}: {formatarMoeda(c.valor)}
-                                <span className="ml-1 text-[10px] uppercase tracking-wide">
+                                <span className="ml-1 text-[10px] tracking-wide">
                                   {c.devida ? "(devida)" : "(prevista)"}
                                 </span>
                               </li>
@@ -752,7 +752,7 @@ export default function DetalheContratoMentoriaPage() {
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                     <th className="px-3 py-2">Comissionado</th>
                     <th className="px-3 py-2">Papel</th>
                     <th className="px-3 py-2">Percentual</th>
@@ -773,7 +773,7 @@ export default function DetalheContratoMentoriaPage() {
                     comissoesData.comissoes.map((c) => (
                       <tr key={c.id} className="border-b border-border last:border-0">
                         <td className="px-3 py-2 font-medium text-fg">{c.comissionado.nome}</td>
-                        <td className="px-3 py-2 text-fg">{c.papel}</td>
+                        <td className="px-3 py-2 text-fg">{papelComissaoLabel(c.papel)}</td>
                         <td className="px-3 py-2 text-fg">{(Number(c.percentual) * 100).toLocaleString("pt-BR")}%</td>
                         <td className="px-3 py-2 text-fg">{formaRecebimentoLabel(c.formaRecebimento)}</td>
                         <td className="px-3 py-2 text-fg">{formatarMoeda(c.valorComissao)}</td>
@@ -999,7 +999,7 @@ export default function DetalheContratoMentoriaPage() {
                     <option value="">Selecione...</option>
                     {PAPEIS_COMISSAO.map((p) => (
                       <option key={p} value={p}>
-                        {p}
+                        {papelComissaoLabel(p)}
                       </option>
                     ))}
                   </select>

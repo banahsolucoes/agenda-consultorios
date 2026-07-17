@@ -421,7 +421,7 @@ export default function NovoContratoMentoriaPage() {
               <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                    <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                       <th className="px-3 py-2">Nº</th>
                       <th className="px-3 py-2">Valor bruto (R$)</th>
                       <th className="px-3 py-2">Valor líquido (R$)</th>

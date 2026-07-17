@@ -18,6 +18,9 @@ interface Resumo {
   totalComissoesAPagar: number;
   impostoNoMes: number;
   liquidoPamelaNoMes: number;
+  comissaoLiberadaNoMes: number;
+  comissaoPendenteNoMes: number;
+  inadimplenciaAtual: number;
 }
 
 interface ComissaoDaParcela {
@@ -71,6 +74,8 @@ interface Comissoes {
 interface Geral {
   contratosAtivos: number;
   totalAReceberGeral: number;
+  fechadosNoMesQtd: number;
+  fechadosNoMesValor: number;
 }
 
 function formatarMesParam(d: Date): string {
@@ -172,7 +177,7 @@ export default function DashboardMentoriaPage() {
   async function carregarGeral() {
     setCarregandoGeral(true);
     try {
-      const r = await fetch("/api/mentoria/dashboard/geral");
+      const r = await fetch(`/api/mentoria/dashboard/geral?mes=${mes}`);
       setGeral(r.ok ? await r.json() : null);
     } finally {
       setCarregandoGeral(false);
@@ -182,6 +187,8 @@ export default function DashboardMentoriaPage() {
   useEffect(() => {
     carregarResumo();
     carregarMensal();
+    // "Fechados no mês" acompanha o mês selecionado — refaz junto.
+    carregarGeral();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mes]);
 
@@ -195,10 +202,6 @@ export default function DashboardMentoriaPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then(setComissoesData)
       .finally(() => setCarregandoComissoes(false));
-
-    // Indicadores globais — independentes do mês selecionado, buscados uma
-    // única vez (não entram no useEffect que depende de `mes`).
-    carregarGeral();
   }, []);
 
   // Baixa direto na lista "Parcelas do mês" — sem navegar para o contrato.
@@ -280,20 +283,27 @@ export default function DashboardMentoriaPage() {
           </div>
         </div>
 
-        {/* Indicadores globais — carteira inteira, independentes do mês selecionado no topo */}
+        {/* Indicadores globais — Contratos ativos e Total a receber independem do mês; Fechados no mês acompanha o seletor */}
         {carregandoGeral ? (
           <p className="text-sm text-muted">Carregando indicadores gerais...</p>
         ) : !geral ? (
           <p className="text-sm text-muted">Não foi possível carregar os indicadores gerais.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Contratos Ativos</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Contratos ativos</p>
               <p className="mt-1 text-lg font-semibold text-fg">{geral.contratosAtivos}</p>
             </div>
             <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Total a Receber</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Total a receber</p>
               <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(geral.totalAReceberGeral)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium tracking-wide text-muted">Fechados no mês</p>
+              <p className="mt-1 text-lg font-semibold text-fg">
+                {geral.fechadosNoMesQtd} {geral.fechadosNoMesQtd === 1 ? "contrato" : "contratos"} ·{" "}
+                {formatarMoeda(geral.fechadosNoMesValor)}
+              </p>
             </div>
           </div>
         )}
@@ -304,32 +314,29 @@ export default function DashboardMentoriaPage() {
         ) : !resumo ? (
           <p className="text-sm text-muted">Não foi possível carregar o resumo do mês.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Recebido líquido no mês</p>
-              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.recebidoLiquidoNoMes)}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">A receber no mês</p>
+              <p className="text-xs font-medium tracking-wide text-muted">A receber no mês</p>
               <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.aReceberNoMes)}</p>
             </div>
             <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Inadimplência no mês</p>
-              <p className="mt-1 text-lg font-semibold text-red">{formatarMoeda(resumo.inadimplenteNoMes)}</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Recebido no mês</p>
+              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.recebidoLiquidoNoMes)}</p>
             </div>
             <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Comissões a pagar</p>
-              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.totalComissoesAPagar)}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Impostos no mês</p>
-              <p className="mt-1 text-lg font-semibold text-fg">{formatarMoeda(resumo.impostoNoMes)}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Líquido Pâmela no mês</p>
-              <p className={`mt-1 text-lg font-semibold ${resumo.liquidoPamelaNoMes < 0 ? "text-red" : "text-fg"}`}>
-                {formatarMoeda(resumo.liquidoPamelaNoMes)}
+              <p className="text-xs font-medium tracking-wide text-muted">Comissões a pagar no mês</p>
+              <p className="mt-1 text-lg font-semibold text-fg">
+                {formatarMoeda(resumo.comissaoLiberadaNoMes + resumo.comissaoPendenteNoMes)}
               </p>
+              <div className="mt-1 flex gap-3 text-xs">
+                <span className="text-green">Liberada: {formatarMoeda(resumo.comissaoLiberadaNoMes)}</span>
+                <span className="text-red">Pendente: {formatarMoeda(resumo.comissaoPendenteNoMes)}</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium tracking-wide text-muted">Inadimplência</p>
+              <p className="mt-1 text-lg font-semibold text-red">{formatarMoeda(resumo.inadimplenciaAtual)}</p>
+              <p className="mt-1 text-xs text-muted">vencidas em meses anteriores</p>
             </div>
           </div>
         )}
@@ -345,7 +352,7 @@ export default function DashboardMentoriaPage() {
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                     <th className="px-3 py-2">Aluno</th>
                     <th className="px-3 py-2">Registro</th>
                     <th className="px-3 py-2">Vencimento</th>
@@ -424,7 +431,7 @@ export default function DashboardMentoriaPage() {
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                     <th className="px-3 py-2">Aluno</th>
                     <th className="px-3 py-2">Pacote</th>
                     <th className="px-3 py-2">Parcela atual</th>
@@ -465,7 +472,7 @@ export default function DashboardMentoriaPage() {
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                     <th className="px-3 py-2">Comissionado</th>
                     <th className="px-3 py-2">Qtd. contratos</th>
                     <th className="px-3 py-2">Total a pagar</th>

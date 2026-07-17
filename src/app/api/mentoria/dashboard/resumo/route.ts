@@ -8,6 +8,8 @@ import {
   calcularValorComissaoVinculo,
   calcularImpostoNoMes,
   calcularComissaoNoMes,
+  calcularComissaoPendenteNoMes,
+  calcularInadimplenciaAtual,
   arred2,
 } from "@/lib/mentoria";
 
@@ -31,23 +33,26 @@ export async function GET(req: NextRequest) {
     mesInfo.fim
   );
 
-  const [comissoesPendentes, impostoNoMes, comissaoNoMes] = await Promise.all([
-    prisma.mentoriaComissao.findMany({
-      where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
-      include: {
-        contrato: {
-          select: {
-            valorTotal: true,
-            taxaImpostoPct: true,
-            status: true,
-            parcelas: { where: { dataPagamento: { not: null }, estornoEm: null }, select: { valorLiquido: true } },
+  const [comissoesPendentes, impostoNoMes, comissaoLiberadaNoMes, comissaoPendenteNoMes, inadimplenciaAtual] =
+    await Promise.all([
+      prisma.mentoriaComissao.findMany({
+        where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
+        include: {
+          contrato: {
+            select: {
+              valorTotal: true,
+              taxaImpostoPct: true,
+              status: true,
+              parcelas: { where: { dataPagamento: { not: null }, estornoEm: null }, select: { valorLiquido: true } },
+            },
           },
         },
-      },
-    }),
-    calcularImpostoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
-    calcularComissaoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
-  ]);
+      }),
+      calcularImpostoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+      calcularComissaoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+      calcularComissaoPendenteNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+      calcularInadimplenciaAtual(usuario.clinicaId),
+    ]);
 
   // Saldo de dívida — comissões PENDENTE, independente do mês selecionado.
   const totalComissoesAPagar = arred2(
@@ -65,8 +70,9 @@ export async function GET(req: NextRequest) {
   );
 
   // Líquido Pâmela por competência: recebido líquido do mês, menos imposto e
-  // comissão devidos naquele mês (independe de a comissão já ter sido repassada).
-  const liquidoPamelaNoMes = arred2(recebidoLiquidoNoMes - impostoNoMes - comissaoNoMes);
+  // comissão devidos naquele mês (independe de a comissão já ter sido
+  // repassada). Cálculo mantido no backend mas não exibido no dashboard.
+  const liquidoPamelaNoMes = arred2(recebidoLiquidoNoMes - impostoNoMes - comissaoLiberadaNoMes);
 
   return NextResponse.json({
     mes: `${mesInfo.ano}${String(mesInfo.mes).padStart(2, "0")}`,
@@ -76,5 +82,8 @@ export async function GET(req: NextRequest) {
     totalComissoesAPagar,
     impostoNoMes,
     liquidoPamelaNoMes,
+    comissaoLiberadaNoMes,
+    comissaoPendenteNoMes,
+    inadimplenciaAtual,
   });
 }

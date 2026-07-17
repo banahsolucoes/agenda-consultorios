@@ -97,3 +97,13 @@ const LABEL_FORMA_PAGAMENTO: Record<string, string> = {
 export function formaPagamentoLabel(valor: string): string {
   return LABEL_FORMA_PAGAMENTO[valor] ?? valor;
 }
+
+const LABEL_PAPEL_COMISSAO: Record<string, string> = {
+  SELLER: "Seller",
+  CLOSER: "Closer",
+  PRODUTOR: "Produtor",
+};
+
+export function papelComissaoLabel(valor: string): string {
+  return LABEL_PAPEL_COMISSAO[valor] ?? valor;
+}

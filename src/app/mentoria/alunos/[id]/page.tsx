@@ -213,65 +213,65 @@ export default function DetalheAlunoMentoriaPage() {
 
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Dados pessoais</h2>
+          <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Dados pessoais</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">RG</p>
+              <p className="text-xs font-medium tracking-wide text-muted">RG</p>
               <p className="text-fg">{aluno.rg || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">CPF</p>
+              <p className="text-xs font-medium tracking-wide text-muted">CPF</p>
               <p className="text-fg">{aluno.cpf || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Data de nascimento</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Data de nascimento</p>
               <p className="text-fg">{aluno.dataNascimento ? formatarDataCurta(aluno.dataNascimento) : "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Estado civil</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Estado civil</p>
               <p className="text-fg">{aluno.estadoCivil || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Profissão</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Profissão</p>
               <p className="text-fg">{aluno.profissao || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Nacionalidade</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Nacionalidade</p>
               <p className="text-fg">{aluno.nacionalidade || "—"}</p>
             </div>
           </div>
 
-          <h2 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">Contato</h2>
+          <h2 className="mb-3 mt-6 text-xs font-semibold tracking-wide text-muted">Contato</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Telefone</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Telefone</p>
               <p className="text-fg">{aluno.telefone || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">E-mail</p>
+              <p className="text-xs font-medium tracking-wide text-muted">E-mail</p>
               <p className="text-fg">{aluno.email || "—"}</p>
             </div>
           </div>
 
-          <h2 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">Endereço</h2>
+          <h2 className="mb-3 mt-6 text-xs font-semibold tracking-wide text-muted">Endereço</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Endereço completo</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Endereço completo</p>
               <p className="text-fg">{aluno.enderecoCompleto || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">CEP</p>
+              <p className="text-xs font-medium tracking-wide text-muted">CEP</p>
               <p className="text-fg">{aluno.cep || "—"}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Cidade/UF</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Cidade/UF</p>
               <p className="text-fg">{aluno.cidadeUf || "—"}</p>
             </div>
           </div>
 
           {aluno.observacoes && (
             <div className="mt-6">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Observações</p>
+              <p className="text-xs font-medium tracking-wide text-muted">Observações</p>
               <p className="whitespace-pre-wrap text-fg">{aluno.observacoes}</p>
             </div>
           )}
@@ -291,7 +291,7 @@ export default function DetalheAlunoMentoriaPage() {
           <div className="overflow-x-auto rounded-xl border border-border bg-surface">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
+                <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
                   <th className="px-4 py-3">Pacote</th>
                   <th className="px-4 py-3">Valor total</th>
                   <th className="px-4 py-3">Parcelas</th>
@@ -348,7 +348,7 @@ export default function DetalheAlunoMentoriaPage() {
               </div>
 
               <div>
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Dados pessoais</h3>
+                <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted">Dados pessoais</h3>
                 <div className="space-y-4">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">RG</label>
@@ -410,7 +410,7 @@ export default function DetalheAlunoMentoriaPage() {
               </div>
 
               <div>
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Contato</h3>
+                <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted">Contato</h3>
                 <div className="space-y-4">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">Telefone</label>
@@ -434,7 +434,7 @@ export default function DetalheAlunoMentoriaPage() {
               </div>
 
               <div>
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Endereço</h3>
+                <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted">Endereço</h3>
                 <div className="space-y-4">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">Endereço completo</label>
