@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
-import { exigirAcessoMentoria } from "@/lib/mentoria";
+import { exigirAcessoMentoria, validarSomaLiquido } from "@/lib/mentoria";
 
 function parseData(valor: unknown): Date | null {
   if (valor === undefined || valor === null || valor === "") return null;
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   }
 
   const numerosVistos = new Set<number>();
-  const parcelasValidadas: { numero: number; valorBruto: number; vencimento: Date }[] = [];
+  const parcelasValidadas: { numero: number; valorBruto: number; valorLiquido: number; vencimento: Date }[] = [];
   for (const p of parcelas) {
     if (!Number.isInteger(p?.numero) || p.numero < 1 || p.numero > totalParcelas) {
       return NextResponse.json(
@@ -76,6 +76,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (typeof p.valorLiquido !== "number" || !(p.valorLiquido > 0)) {
+      return NextResponse.json(
+        { erro: `valorLiquido da parcela ${p.numero} é obrigatório e deve ser um número maior que zero` },
+        { status: 400 }
+      );
+    }
     const vencimento = parseData(p.vencimento);
     if (!vencimento) {
       return NextResponse.json(
@@ -84,10 +90,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    parcelasValidadas.push({ numero: p.numero, valorBruto: p.valorBruto, vencimento });
+    parcelasValidadas.push({ numero: p.numero, valorBruto: p.valorBruto, valorLiquido: p.valorLiquido, vencimento });
   }
   if (numerosVistos.size !== totalParcelas) {
     return NextResponse.json({ erro: `numeros de parcela devem ir de 1 a ${totalParcelas} sem repetição` }, { status: 400 });
+  }
+
+  const somaLiquido = validarSomaLiquido(parcelasValidadas, valorTotal);
+  if (!somaLiquido.ok) {
+    return NextResponse.json(
+      {
+        erro: `a soma dos valorLiquido (${somaLiquido.informado}) não bate com valorTotal (${somaLiquido.esperado})`,
+        esperado: somaLiquido.esperado,
+        informado: somaLiquido.informado,
+        diferenca: somaLiquido.diferenca,
+      },
+      { status: 422 }
+    );
   }
 
   const { contrato } = await prisma.$transaction(async (tx) => {
@@ -109,6 +128,7 @@ export async function POST(req: NextRequest) {
         contratoId: contrato.id,
         numero: p.numero,
         valorBruto: p.valorBruto,
+        valorLiquido: p.valorLiquido,
         vencimento: p.vencimento,
       })),
     });

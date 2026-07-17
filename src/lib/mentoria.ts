@@ -25,3 +25,21 @@ export async function exigirAcessoMentoria(usuario: { clinicaId: string; papel: 
 
   return null;
 }
+
+export type ResultadoValidacaoSoma =
+  | { ok: true }
+  | { ok: false; esperado: number; informado: number; diferenca: number };
+
+// Regra de negócio: a soma dos valorLiquido de todas as parcelas de um
+// contrato tem que bater com valorTotal, com tolerância de arredondamento de
+// ±R$0,01. valorBruto fica de fora dessa checagem — a diferença bruto x
+// líquido é a taxa de cartão, esperada e nunca validada contra o total.
+export function validarSomaLiquido(parcelas: { valorLiquido: number }[], valorTotal: number): ResultadoValidacaoSoma {
+  const somaBruta = parcelas.reduce((soma, p) => soma + p.valorLiquido, 0);
+  const informado = Math.round(somaBruta * 100) / 100;
+  const diferenca = Math.round((informado - valorTotal) * 100) / 100;
+  if (Math.abs(diferenca) > 0.01) {
+    return { ok: false, esperado: valorTotal, informado, diferenca };
+  }
+  return { ok: true };
+}

@@ -225,7 +225,11 @@ export default function DetalheAlunoMentoriaPage() {
                   </tr>
                 ) : (
                   aluno.contratos.map((c) => (
-                    <tr key={c.id} className="border-b border-border last:border-0">
+                    <tr
+                      key={c.id}
+                      onClick={() => router.push(`/mentoria/contratos/${c.id}`)}
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
+                    >
                       <td className="px-4 py-3 font-medium text-fg">{c.pacote}</td>
                       <td className="px-4 py-3 text-fg">{formatarMoeda(c.valorTotal)}</td>
                       <td className="px-4 py-3 text-fg">{c.totalParcelas}</td>

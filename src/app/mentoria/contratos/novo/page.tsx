@@ -8,6 +8,7 @@ type Modalidade = "AVISTA" | "PARCELADO";
 
 interface ParcelaForm {
   valorBruto: string;
+  valorLiquido: string;
   vencimento: string; // "YYYY-MM-DD"
 }
 
@@ -87,7 +88,7 @@ export default function NovoContratoMentoriaPage() {
         setErroGeracao("informe a data de assinatura antes de gerar a parcela");
         return;
       }
-      setParcelas([{ valorBruto: valorTotal, vencimento: assinaturaContrato }]);
+      setParcelas([{ valorBruto: valorTotal, valorLiquido: valorTotal, vencimento: assinaturaContrato }]);
       return;
     }
 
@@ -121,13 +122,21 @@ export default function NovoContratoMentoriaPage() {
     const primeiroVencimento = formatarYMD(somarMeses(ano, mes, dia, 0));
 
     if (entrada > 0) {
-      geradas.push({ valorBruto: String(entrada), vencimento: primeiroVencimento });
+      geradas.push({ valorBruto: String(entrada), valorLiquido: String(entrada), vencimento: primeiroVencimento });
       for (let i = 1; i < n; i++) {
-        geradas.push({ valorBruto: String(parcela), vencimento: formatarYMD(somarMeses(ano, mes, dia, i)) });
+        geradas.push({
+          valorBruto: String(parcela),
+          valorLiquido: String(parcela),
+          vencimento: formatarYMD(somarMeses(ano, mes, dia, i)),
+        });
       }
     } else {
       for (let i = 0; i < n; i++) {
-        geradas.push({ valorBruto: String(parcela), vencimento: formatarYMD(somarMeses(ano, mes, dia, i)) });
+        geradas.push({
+          valorBruto: String(parcela),
+          valorLiquido: String(parcela),
+          vencimento: formatarYMD(somarMeses(ano, mes, dia, i)),
+        });
       }
     }
 
@@ -143,10 +152,13 @@ export default function NovoContratoMentoriaPage() {
   }
 
   function adicionarParcela() {
-    setParcelas((atual) => [...atual, { valorBruto: "", vencimento: "" }]);
+    setParcelas((atual) => [...atual, { valorBruto: "", valorLiquido: "", vencimento: "" }]);
   }
 
   const somaBrutos = parcelas.reduce((soma, p) => soma + (Number(p.valorBruto) || 0), 0);
+  const somaLiquidos = parcelas.reduce((soma, p) => soma + (Number(p.valorLiquido) || 0), 0);
+  const diferencaLiquido = Math.round((somaLiquidos - (Number(valorTotal) || 0)) * 100) / 100;
+  const somaLiquidoBate = parcelas.length > 0 && Math.abs(diferencaLiquido) <= 0.01;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -169,10 +181,22 @@ export default function NovoContratoMentoriaPage() {
       return;
     }
     for (const p of parcelas) {
-      if (!p.valorBruto || Number(p.valorBruto) <= 0 || !p.vencimento) {
-        setErro("toda parcela precisa de valorBruto maior que zero e vencimento preenchido");
+      if (
+        !p.valorBruto ||
+        Number(p.valorBruto) <= 0 ||
+        !p.valorLiquido ||
+        Number(p.valorLiquido) <= 0 ||
+        !p.vencimento
+      ) {
+        setErro("toda parcela precisa de valorBruto, valorLiquido (maiores que zero) e vencimento preenchidos");
         return;
       }
+    }
+    if (!somaLiquidoBate) {
+      setErro(
+        `a soma dos valores líquidos (${somaLiquidos.toFixed(2)}) não bate com o valor total (${Number(valorTotal).toFixed(2)})`
+      );
+      return;
     }
 
     setSalvando(true);
@@ -190,6 +214,7 @@ export default function NovoContratoMentoriaPage() {
           parcelas: parcelas.map((p, i) => ({
             numero: i + 1,
             valorBruto: Number(p.valorBruto),
+            valorLiquido: Number(p.valorLiquido),
             vencimento: p.vencimento,
           })),
         }),
@@ -400,6 +425,7 @@ export default function NovoContratoMentoriaPage() {
                     <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted">
                       <th className="px-3 py-2">Nº</th>
                       <th className="px-3 py-2">Valor bruto (R$)</th>
+                      <th className="px-3 py-2">Valor líquido (R$)</th>
                       <th className="px-3 py-2">Vencimento</th>
                       <th className="px-3 py-2"></th>
                     </tr>
@@ -415,6 +441,16 @@ export default function NovoContratoMentoriaPage() {
                             step="0.01"
                             value={p.valorBruto}
                             onChange={(e) => alterarParcela(i, "valorBruto", e.target.value)}
+                            className="w-32 rounded-lg border border-border bg-bg px-2 py-1 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={p.valorLiquido}
+                            onChange={(e) => alterarParcela(i, "valorLiquido", e.target.value)}
                             className="w-32 rounded-lg border border-border bg-bg px-2 py-1 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                           />
                         </td>
@@ -438,10 +474,20 @@ export default function NovoContratoMentoriaPage() {
                       <td className="px-3 py-2 text-xs font-medium text-muted">Soma</td>
                       <td className="px-3 py-2 text-sm font-medium text-fg">
                         {somaBrutos.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        <span className="ml-1 text-xs font-normal text-muted">(bruto, informativo)</span>
                       </td>
-                      <td colSpan={2} className="px-3 py-2 text-xs text-muted">
-                        informativo — pode divergir do valor total (taxa de cartão)
+                      <td className="px-3 py-2">
+                        <span className={`text-sm font-medium ${somaLiquidoBate ? "text-green" : "text-red"}`}>
+                          {somaLiquidos.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </span>
+                        {!somaLiquidoBate && (
+                          <span className="ml-1 text-xs text-red">
+                            diferença de {diferencaLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em
+                            relação ao valor total
+                          </span>
+                        )}
                       </td>
+                      <td colSpan={2} className="px-3 py-2 text-xs text-muted"></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -462,7 +508,7 @@ export default function NovoContratoMentoriaPage() {
             </button>
             <button
               type="submit"
-              disabled={salvando}
+              disabled={salvando || !somaLiquidoBate}
               className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {salvando ? "Salvando..." : "Criar contrato"}
