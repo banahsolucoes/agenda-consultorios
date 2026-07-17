@@ -70,6 +70,23 @@ function formatarMoeda(valor: number): string {
   return formatarMoedaBR(valor);
 }
 
+// Setas de navegação prev/next entre contratos
+function IconSetaEsquerda({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path d="M12.5 5 7 10l5.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconSetaDireita({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path d="M7.5 5 13 10l-5.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 interface Contrato {
   id: string;
   pacote: string;
@@ -172,6 +189,28 @@ export default function DetalheContratoMentoriaPage() {
   const [formDistrato, setFormDistrato] = useState({ motivoCancelamento: "", estornarParcelasPagas: true });
   const [salvandoDistrato, setSalvandoDistrato] = useState(false);
   const [erroDistrato, setErroDistrato] = useState("");
+
+  // Navegação prev/next entre contratos — mesma query/ordenação default da
+  // lista de Contratos (Término asc), reobtida aqui pra achar a posição do
+  // contrato atual no conjunto ordenado.
+  const [idsOrdenados, setIdsOrdenados] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/mentoria/contratos")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lista: { id: string; terminoContrato: string }[]) => {
+        const ordenados = [...lista].sort((a, b) => a.terminoContrato.localeCompare(b.terminoContrato));
+        setIdsOrdenados(ordenados.map((c) => c.id));
+      })
+      .catch(() => setIdsOrdenados([]));
+  }, []);
+
+  const posicaoAtual = idsOrdenados ? idsOrdenados.indexOf(contratoId) : -1;
+  const idAnterior = idsOrdenados && posicaoAtual > 0 ? idsOrdenados[posicaoAtual - 1] : null;
+  const idProximo =
+    idsOrdenados && posicaoAtual >= 0 && posicaoAtual < idsOrdenados.length - 1
+      ? idsOrdenados[posicaoAtual + 1]
+      : null;
 
   async function carregarComissoes() {
     setCarregandoComissoes(true);
@@ -487,8 +526,8 @@ export default function DetalheContratoMentoriaPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-bg text-sm text-muted">
         <p>{erroCarregar || "contrato não encontrado"}</p>
-        <button onClick={() => router.push("/mentoria/alunos")} className="text-gold hover:underline">
-          ← Voltar para Alunos
+        <button onClick={() => router.push("/mentoria/contratos")} className="text-gold hover:underline">
+          ← Voltar para Contratos
         </button>
       </div>
     );
@@ -499,13 +538,37 @@ export default function DetalheContratoMentoriaPage() {
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push(`/mentoria/alunos/${contrato.aluno.id}`)}
-              className="text-sm text-muted hover:text-fg"
-            >
-              ← {contrato.aluno.nomeCompleto}
+            <button onClick={() => router.push("/mentoria/contratos")} className="text-sm text-muted hover:text-fg">
+              ← Contratos
             </button>
-            <h1 className="font-serif text-lg font-semibold text-fg">{contrato.pacote}</h1>
+            <div className="flex items-center gap-1 border-l border-border pl-3">
+              <button
+                onClick={() => idAnterior && router.push(`/mentoria/contratos/${idAnterior}`)}
+                disabled={!idAnterior}
+                className="rounded-lg p-1.5 text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Contrato anterior"
+                title="Contrato anterior"
+              >
+                <IconSetaEsquerda className="h-4 w-4" />
+              </button>
+              {idsOrdenados && posicaoAtual >= 0 && (
+                <span className="px-1 text-xs text-muted">
+                  {posicaoAtual + 1} / {idsOrdenados.length}
+                </span>
+              )}
+              <button
+                onClick={() => idProximo && router.push(`/mentoria/contratos/${idProximo}`)}
+                disabled={!idProximo}
+                className="rounded-lg p-1.5 text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Próximo contrato"
+                title="Próximo contrato"
+              >
+                <IconSetaDireita className="h-4 w-4" />
+              </button>
+            </div>
+            <h1 className="font-serif text-lg font-semibold text-fg">
+              {contrato.aluno.nomeCompleto} · {contrato.pacote}
+            </h1>
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatusContrato(contrato.status)}`}>
               {statusLabel(contrato.status)}
             </span>

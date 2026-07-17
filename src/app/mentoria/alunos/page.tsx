@@ -297,6 +297,14 @@ export default function MentoriaAlunosPage() {
               Alunos
             </button>
             <button
+              onClick={() => router.push("/mentoria/contratos")}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+                pathname?.startsWith("/mentoria/contratos") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"
+              }`}
+            >
+              Contratos
+            </button>
+            <button
               onClick={() => router.push("/mentoria/comissionados")}
               className={`rounded-lg border px-4 py-2 text-sm font-medium ${
                 pathname?.startsWith("/mentoria/comissionados") ? "border-gold bg-gold/10 text-gold" : "border-border text-fg hover:bg-bg"

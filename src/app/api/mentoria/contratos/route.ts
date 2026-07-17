@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
-import { exigirAcessoMentoria, validarSomaLiquido } from "@/lib/mentoria";
+import { calcularTerminoContrato, exigirAcessoMentoria, validarSomaLiquido } from "@/lib/mentoria";
 
 const PAPEIS_COMISSAO = ["SELLER", "CLOSER", "PRODUTOR"];
 
@@ -10,6 +10,46 @@ function parseData(valor: unknown): Date | null {
   if (valor === undefined || valor === null || valor === "") return null;
   const data = new Date(valor as string);
   return Number.isNaN(data.getTime()) ? null : data;
+}
+
+// GET /api/mentoria/contratos — lista TODOS os contratos do tenant (com o
+// aluno e a contagem de parcelas em aberto), para a aba "Contratos" e para a
+// navegação prev/next do detalhe do contrato. Escopado só por clinicaId de
+// getUsuarioLogado().
+export async function GET() {
+  const usuario = await getUsuarioLogado();
+  if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  const erroAcesso = await exigirAcessoMentoria(usuario);
+  if (erroAcesso) return erroAcesso;
+
+  const contratos = await prisma.mentoriaContrato.findMany({
+    where: { clinicaId: usuario.clinicaId },
+    include: {
+      aluno: { select: { id: true, nomeCompleto: true } },
+      parcelas: { select: { dataPagamento: true, estornoEm: true } },
+    },
+  });
+
+  const resultado = contratos.map((c) => {
+    // Mesma regra de derivarStatusParcela: contrato CANCELADO não tem
+    // parcela "em aberto" — todas contam como canceladas.
+    const parcelasEmAberto =
+      c.status === "CANCELADO"
+        ? 0
+        : c.parcelas.filter((p) => p.dataPagamento === null && p.estornoEm === null).length;
+
+    return {
+      id: c.id,
+      pacote: c.pacote,
+      status: c.status,
+      assinaturaContrato: c.assinaturaContrato,
+      terminoContrato: calcularTerminoContrato(c.assinaturaContrato, c.duracaoMeses),
+      parcelasEmAberto,
+      aluno: c.aluno,
+    };
+  });
+
+  return NextResponse.json(resultado);
 }
 
 // POST /api/mentoria/contratos — cria contrato + parcelas atomicamente
