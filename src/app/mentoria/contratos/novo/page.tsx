@@ -39,6 +39,7 @@ export default function NovoContratoMentoriaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const alunoId = searchParams.get("aluno") ?? "";
+  const prorrogar = searchParams.get("prorrogar") === "1";
 
   const [alunoNome, setAlunoNome] = useState("");
   const [carregandoAluno, setCarregandoAluno] = useState(true);
@@ -46,6 +47,7 @@ export default function NovoContratoMentoriaPage() {
 
   const [pacote, setPacote] = useState("");
   const [valorTotal, setValorTotal] = useState("");
+  const [duracaoMeses, setDuracaoMeses] = useState("");
   const [taxaImpostoPct, setTaxaImpostoPct] = useState("6");
   const [assinaturaContrato, setAssinaturaContrato] = useState("");
   const [modalidade, setModalidade] = useState<Modalidade>("AVISTA");
@@ -183,11 +185,15 @@ export default function NovoContratoMentoriaPage() {
     setErro("");
 
     if (!pacote.trim()) {
-      setErro("informe o pacote");
+      setErro("informe o produto");
       return;
     }
     if (!valorTotal || Number(valorTotal) <= 0) {
       setErro("valorTotal deve ser maior que zero");
+      return;
+    }
+    if (!duracaoMeses || Number(duracaoMeses) < 1 || !Number.isInteger(Number(duracaoMeses))) {
+      setErro("duração (meses) deve ser um inteiro maior ou igual a 1");
       return;
     }
     if (!assinaturaContrato) {
@@ -226,9 +232,11 @@ export default function NovoContratoMentoriaPage() {
           alunoId,
           pacote: pacote.trim(),
           valorTotal: Number(valorTotal),
+          duracaoMeses: Number(duracaoMeses),
           taxaImpostoPct: Number(taxaImpostoPct) / 100,
           assinaturaContrato,
           totalParcelas: parcelas.length,
+          prorrogar,
           parcelas: parcelas.map((p, i) => ({
             numero: i + 1,
             valorBruto: Number(p.valorBruto),
@@ -274,17 +282,23 @@ export default function NovoContratoMentoriaPage() {
           <button onClick={() => router.push(`/mentoria/alunos/${alunoId}`)} className="text-sm text-muted hover:text-fg">
             ← {alunoNome}
           </button>
-          <h1 className="font-serif text-lg font-semibold text-fg">Novo contrato</h1>
+          <h1 className="font-serif text-lg font-semibold text-fg">{prorrogar ? "Prorrogar contrato" : "Novo contrato"}</h1>
         </div>
       </header>
 
       <div className="mx-auto max-w-3xl px-6 py-8">
+        {prorrogar && (
+          <p className="mb-6 rounded-lg bg-gold/10 px-3 py-2 text-sm text-fg">
+            O contrato ativo atual de {alunoNome} será encerrado e este novo contrato passará a ser o ativo. O
+            histórico do contrato anterior é preservado.
+          </p>
+        )}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4 rounded-xl border border-border bg-surface p-6">
             <h2 className="font-serif text-base font-semibold text-fg">Dados do contrato</h2>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-fg">Pacote</label>
+              <label className="mb-1 block text-sm font-medium text-fg">Produto</label>
               <input
                 type="text"
                 required
@@ -298,6 +312,18 @@ export default function NovoContratoMentoriaPage() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Valor total</label>
                 <InputMoedaBR value={Number(valorTotal) || 0} onChange={(v) => setValorTotal(String(v))} required />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Duração (meses)</label>
+                <input
+                  type="number"
+                  min={1}
+                  step="1"
+                  required
+                  value={duracaoMeses}
+                  onChange={(e) => setDuracaoMeses(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Taxa de imposto (%)</label>
@@ -503,7 +529,7 @@ export default function NovoContratoMentoriaPage() {
               disabled={salvando || !somaLiquidoBate}
               className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {salvando ? "Salvando..." : "Criar contrato"}
+              {salvando ? "Salvando..." : prorrogar ? "Prorrogar contrato" : "Criar contrato"}
             </button>
           </div>
         </form>

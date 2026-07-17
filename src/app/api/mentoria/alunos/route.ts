@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { registrarLog } from "@/lib/auditoria";
 import { soDigitos } from "@/lib/importacao";
-import { exigirAcessoMentoria } from "@/lib/mentoria";
+import { calcularTerminoContrato, exigirAcessoMentoria } from "@/lib/mentoria";
 
 function parseData(valor: unknown): Date | null | undefined {
   if (valor === undefined) return undefined;
@@ -24,7 +24,9 @@ function erroDedupe(err: unknown): NextResponse | null {
   return NextResponse.json({ erro: "CPF já cadastrado nesta clínica" }, { status: 409 });
 }
 
-// GET /api/mentoria/alunos — lista alunos da clínica logada, com a contagem de contratos
+// GET /api/mentoria/alunos — lista alunos da clínica logada, com a contagem
+// de contratos e, quando existir, o contrato ATIVO do aluno (assinatura +
+// término calculado — nunca armazenado) para as colunas do grid.
 export async function GET() {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
@@ -34,10 +36,32 @@ export async function GET() {
   const alunos = await prisma.mentoriaAluno.findMany({
     where: { clinicaId: usuario.clinicaId },
     orderBy: { nomeCompleto: "asc" },
-    include: { _count: { select: { contratos: true } } },
+    include: {
+      _count: { select: { contratos: true } },
+      contratos: {
+        where: { status: "ATIVO" },
+        select: { id: true, assinaturaContrato: true, duracaoMeses: true },
+        take: 1,
+      },
+    },
   });
 
-  return NextResponse.json(alunos);
+  const resultado = alunos.map((a) => {
+    const { contratos, ...resto } = a;
+    const contratoAtivo = contratos[0] ?? null;
+    return {
+      ...resto,
+      contratoAtivo: contratoAtivo
+        ? {
+            id: contratoAtivo.id,
+            assinaturaContrato: contratoAtivo.assinaturaContrato,
+            terminoContrato: calcularTerminoContrato(contratoAtivo.assinaturaContrato, contratoAtivo.duracaoMeses),
+          }
+        : null,
+    };
+  });
+
+  return NextResponse.json(resultado);
 }
 
 // POST /api/mentoria/alunos — cadastra aluno na clínica logada

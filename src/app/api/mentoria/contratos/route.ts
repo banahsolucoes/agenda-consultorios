@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ erro: "corpo da requisição inválido" }, { status: 400 });
 
-  const { alunoId, pacote, valorTotal, totalParcelas, parcelas } = body;
+  const { alunoId, pacote, valorTotal, duracaoMeses, totalParcelas, parcelas, prorrogar } = body;
 
   if (!alunoId || typeof alunoId !== "string") {
     return NextResponse.json({ erro: "alunoId é obrigatório" }, { status: 400 });
@@ -30,11 +30,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "aluno não encontrado" }, { status: 404 });
   }
 
+  // Regra: no máximo um contrato ATIVO por aluno. Prorrogar (Opção B) encerra
+  // o contrato ativo atual e cria um novo — nunca apaga o anterior.
+  const contratoAtivo = await prisma.mentoriaContrato.findFirst({
+    where: { alunoId: aluno.id, clinicaId: usuario.clinicaId, status: "ATIVO" },
+  });
+  if (contratoAtivo && prorrogar !== true) {
+    return NextResponse.json(
+      {
+        erro: `este aluno já tem um contrato ativo ("${contratoAtivo.pacote}") — use a ação "Prorrogar" para encerrá-lo e criar um novo`,
+        contratoAtivoId: contratoAtivo.id,
+      },
+      { status: 409 }
+    );
+  }
+
   if (!pacote || typeof pacote !== "string") {
     return NextResponse.json({ erro: "pacote é obrigatório" }, { status: 400 });
   }
   if (typeof valorTotal !== "number" || !(valorTotal > 0)) {
     return NextResponse.json({ erro: "valorTotal deve ser um número maior que zero" }, { status: 400 });
+  }
+  if (!Number.isInteger(duracaoMeses) || duracaoMeses < 1) {
+    return NextResponse.json({ erro: "duracaoMeses deve ser um inteiro maior ou igual a 1" }, { status: 400 });
   }
   const assinaturaContrato = parseData(body.assinaturaContrato);
   if (!assinaturaContrato) {
@@ -110,12 +128,24 @@ export async function POST(req: NextRequest) {
   }
 
   const { contrato } = await prisma.$transaction(async (tx) => {
+    // Prorrogação (Opção B): encerra o contrato ativo atual — reaproveita o
+    // status StatusContrato já existente (CONCLUIDO), nunca CANCELADO, pois
+    // CANCELADO carrega semântica de distrato (zera comissões, libera
+    // exclusão em cascata) que não se aplica aqui. Histórico preservado.
+    if (contratoAtivo && prorrogar === true) {
+      await tx.mentoriaContrato.update({
+        where: { id: contratoAtivo.id },
+        data: { status: "CONCLUIDO" },
+      });
+    }
+
     const contrato = await tx.mentoriaContrato.create({
       data: {
         clinicaId: usuario.clinicaId,
         alunoId: aluno.id,
         pacote,
         valorTotal,
+        duracaoMeses,
         ...(taxaImpostoPct !== undefined ? { taxaImpostoPct } : {}),
         assinaturaContrato,
         totalParcelas,
@@ -136,11 +166,15 @@ export async function POST(req: NextRequest) {
     return { contrato };
   });
 
+  const prefixoLog =
+    contratoAtivo && prorrogar === true
+      ? `Prorrogou o contrato de ${aluno.nomeCompleto} (encerrou "${contratoAtivo.pacote}") — novo contrato "${pacote}"`
+      : `Criou o contrato "${pacote}" de ${aluno.nomeCompleto}`;
   await registrarLog(
     usuario.clinicaId,
     usuario.id,
     "CRIAR_CONTRATO_MENTORIA",
-    `Criou o contrato "${pacote}" de ${aluno.nomeCompleto} (${totalParcelas} parcela${totalParcelas === 1 ? "" : "s"}, valor total ${valorTotal})`
+    `${prefixoLog} (${totalParcelas} parcela${totalParcelas === 1 ? "" : "s"}, valor total ${valorTotal})`
   );
 
   return NextResponse.json(contrato, { status: 201 });

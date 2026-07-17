@@ -74,6 +74,7 @@ interface Contrato {
   id: string;
   pacote: string;
   valorTotal: string;
+  duracaoMeses: number;
   taxaImpostoPct: string;
   assinaturaContrato: string;
   totalParcelas: number;
@@ -138,6 +139,7 @@ export default function DetalheContratoMentoriaPage() {
 
   const [pacote, setPacote] = useState("");
   const [valorTotal, setValorTotal] = useState("");
+  const [duracaoMeses, setDuracaoMeses] = useState("");
   const [taxaImpostoPctPercent, setTaxaImpostoPctPercent] = useState("");
   const [assinaturaContrato, setAssinaturaContrato] = useState("");
   const [parcelas, setParcelas] = useState<ParcelaForm[]>([]);
@@ -193,6 +195,7 @@ export default function DetalheContratoMentoriaPage() {
       setContrato(dados);
       setPacote(dados.pacote);
       setValorTotal(dados.valorTotal);
+      setDuracaoMeses(String(dados.duracaoMeses));
       setTaxaImpostoPctPercent(String(Number(dados.taxaImpostoPct) * 100));
       setAssinaturaContrato(dados.assinaturaContrato.slice(0, 10));
       setParcelas(
@@ -248,11 +251,15 @@ export default function DetalheContratoMentoriaPage() {
     setErro("");
 
     if (!pacote.trim()) {
-      setErro("informe o pacote");
+      setErro("informe o produto");
       return;
     }
     if (!valorTotal || Number(valorTotal) <= 0) {
       setErro("valorTotal deve ser maior que zero");
+      return;
+    }
+    if (!duracaoMeses || Number(duracaoMeses) < 1 || !Number.isInteger(Number(duracaoMeses))) {
+      setErro("duração (meses) deve ser um inteiro maior ou igual a 1");
       return;
     }
     if (!assinaturaContrato) {
@@ -282,6 +289,7 @@ export default function DetalheContratoMentoriaPage() {
         body: JSON.stringify({
           pacote: pacote.trim(),
           valorTotal: Number(valorTotal),
+          duracaoMeses: Number(duracaoMeses),
           taxaImpostoPct: Number(taxaImpostoPctPercent) / 100,
           assinaturaContrato,
         }),
@@ -542,7 +550,7 @@ export default function DetalheContratoMentoriaPage() {
           <h2 className="font-serif text-base font-semibold text-fg">Dados do contrato</h2>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-fg">Pacote</label>
+            <label className="mb-1 block text-sm font-medium text-fg">Produto</label>
             <input
               type="text"
               value={pacote}
@@ -552,13 +560,25 @@ export default function DetalheContratoMentoriaPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-fg">Valor total</label>
               <InputMoedaBR
                 value={Number(valorTotal) || 0}
                 onChange={(v) => setValorTotal(String(v))}
                 disabled={!editavel}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Duração (meses)</label>
+              <input
+                type="number"
+                min={1}
+                step="1"
+                value={duracaoMeses}
+                disabled={!editavel}
+                onChange={(e) => setDuracaoMeses(e.target.value)}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
             <div>

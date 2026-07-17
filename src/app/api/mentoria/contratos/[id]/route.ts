@@ -103,6 +103,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
     data.valorTotal = body.valorTotal;
   }
+  if (body.duracaoMeses !== undefined) {
+    if (!Number.isInteger(body.duracaoMeses) || body.duracaoMeses < 1) {
+      return NextResponse.json({ erro: "duracaoMeses deve ser um inteiro maior ou igual a 1" }, { status: 400 });
+    }
+    data.duracaoMeses = body.duracaoMeses;
+  }
   if (body.taxaImpostoPct !== undefined) {
     if (typeof body.taxaImpostoPct !== "number" || body.taxaImpostoPct < 0) {
       return NextResponse.json({ erro: "taxaImpostoPct deve ser um número maior ou igual a zero" }, { status: 400 });

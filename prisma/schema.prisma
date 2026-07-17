@@ -452,6 +452,7 @@ model MentoriaContrato {
   valorTotal         Decimal  @db.Decimal(10,2)
   taxaImpostoPct     Decimal  @default(0.06) @db.Decimal(5,4)
   assinaturaContrato DateTime
+  duracaoMeses       Int
   totalParcelas      Int
   status             StatusContrato @default(ATIVO)
   canceladoEm        DateTime?

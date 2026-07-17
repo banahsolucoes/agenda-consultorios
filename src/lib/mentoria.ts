@@ -87,6 +87,25 @@ export function arred2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Término do contrato — NUNCA armazenado, sempre calculado a partir de
+// assinaturaContrato + duracaoMeses (Parte 2 da tarefa de contratos).
+// Clampa o dia no último dia do mês de destino (ex.: 31/01 + 1 mês = 28/02
+// ou 29/02 em ano bissexto), mesma regra usada no gerador de parcelas do
+// formulário de contrato.
+export function calcularTerminoContrato(assinaturaContrato: Date, duracaoMeses: number): Date {
+  const ano = assinaturaContrato.getUTCFullYear();
+  const mes = assinaturaContrato.getUTCMonth();
+  const dia = assinaturaContrato.getUTCDate();
+
+  const totalMeses = mes + duracaoMeses;
+  const novoAno = ano + Math.floor(totalMeses / 12);
+  const novoMes = ((totalMeses % 12) + 12) % 12;
+  const ultimoDiaNovoMes = new Date(Date.UTC(novoAno, novoMes + 1, 0)).getUTCDate();
+  const diaClamped = Math.min(dia, ultimoDiaNovoMes);
+
+  return new Date(Date.UTC(novoAno, novoMes, diaClamped));
+}
+
 // Converte um valor possivelmente nulo/indefinido (ex.: campo Decimal? do
 // Prisma) num number seguro, nunca NaN — guarda contra valor nulo nas somas.
 export function numOrZero(valor: unknown): number {

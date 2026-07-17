@@ -192,6 +192,10 @@ export default function DetalheAlunoMentoriaPage() {
     );
   }
 
+  // Regra: no máximo um contrato ATIVO por aluno — "Novo contrato" vira
+  // "Prorrogar contrato" enquanto existir um (Parte 1 da tarefa de contratos).
+  const contratoAtivo = aluno.contratos.find((c) => c.status === "ATIVO") ?? null;
+
   return (
     <div className="min-h-screen bg-bg">
       <header className="border-b border-border bg-surface">
@@ -281,10 +285,14 @@ export default function DetalheAlunoMentoriaPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-serif text-base font-semibold text-fg">Contratos</h2>
             <button
-              onClick={() => router.push(`/mentoria/contratos/novo?aluno=${aluno.id}`)}
+              onClick={() =>
+                router.push(
+                  `/mentoria/contratos/novo?aluno=${aluno.id}${contratoAtivo ? "&prorrogar=1" : ""}`
+                )
+              }
               className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
             >
-              Novo contrato
+              {contratoAtivo ? "Prorrogar contrato" : "Novo contrato"}
             </button>
           </div>
 
@@ -292,7 +300,7 @@ export default function DetalheAlunoMentoriaPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
-                  <th className="px-4 py-3">Pacote</th>
+                  <th className="px-4 py-3">Produto</th>
                   <th className="px-4 py-3">Valor total</th>
                   <th className="px-4 py-3">Parcelas</th>
                   <th className="px-4 py-3">Assinatura</th>

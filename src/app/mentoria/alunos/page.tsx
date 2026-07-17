@@ -1,18 +1,52 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { TIMEZONE, componentesSP } from "@/lib/timezone";
 
 interface Aluno {
   id: string;
   nomeCompleto: string;
+  dataNascimento: string | null;
   email: string | null;
   telefone: string | null;
   _count: { contratos: number };
+  contratoAtivo: { id: string; assinaturaContrato: string; terminoContrato: string } | null;
 }
 
 function soDigitos(s: string): string {
   return (s || "").replace(/\D/g, "");
+}
+
+function formatarDataCurta(iso: string): string {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TIMEZONE });
+}
+
+// Aniversário: mesmo dia e mês de hoje, ignorando o ano — comparado no fuso
+// da aplicação (America/Sao_Paulo), nunca no fuso local do processo/browser.
+function ehAniversarioHoje(dataNascimentoIso: string | null): boolean {
+  if (!dataNascimentoIso) return false;
+  const nascimento = componentesSP(new Date(dataNascimentoIso));
+  const hoje = componentesSP(new Date());
+  return nascimento.dia === hoje.dia && nascimento.mes === hoje.mes;
+}
+
+type SortKey = "nomeCompleto" | "dataNascimento";
+type SortDir = "asc" | "desc";
+
+// Ícone de seta de ordenação — aponta pra cima (asc) ou pra baixo (desc)
+function IconSeta({ dir, className }: { dir: SortDir; className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d={dir === "asc" ? "M10 13V7M6.5 10.5 10 7l3.5 3.5" : "M10 7v6M6.5 9.5 10 13l3.5-3.5"}
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 // Ícone de lixeira (excluir aluno) — mesmo traçado usado na Agenda (painel/page.tsx)
@@ -35,6 +69,36 @@ export default function MentoriaAlunosPage() {
   const pathname = usePathname();
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [carregando, setCarregando] = useState(true);
+
+  const [sortKey, setSortKey] = useState<SortKey>("nomeCompleto");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function alternarOrdenacao(chave: SortKey) {
+    if (sortKey === chave) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(chave);
+      setSortDir("asc");
+    }
+  }
+
+  const alunosOrdenados = useMemo(() => {
+    const copia = [...alunos];
+    copia.sort((a, b) => {
+      let comparacao = 0;
+      if (sortKey === "nomeCompleto") {
+        comparacao = a.nomeCompleto.localeCompare(b.nomeCompleto, "pt-BR");
+      } else {
+        // dataNascimento nula sempre vai pro fim, independente da direção
+        if (!a.dataNascimento && !b.dataNascimento) comparacao = 0;
+        else if (!a.dataNascimento) return 1;
+        else if (!b.dataNascimento) return -1;
+        else comparacao = a.dataNascimento.localeCompare(b.dataNascimento);
+      }
+      return sortDir === "asc" ? comparacao : -comparacao;
+    });
+    return copia;
+  }, [alunos, sortKey, sortDir]);
 
   // Modal: pré-visualização e confirmação da importação de clientes
   // (planilha fixa da Mentoria) — mesma UX da importação de pacientes da
@@ -265,52 +329,81 @@ export default function MentoriaAlunosPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs font-medium tracking-wide text-muted">
-                <th className="px-4 py-3">Nome</th>
-                <th className="px-4 py-3">Contatos</th>
+                <th className="px-4 py-3">
+                  <button
+                    onClick={() => alternarOrdenacao("nomeCompleto")}
+                    className="flex items-center gap-1 hover:text-fg"
+                  >
+                    Nome
+                    {sortKey === "nomeCompleto" && <IconSeta dir={sortDir} className="h-3.5 w-3.5" />}
+                  </button>
+                </th>
+                <th className="px-4 py-3">
+                  <button
+                    onClick={() => alternarOrdenacao("dataNascimento")}
+                    className="flex items-center gap-1 hover:text-fg"
+                  >
+                    Data de nascimento
+                    {sortKey === "dataNascimento" && <IconSeta dir={sortDir} className="h-3.5 w-3.5" />}
+                  </button>
+                </th>
                 <th className="px-4 py-3">Contratos</th>
+                <th className="px-4 py-3">Assinatura do contrato</th>
+                <th className="px-4 py-3">Término do contrato</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {carregando ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={6} className="px-4 py-6 text-center text-muted">
                     Carregando...
                   </td>
                 </tr>
-              ) : alunos.length === 0 ? (
+              ) : alunosOrdenados.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={6} className="px-4 py-6 text-center text-muted">
                     Nenhum aluno cadastrado.
                   </td>
                 </tr>
               ) : (
-                alunos.map((a) => (
-                  <tr
-                    key={a.id}
-                    onClick={() => router.push(`/mentoria/alunos/${a.id}`)}
-                    className="cursor-pointer border-b border-border last:border-0 hover:bg-bg"
-                  >
-                    <td className="px-4 py-3 font-medium text-fg">{a.nomeCompleto}</td>
-                    <td className="px-4 py-3 text-fg">
-                      {[a.email, a.telefone].filter(Boolean).join(" · ") || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-fg">{a._count.contratos}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          abrirModalExcluir(a);
-                        }}
-                        className="rounded-lg p-1.5 text-muted hover:bg-red/10 hover:text-red"
-                        aria-label="Excluir cliente"
-                        title="Excluir cliente"
-                      >
-                        <IconLixeira className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                alunosOrdenados.map((a) => {
+                  const aniversariante = ehAniversarioHoje(a.dataNascimento);
+                  return (
+                    <tr
+                      key={a.id}
+                      onClick={() => router.push(`/mentoria/alunos/${a.id}`)}
+                      className={`cursor-pointer border-b border-border last:border-0 hover:bg-bg ${
+                        aniversariante ? "bg-red/10" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-medium text-fg">{a.nomeCompleto}</td>
+                      <td className={`px-4 py-3 ${aniversariante ? "font-medium text-red" : "text-fg"}`}>
+                        {a.dataNascimento ? formatarDataCurta(a.dataNascimento) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-fg">{a._count.contratos}</td>
+                      <td className="px-4 py-3 text-fg">
+                        {a.contratoAtivo ? formatarDataCurta(a.contratoAtivo.assinaturaContrato) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-fg">
+                        {a.contratoAtivo ? formatarDataCurta(a.contratoAtivo.terminoContrato) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirModalExcluir(a);
+                          }}
+                          className="rounded-lg p-1.5 text-muted hover:bg-red/10 hover:text-red"
+                          aria-label="Excluir cliente"
+                          title="Excluir cliente"
+                        >
+                          <IconLixeira className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
