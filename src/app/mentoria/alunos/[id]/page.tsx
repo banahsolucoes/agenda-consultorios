@@ -333,7 +333,7 @@ export default function DetalheAlunoMentoriaPage() {
 
       {modalEdicao && (
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center overflow-y-auto bg-black/60 px-4 py-8">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+          <div className="w-full max-w-4xl rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Editar aluno</h2>
             <form onSubmit={handleSalvarEdicao} className="space-y-6">
               <div>
@@ -349,7 +349,7 @@ export default function DetalheAlunoMentoriaPage() {
 
               <div>
                 <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted">Dados pessoais</h3>
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">RG</label>
                     <input
@@ -411,7 +411,7 @@ export default function DetalheAlunoMentoriaPage() {
 
               <div>
                 <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted">Contato</h3>
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-fg">Telefone</label>
                     <input
@@ -435,8 +435,8 @@ export default function DetalheAlunoMentoriaPage() {
 
               <div>
                 <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted">Endereço</h3>
-                <div className="space-y-4">
-                  <div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="md:col-span-3">
                     <label className="mb-1 block text-sm font-medium text-fg">Endereço completo</label>
                     <input
                       type="text"

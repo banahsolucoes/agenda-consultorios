@@ -247,7 +247,7 @@ export default function MentoriaAlunosPage() {
               disabled={carregandoPreviewImportacao}
               className="rounded-lg border border-gold px-4 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {carregandoPreviewImportacao ? "Carregando..." : "Importar clientes"}
+              {carregandoPreviewImportacao ? "Carregando..." : "Importar alunos"}
             </button>
             <button
               onClick={() => router.push("/mentoria/alunos/novo")}
@@ -322,7 +322,7 @@ export default function MentoriaAlunosPage() {
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              Importar clientes da planilha
+              Importar alunos da planilha
             </h2>
 
             {resultadoImportacao ? (
