@@ -141,3 +141,42 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   return NextResponse.json(atualizado);
 }
+
+// DELETE /api/mentoria/alunos/[id] — exclui definitivamente o aluno da
+// clínica logada. Bloqueado se houver contratos vinculados (MentoriaContrato
+// exige alunoId — apagar contratos/parcelas/comissões financeiras não é uma
+// operação implícita de "excluir cadastro"), reportado ao usuário em vez de
+// cascatear a exclusão.
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const usuario = await getUsuarioLogado();
+  if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  const erroAcesso = await exigirAcessoMentoria(usuario);
+  if (erroAcesso) return erroAcesso;
+
+  const { id } = await ctx.params;
+  const aluno = await prisma.mentoriaAluno.findUnique({
+    where: { id },
+    include: { _count: { select: { contratos: true } } },
+  });
+  if (!aluno || aluno.clinicaId !== usuario.clinicaId) {
+    return NextResponse.json({ erro: "aluno não encontrado" }, { status: 404 });
+  }
+
+  if (aluno._count.contratos > 0) {
+    return NextResponse.json(
+      { erro: "não é possível excluir: este cliente possui contratos vinculados" },
+      { status: 409 }
+    );
+  }
+
+  await prisma.mentoriaAluno.delete({ where: { id } });
+
+  await registrarLog(
+    usuario.clinicaId,
+    usuario.id,
+    "EXCLUIR_ALUNO_MENTORIA",
+    `Excluiu o aluno de mentoria ${aluno.nomeCompleto}`
+  );
+
+  return NextResponse.json({ ok: true });
+}

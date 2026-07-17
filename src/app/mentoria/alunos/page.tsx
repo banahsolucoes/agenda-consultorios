@@ -15,6 +15,21 @@ function soDigitos(s: string): string {
   return (s || "").replace(/\D/g, "");
 }
 
+// Ícone de lixeira (excluir aluno) — mesmo traçado usado na Agenda (painel/page.tsx)
+function IconLixeira({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6M6 6l.6 9.4A1.5 1.5 0 0 0 8.1 17h3.8a1.5 1.5 0 0 0 1.5-1.6L14 6"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function MentoriaAlunosPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -41,6 +56,13 @@ export default function MentoriaAlunosPage() {
     pulados: number;
     erros: number;
   } | null>(null);
+
+  // Modal: excluir aluno — trava exige digitar o nome do aluno, mesmo padrão
+  // da exclusão de paciente na Agenda (src/app/painel/page.tsx).
+  const [alunoExcluindo, setAlunoExcluindo] = useState<Aluno | null>(null);
+  const [confirmacaoExclusao, setConfirmacaoExclusao] = useState("");
+  const [salvandoExclusao, setSalvandoExclusao] = useState(false);
+  const [erroExclusao, setErroExclusao] = useState("");
 
   function carregarAlunos() {
     setCarregando(true);
@@ -143,6 +165,35 @@ export default function MentoriaAlunosPage() {
     setCpfsSelecionadosImportacao(new Set());
   }
 
+  function abrirModalExcluir(a: Aluno) {
+    setAlunoExcluindo(a);
+    setConfirmacaoExclusao("");
+    setErroExclusao("");
+  }
+
+  async function handleConfirmarExclusao(e: React.FormEvent) {
+    e.preventDefault();
+    if (!alunoExcluindo) return;
+    setErroExclusao("");
+    setSalvandoExclusao(true);
+
+    try {
+      const res = await fetch(`/api/mentoria/alunos/${alunoExcluindo.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErroExclusao(data?.erro ?? "não foi possível excluir o cliente");
+        return;
+      }
+
+      setAlunoExcluindo(null);
+      await carregarAlunos();
+    } catch {
+      setErroExclusao("não foi possível excluir o cliente");
+    } finally {
+      setSalvandoExclusao(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-bg">
       <header className="border-b border-border bg-surface">
@@ -217,18 +268,19 @@ export default function MentoriaAlunosPage() {
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Contatos</th>
                 <th className="px-4 py-3">Contratos</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {carregando ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={4} className="px-4 py-6 text-center text-muted">
                     Carregando...
                   </td>
                 </tr>
               ) : alunos.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={4} className="px-4 py-6 text-center text-muted">
                     Nenhum aluno cadastrado.
                   </td>
                 </tr>
@@ -244,6 +296,19 @@ export default function MentoriaAlunosPage() {
                       {[a.email, a.telefone].filter(Boolean).join(" · ") || "—"}
                     </td>
                     <td className="px-4 py-3 text-fg">{a._count.contratos}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          abrirModalExcluir(a);
+                        }}
+                        className="rounded-lg p-1.5 text-muted hover:bg-red/10 hover:text-red"
+                        aria-label="Excluir cliente"
+                        title="Excluir cliente"
+                      >
+                        <IconLixeira className="h-4 w-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -364,6 +429,62 @@ export default function MentoriaAlunosPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: excluir cliente — trava exige digitar o nome do cliente */}
+      {alunoExcluindo && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
+              Excluir {alunoExcluindo.nomeCompleto}
+            </h2>
+            <p className="mb-4 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+              Esta ação é irreversível. O cadastro deste cliente será apagado permanentemente.
+            </p>
+            <form onSubmit={handleConfirmarExclusao} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">
+                  Para confirmar, digite o nome completo do cliente
+                </label>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  value={confirmacaoExclusao}
+                  onChange={(e) => setConfirmacaoExclusao(e.target.value)}
+                  placeholder={alunoExcluindo.nomeCompleto}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-red focus:ring-2 focus:ring-red/20"
+                />
+              </div>
+
+              {erroExclusao && (
+                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+                  {erroExclusao}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAlunoExcluindo(null)}
+                  disabled={salvandoExclusao}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    salvandoExclusao ||
+                    confirmacaoExclusao.trim().toLowerCase() !== alunoExcluindo.nomeCompleto.trim().toLowerCase()
+                  }
+                  className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoExclusao ? "Excluindo..." : "Excluir definitivamente"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

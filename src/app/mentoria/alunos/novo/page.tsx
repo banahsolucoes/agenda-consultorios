@@ -79,7 +79,7 @@ export default function NovoAlunoMentoriaPage() {
   return (
     <div className="min-h-screen bg-bg">
       <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push("/mentoria/alunos")} className="text-sm text-muted hover:text-fg">
               ← Alunos
@@ -89,7 +89,7 @@ export default function NovoAlunoMentoriaPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-2xl px-6 py-8">
+      <div className="mx-auto max-w-4xl px-6 py-8">
         <form onSubmit={handleSubmit} className="space-y-6 rounded-xl border border-border bg-surface p-6">
           <div>
             <label className="mb-1 block text-sm font-medium text-fg">Nome completo</label>
@@ -104,7 +104,7 @@ export default function NovoAlunoMentoriaPage() {
 
           <div>
             <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Dados pessoais</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">RG</label>
                 <input
@@ -163,7 +163,7 @@ export default function NovoAlunoMentoriaPage() {
 
           <div>
             <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Contato</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Telefone</label>
                 <input
@@ -187,8 +187,8 @@ export default function NovoAlunoMentoriaPage() {
 
           <div>
             <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted">Endereço</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="md:col-span-3">
                 <label className="mb-1 block text-sm font-medium text-fg">Endereço completo</label>
                 <input
                   type="text"
