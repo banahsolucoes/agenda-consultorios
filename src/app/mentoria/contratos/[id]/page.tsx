@@ -903,8 +903,9 @@ export default function DetalheContratoMentoriaPage() {
           <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Excluir contrato</h2>
             <p className="text-sm text-fg">
-              Tem certeza que deseja excluir o contrato &quot;{contrato.pacote}&quot; e todas as suas parcelas? Esta ação não pode
-              ser desfeita.
+              Tem certeza que deseja excluir o contrato &quot;{contrato.pacote}&quot;? Esta ação é <strong>permanente</strong> e
+              remove todas as parcelas (inclusive as já baixadas) e todas as comissões vinculadas — nada fica registrado como
+              histórico. Não pode ser desfeita.
             </p>
 
             {erroExcluir && <p className="mt-3 rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroExcluir}</p>}

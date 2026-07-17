@@ -98,9 +98,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   return NextResponse.json(atualizado);
 }
 
-// DELETE /api/mentoria/contratos/[id] — exclui contrato + parcelas. Bloqueia
-// (409) se houver parcela paga ou comissão já gerada — nesses casos a via
-// correta é distrato, não exclusão (fora do escopo desta fase).
+// DELETE /api/mentoria/contratos/[id] — exclui contrato + parcelas + comissões.
+// Contrato CANCELADO (já distratado): exclusão sempre permitida, em cascata.
+// Contrato ATIVO: bloqueia (409) se houver parcela paga ou comissão já
+// gerada — nesses casos a via correta é o distrato, não a exclusão direta.
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
@@ -110,25 +111,32 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   const { id } = await ctx.params;
   const contrato = await prisma.mentoriaContrato.findUnique({
     where: { id },
-    include: { parcelas: { select: { dataPagamento: true } }, comissoes: { select: { id: true } } },
+    include: { parcelas: { select: { id: true, dataPagamento: true } }, comissoes: { select: { id: true } } },
   });
   if (!contrato || contrato.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "contrato não encontrado" }, { status: 404 });
   }
 
-  const temParcelaPaga = contrato.parcelas.some((p) => p.dataPagamento !== null);
-  const temComissao = contrato.comissoes.length > 0;
-  if (temParcelaPaga || temComissao) {
-    return NextResponse.json(
-      {
-        erro:
-          "este contrato já tem pagamento e/ou comissão registrada — não pode ser excluído. Use o distrato para encerrá-lo.",
-      },
-      { status: 409 }
-    );
+  if (contrato.status !== "CANCELADO") {
+    const temParcelaPaga = contrato.parcelas.some((p) => p.dataPagamento !== null);
+    const temComissao = contrato.comissoes.length > 0;
+    if (temParcelaPaga || temComissao) {
+      return NextResponse.json(
+        {
+          erro:
+            "este contrato já tem pagamento e/ou comissão registrada — não pode ser excluído. Use o distrato para encerrá-lo.",
+        },
+        { status: 409 }
+      );
+    }
   }
 
+  const qtdParcelas = contrato.parcelas.length;
+  const qtdComissoes = contrato.comissoes.length;
+
+  // Filhos antes do pai, respeitando as FKs — comissões e parcelas referenciam o contrato.
   await prisma.$transaction([
+    prisma.mentoriaComissao.deleteMany({ where: { contratoId: id } }),
     prisma.mentoriaParcela.deleteMany({ where: { contratoId: id } }),
     prisma.mentoriaContrato.delete({ where: { id } }),
   ]);
@@ -137,8 +145,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     usuario.clinicaId,
     usuario.id,
     "EXCLUIR_CONTRATO_MENTORIA",
-    `Excluiu o contrato "${contrato.pacote}"`
+    `Excluiu o contrato "${contrato.pacote}" (${qtdParcelas} parcela(s) e ${qtdComissoes} comissão(ões) removidas em cascata)`
   );
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, parcelasRemovidas: qtdParcelas, comissoesRemovidas: qtdComissoes });
 }
