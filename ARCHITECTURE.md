@@ -157,6 +157,8 @@ Capacidades hoje sem nenhuma rota checando (`verLog`, `gerirBilling`) ou checada
 
 **Rotas sem gate de capacidade** (dívida, ver seção 4): CRUD de paciente (exceto delete), toda mudança de status/mover/cancelar sessão fora do branch de mover, criar pacote, tarefas, anexos, import. `PATCH /api/clinica`, `POST /api/clinica/branding`, `GET /api/usuarios`, integrações Google e `DELETE /api/pacientes/[id]` são os únicos pontos com `pode()`.
 
+**Decisão de produto — 2026-07-18**: OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado clínico do paciente (anamnese, CPF, RG). Levantado como possível lacuna na auditoria de PII (`Documentos Claude/auditoria-pii-pacientes-2026-07-18.md`), decisão deliberada de manter como está — não é um gap pendente.
+
 ## 8. Integrações externas
 
 | Integração | Lib | Ponto de entrada |

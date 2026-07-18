@@ -84,6 +84,8 @@ Nomes de domínio em português (decisão do projeto); termos de framework em in
 
 **Cores por tipo de sessão:** cada tipo tem uma cor (usada no calendário visual), configurável por clínica. Hoje no protótipo: verde, roxo, amarelo e uma quarta (valores exatos a definir). Guardar numa tabela/enum `TipoSessao { codigo, rotulo, cor }`.
 
+**Decisão de produto — 2026-07-18**: OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado clínico do paciente (anamnese, CPF, RG). Levantado como possível lacuna na auditoria de PII (`Documentos Claude/auditoria-pii-pacientes-2026-07-18.md`), decisão deliberada de manter como está — não é um gap pendente.
+
 ### Pacote
 | Campo | Tipo | Notas |
 |---|---|---|
