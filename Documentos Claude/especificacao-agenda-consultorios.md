@@ -188,7 +188,7 @@ Decisão de arquitetura definida: a operadora (Daiane) trabalha **dentro do pain
 
 *(O envio de mensagens e a integração de anamnese/forms externos ficam para a v2 — ver §11.)*
 
-**Ajuste de layout — 2026-07-18**: o container do painel (`header`/`main` de `painel/page.tsx`) passou de `max-w-5xl` (1024px) para `max-w-[1600px]`, pra aproveitar melhor telas de desktop sem esticar demais em monitores ultrawide. O grid de dias da visão Semana (Flexbox, não CSS Grid) acompanhou o espaço extra: `minWidth` do container de colunas subiu de 880 para 1100, e a largura mínima de cada coluna (`DiaColuna`) subiu de 120px para 150px. Abaixo de ~1100px de largura útil, a Agenda passa a rolar horizontalmente dentro do próprio card (`overflow-auto`, inalterado) em vez de comprimir as colunas.
+**Ajuste de layout — 2026-07-18**: o container do painel (`header`/`main` de `painel/page.tsx`) passou de `max-w-5xl` (1024px) para `max-w-[1600px]` e, após ajuste fino no mesmo dia (o valor de 1600px ficou largo demais, sem margem lateral visível em desktop), foi reduzido para `max-w-[1360px]` — valor final. O grid de dias da visão Semana (Flexbox, não CSS Grid) acompanhou o espaço extra: `minWidth` do container de colunas subiu de 880 para 1100, e a largura mínima de cada coluna (`DiaColuna`) subiu de 120px para 150px (esses dois valores não precisaram mudar no ajuste fino — o teste visual em 1360px mostrou colunas confortáveis, sem espremer). Abaixo de ~1100px de largura útil, a Agenda passa a rolar horizontalmente dentro do próprio card (`overflow-auto`, inalterado) em vez de comprimir as colunas.
 
 ---
 
