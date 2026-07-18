@@ -12,7 +12,18 @@ export async function GET() {
 
   try {
     const resultado = await lerEDeduplicarPlanilha(usuario.clinicaId);
-    return NextResponse.json(resultado);
+    // O preview (painel/page.tsx) só renderiza nome/cpf/status para a seleção
+    // de quem importar — o restante do registro (anamnese, endereço, RG,
+    // data de nascimento etc.) só é necessário dentro de POST
+    // /api/importacao/executar, no momento da gravação.
+    return NextResponse.json({
+      ...resultado,
+      registros: resultado.registros.map((r) => ({
+        nome: r.nome,
+        cpf: r.cpf,
+        status: r.status,
+      })),
+    });
   } catch (err) {
     if (err instanceof ErroImportacao) {
       return NextResponse.json({ erro: err.message }, { status: 400 });

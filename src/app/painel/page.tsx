@@ -94,6 +94,17 @@ interface Paciente {
   anamnese: string | null;
 }
 
+// Formato retornado por GET /api/pacientes (listagem) — só os campos
+// renderizados no card e usados na busca; o cadastro completo (anamnese,
+// CPF, endereço etc.) é buscado sob demanda via GET /api/pacientes/[id]
+// ao abrir o painel lateral, o modal de edição ou a anamnese.
+interface PacienteResumo {
+  id: string;
+  nome: string;
+  telefone: string | null;
+  statusGeral: "ATIVO" | "CANCELADO" | "FINALIZADO";
+}
+
 // Pendências mostradas no sino de notificações
 interface NotificacaoSessao {
   id: string;
@@ -396,7 +407,7 @@ export default function PainelPage() {
 
   const [abaAtiva, setAbaAtiva] = useState<"pacientes" | "agenda">("agenda");
 
-  const [pacientes, setPacientes] = useState<Paciente[]>([]);
+  const [pacientes, setPacientes] = useState<PacienteResumo[]>([]);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [busca, setBusca] = useState("");
   const [filtroPaciente, setFiltroPaciente] = useState<FiltroPaciente>("ativos");
@@ -557,13 +568,14 @@ export default function PainelPage() {
 
   // Recarrega a lista de pacientes (respeitando a aba ativa) e sincroniza o
   // paciente aberto no painel lateral (o statusGeral dele pode mudar sozinho:
-  // pacote finalizado, renovação, etc.)
+  // pacote finalizado, renovação, etc.) — o painel guarda o cadastro
+  // completo, então a atualização busca o detalhe de novo, não só o resumo
+  // da listagem.
   async function recarregarPacienteSelecionado() {
-    const res = await fetch(`/api/pacientes?filtro=${filtroPaciente}`);
-    if (!res.ok) return;
-    const lista: Paciente[] = await res.json();
-    setPacientes(lista);
-    setPacienteSelecionado((atual) => (atual ? lista.find((p) => p.id === atual.id) ?? atual : atual));
+    await carregarPacientes();
+    if (!pacienteSelecionado) return;
+    const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}`);
+    if (res.ok) setPacienteSelecionado(await res.json());
   }
 
   async function carregarClinica() {
@@ -741,8 +753,13 @@ export default function PainelPage() {
     setModalAberto(true);
   }
 
-  // Abre o mesmo modal preenchido com os dados do paciente, para edição de cadastro
-  function abrirModalEdicao(p: Paciente) {
+  // Abre o mesmo modal preenchido com os dados do paciente, para edição de
+  // cadastro. Recebe só o id — a listagem não tem mais o cadastro completo
+  // (CPF, endereço, anamnese etc.), então busca o detalhe sob demanda.
+  async function abrirModalEdicao(pacienteId: string) {
+    const res = await fetch(`/api/pacientes/${pacienteId}`);
+    if (!res.ok) return;
+    const p: Paciente = await res.json();
     setPacienteEditando(p);
     setForm({
       nome: p.nome,
@@ -776,8 +793,8 @@ export default function PainelPage() {
 
   // Atalho usado na tela de atendimento: abre o mesmo modal de edição já
   // rolado até a seção Anamnese, pra ler as respostas sem precisar procurar.
-  function abrirAnamnese(p: Paciente) {
-    abrirModalEdicao(p);
+  async function abrirAnamnese(pacienteId: string) {
+    await abrirModalEdicao(pacienteId);
     setRolarAnamneseAoAbrir(true);
   }
 
@@ -868,7 +885,13 @@ export default function PainelPage() {
     }
   }
 
-  function abrirPainelPaciente(p: Paciente) {
+  // Recebe só o id — a listagem não tem mais o cadastro completo, então o
+  // painel lateral busca o detalhe sob demanda. Retorna false se o paciente
+  // não existe mais (ex.: excluído), para quem chama poder avisar o usuário.
+  async function abrirPainelPaciente(pacienteId: string): Promise<boolean> {
+    const res = await fetch(`/api/pacientes/${pacienteId}`);
+    if (!res.ok) return false;
+    const p: Paciente = await res.json();
     setPacienteSelecionado(p);
     setSessoes([]);
     setSessoesSelecionadas(new Set());
@@ -876,6 +899,7 @@ export default function PainelPage() {
     setFeedbackLote(null);
     setFeedbackReverterFuturas("");
     carregarSessoes(p.id);
+    return true;
   }
 
   function fecharPainelPaciente() {
@@ -887,23 +911,15 @@ export default function PainelPage() {
   }
 
   // Ao clicar numa pendência do sino, fecha o dropdown e abre o painel do
-  // paciente. Se o paciente não estiver na lista carregada atualmente (ex.:
-  // a aba de filtro ativa exclui esse status), busca-o direto pela rota
-  // /api/pacientes/[id] em vez de falhar em silêncio.
+  // paciente. abrirPainelPaciente já busca o detalhe pelo id, então funciona
+  // igual esteja o paciente na aba de filtro carregada atualmente ou não.
   async function abrirNotificacaoPaciente(pacienteId: string) {
     setSinoAberto(false);
     setAvisoNotificacao("");
-    const p = pacientes.find((pac) => pac.id === pacienteId);
-    if (p) {
-      abrirPainelPaciente(p);
-      return;
-    }
-    const res = await fetch(`/api/pacientes/${pacienteId}`);
-    if (!res.ok) {
+    const ok = await abrirPainelPaciente(pacienteId);
+    if (!ok) {
       setAvisoNotificacao("não foi possível abrir esse paciente — ele pode ter sido excluído.");
-      return;
     }
-    abrirPainelPaciente(await res.json());
   }
 
   // Conclui uma tarefa manual (tipo CONTA) e recarrega o sino
@@ -1705,8 +1721,7 @@ export default function PainelPage() {
         {abaAtiva === "agenda" ? (
           <AgendaCalendario
             onEditarPaciente={(pacienteId) => {
-              const p = pacientes.find((pac) => pac.id === pacienteId);
-              if (p) abrirModalEdicao(p);
+              abrirModalEdicao(pacienteId);
             }}
           />
         ) : (
@@ -1774,9 +1789,9 @@ export default function PainelPage() {
                       key={p.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => abrirPainelPaciente(p)}
+                      onClick={() => abrirPainelPaciente(p.id)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") abrirPainelPaciente(p);
+                        if (e.key === "Enter" || e.key === " ") abrirPainelPaciente(p.id);
                       }}
                       className={`cursor-pointer rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-shadow hover:shadow-md hover:border-gold/40 ${
                         p.statusGeral !== "ATIVO" ? "opacity-60" : ""
@@ -1792,7 +1807,7 @@ export default function PainelPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            abrirModalEdicao(p);
+                            abrirModalEdicao(p.id);
                           }}
                           className="shrink-0 rounded-lg border border-border p-2 text-muted hover:bg-bg hover:text-fg"
                           aria-label="Editar cadastro"
@@ -2032,7 +2047,7 @@ export default function PainelPage() {
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => abrirModalEdicao(pacienteSelecionado)}
+                  onClick={() => abrirModalEdicao(pacienteSelecionado.id)}
                   className="text-muted hover:text-fg"
                   aria-label="Editar cadastro"
                   title="Editar cadastro"
@@ -2060,7 +2075,7 @@ export default function PainelPage() {
             </div>
 
             <button
-              onClick={() => abrirAnamnese(pacienteSelecionado)}
+              onClick={() => abrirAnamnese(pacienteSelecionado.id)}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-gold px-4 py-2.5 text-sm font-medium text-gold hover:bg-gold/10"
             >
               <IconPrancheta className="h-4 w-4" />

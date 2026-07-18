@@ -46,12 +46,49 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const paciente = await prisma.paciente.findUnique({ where: { id } });
+  // clinicaId entra no select só para a checagem de tenant abaixo — nunca
+  // sai na resposta (retirado antes do NextResponse.json). finalizadoEm não
+  // é lido em nenhum lugar do front (painel/page.tsx, AnamneseModal.tsx,
+  // AnamneseEditor.tsx, AnexosPaciente.tsx) — fora do select.
+  const paciente = await prisma.paciente.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      clinicaId: true,
+      nome: true,
+      telefone: true,
+      email: true,
+      cpf: true,
+      rg: true,
+      logradouro: true,
+      numero: true,
+      complemento: true,
+      bairro: true,
+      cidade: true,
+      estado: true,
+      cep: true,
+      quemIndicou: true,
+      dataNascimento: true,
+      estadoCivil: true,
+      nacionalidade: true,
+      profissao: true,
+      instagram: true,
+      pastaDriveUrl: true,
+      anamnese: true,
+      origemCadastro: true,
+      diaPreferido: true,
+      horarioFixo: true,
+      tipoSessaoId: true,
+      statusGeral: true,
+    },
+  });
   if (!paciente || paciente.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "paciente não encontrado" }, { status: 404 });
   }
 
-  return NextResponse.json(paciente);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { clinicaId: _clinicaId, ...pacienteSemClinicaId } = paciente;
+  return NextResponse.json(pacienteSemClinicaId);
 }
 
 // PATCH /api/pacientes/[id] — edita o cadastro de um paciente da clínica logada

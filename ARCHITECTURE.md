@@ -159,6 +159,11 @@ Capacidades hoje sem nenhuma rota checando (`verLog`, `gerirBilling`) ou checada
 
 **Decisão de produto — 2026-07-18**: OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado clínico do paciente (anamnese, CPF, RG). Levantado como possível lacuna na auditoria de PII (`Documentos Claude/auditoria-pii-pacientes-2026-07-18.md`), decisão deliberada de manter como está — não é um gap pendente.
 
+**Changelog — 2026-07-18 (correção de over-fetch, achados 1 e 2 da auditoria de PII)**:
+- `GET /api/pacientes` agora usa `select: { id, nome, telefone, statusGeral }` — CPF, RG, endereço e `anamnese` não saem mais na listagem. Isso exigiu mudar `painel/page.tsx`: o painel lateral, o modal de edição e a anamnese não reaproveitam mais o objeto da lista — cada um busca o cadastro completo sob demanda via `GET /api/pacientes/[id]` (`abrirPainelPaciente`/`abrirModalEdicao`/`abrirAnamnese` agora recebem só o `id` e fazem o fetch).
+- `GET /api/importacao/preview` devolve só `{ nome, cpf, status }` por registro — `anamnese`/demais campos da planilha só trafegam dentro de `POST /api/importacao/executar`, no momento da gravação (a leitura em `lerEDeduplicarPlanilha` continua trazendo tudo, só a resposta do preview foi enxugada).
+- `GET /api/pacientes/[id]` passou a usar `select` explícito: `clinicaId` continua sendo lido (necessário pra checagem de tenant) mas é removido antes da resposta; `finalizadoEm` saiu do `select` por não ser lido em nenhum lugar do front.
+
 ## 8. Integrações externas
 
 | Integração | Lib | Ponto de entrada |

@@ -26,6 +26,10 @@ export async function GET(req: NextRequest) {
   const pacientes = await prisma.paciente.findMany({
     where: { clinicaId: usuario.clinicaId, ...(statusGeral ? { statusGeral } : {}) },
     orderBy: { nome: "asc" },
+    // A lista renderiza só nome/telefone/status (painel/page.tsx) — o
+    // cadastro completo (CPF, RG, endereço, anamnese etc.) é buscado sob
+    // demanda via GET /api/pacientes/[id] ao abrir o painel/modal.
+    select: { id: true, nome: true, telefone: true, statusGeral: true },
   });
 
   return NextResponse.json(pacientes);

@@ -86,6 +86,8 @@ Nomes de domínio em português (decisão do projeto); termos de framework em in
 
 **Decisão de produto — 2026-07-18**: OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado clínico do paciente (anamnese, CPF, RG). Levantado como possível lacuna na auditoria de PII (`Documentos Claude/auditoria-pii-pacientes-2026-07-18.md`), decisão deliberada de manter como está — não é um gap pendente.
 
+**Changelog — 2026-07-18 (correção de over-fetch, achados 1 e 2 da auditoria de PII)**: `GET /api/pacientes` (listagem) e `GET /api/importacao/preview` deixaram de trazer CPF/RG/endereço/anamnese na resposta — ver detalhe em `ARCHITECTURE.md` §7. O painel lateral/modal de edição/anamnese em `painel/page.tsx` agora buscam o cadastro completo sob demanda via `GET /api/pacientes/[id]` em vez de reaproveitar o objeto da listagem.
+
 ### Pacote
 | Campo | Tipo | Notas |
 |---|---|---|
