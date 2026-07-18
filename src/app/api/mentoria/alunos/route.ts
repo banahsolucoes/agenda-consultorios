@@ -26,7 +26,11 @@ function erroDedupe(err: unknown): NextResponse | null {
 
 // GET /api/mentoria/alunos — lista alunos da clínica logada, com a contagem
 // de contratos e, quando existir, o contrato ATIVO do aluno (assinatura +
-// término calculado — nunca armazenado) para as colunas do grid.
+// término calculado — nunca armazenado) para as colunas do grid. Só os
+// campos que a tela /mentoria/alunos usa (nome, data de nascimento) — sem
+// CPF/RG/endereço/contato, que essa lista não exibe (achado 2 da auditoria
+// de performance). Cadastro completo do aluno segue disponível em
+// GET /api/mentoria/alunos/[id], usado pela tela de detalhe/edição.
 export async function GET() {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
@@ -36,7 +40,10 @@ export async function GET() {
   const alunos = await prisma.mentoriaAluno.findMany({
     where: { clinicaId: usuario.clinicaId },
     orderBy: { nomeCompleto: "asc" },
-    include: {
+    select: {
+      id: true,
+      nomeCompleto: true,
+      dataNascimento: true,
       _count: { select: { contratos: true } },
       contratos: {
         where: { status: "ATIVO" },

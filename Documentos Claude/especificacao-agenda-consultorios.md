@@ -371,3 +371,5 @@ Status **derivado** (nunca uma coluna): ESTORNADA / PAGA / CANCELADA / ABERTA, n
 - Ajustes finos no cadastro de comissionados seguem em andamento.
 
 **Auditoria de performance 2026-07-17**: corrigido o waterfall do guard de navegação do módulo e os awaits sequenciais + somas em JS das rotas de dashboard — ver relatório completo em `Documentos Claude/auditoria-mentoria-2026-07-17.md`.
+
+**Auditoria de performance 2026-07-17 (achado 2)**: reduzido over-fetching de PII em `GET /api/mentoria/alunos` e `GET /api/mentoria/contratos/[id]` — ver relatório completo em `Documentos Claude/auditoria-mentoria-2026-07-17.md`.

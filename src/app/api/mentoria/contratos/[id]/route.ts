@@ -21,7 +21,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const contrato = await prisma.mentoriaContrato.findUnique({
     where: { id },
     include: {
-      aluno: true,
+      // Só id/nomeCompleto — a tela de detalhe do contrato usa só isso pra
+      // exibir o cabeçalho e linkar de volta ao aluno; CPF/RG/endereço não
+      // são consumidos aqui (achado 2 da auditoria de performance). Se
+      // precisar do cadastro completo, o consumidor deve usar
+      // GET /api/mentoria/alunos/[id], que já retorna o registro inteiro.
+      aluno: { select: { id: true, nomeCompleto: true } },
       parcelas: { orderBy: { numero: "asc" } },
       comissoes: {
         where: { status: { not: "ESTORNADO" } },

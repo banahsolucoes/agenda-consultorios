@@ -9,8 +9,6 @@ interface Aluno {
   id: string;
   nomeCompleto: string;
   dataNascimento: string | null;
-  email: string | null;
-  telefone: string | null;
   _count: { contratos: number };
   contratoAtivo: { id: string; assinaturaContrato: string; terminoContrato: string } | null;
 }
