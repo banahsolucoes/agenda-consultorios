@@ -84,9 +84,7 @@ Nomes de domínio em português (decisão do projeto); termos de framework em in
 
 **Cores por tipo de sessão:** cada tipo tem uma cor (usada no calendário visual), configurável por clínica. Hoje no protótipo: verde, roxo, amarelo e uma quarta (valores exatos a definir). Guardar numa tabela/enum `TipoSessao { codigo, rotulo, cor }`.
 
-**Decisão de produto — 2026-07-18**: OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado clínico do paciente (anamnese, CPF, RG). Levantado como possível lacuna na auditoria de PII (`Documentos Claude/auditoria-pii-pacientes-2026-07-18.md`), decisão deliberada de manter como está — não é um gap pendente.
-
-**Changelog — 2026-07-18 (correção de over-fetch, achados 1 e 2 da auditoria de PII)**: `GET /api/pacientes` (listagem) e `GET /api/importacao/preview` deixaram de trazer CPF/RG/endereço/anamnese na resposta — ver detalhe em `ARCHITECTURE.md` §7. O painel lateral/modal de edição/anamnese em `painel/page.tsx` agora buscam o cadastro completo sob demanda via `GET /api/pacientes/[id]` em vez de reaproveitar o objeto da listagem.
+**Auditoria de PII/over-fetch — 2026-07-18 (encerrada)**. Relatório completo em `Documentos Claude/auditoria-pii-pacientes-2026-07-18.md`. Corrigido: `GET /api/pacientes` enxugado para `{ id, nome, telefone, statusGeral }` — exigiu refactor de `painel/page.tsx` (`abrirModalEdicao`, `abrirPainelPaciente`, `abrirAnamnese`, `recarregarPacienteSelecionado`, `abrirNotificacaoPaciente`) para buscar `GET /api/pacientes/[id]` sob demanda em vez de reaproveitar o objeto da listagem, já que anamnese/CPF/RG eram lidos diretamente dele. `GET /api/importacao/preview` enxugado para `{ nome, cpf, status }` por linha. `GET /api/pacientes/[id]` com `select` explícito, `clinicaId` removido da resposta, `finalizadoEm` removido por não ser usado no front. Decisão de produto registrada separadamente: OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado clínico. Pendente, fora de escopo: achado 3 (rotas de escrita buscando `Paciente` inteiro só para checar `clinicaId`/nome em log) — over-fetch de banco que nunca vaza ao cliente, baixa prioridade.
 
 ### Pacote
 | Campo | Tipo | Notas |
