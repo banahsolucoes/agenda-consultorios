@@ -37,3 +37,21 @@ body {
   color: var(--color-fg);
   font-family: var(--font-sans);
 }
+
+/* ─── Cursor de "mão" em elementos clicáveis ─────────────────
+   O browser só aplica cursor:pointer nativamente em <a href>. <button>
+   fica com cursor default — regra global cobre todos os botões/links do
+   projeto sem precisar tocar componente por componente. */
+button:not(:disabled),
+[type="button"]:not(:disabled),
+[type="submit"]:not(:disabled),
+[role="button"]:not(:disabled),
+a {
+  cursor: pointer;
+}
+
+button:disabled,
+[type="button"]:disabled,
+[type="submit"]:disabled {
+  cursor: not-allowed;
+}
