@@ -1514,7 +1514,7 @@ export default function PainelPage() {
 
       {/* Cabeçalho */}
       <header className="z-30 h-16 shrink-0 border-b border-border bg-surface">
-        <div className="mx-auto flex h-full max-w-5xl items-center justify-between px-6">
+        <div className="mx-auto flex h-full max-w-[1600px] items-center justify-between px-6">
           <button
             onClick={() => router.push("/painel")}
             className="flex items-center gap-2"
@@ -1655,7 +1655,7 @@ export default function PainelPage() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full min-h-0 max-w-5xl flex-1 flex-col overflow-hidden px-6 pb-6 pt-8">
+      <main className="mx-auto flex w-full min-h-0 max-w-[1600px] flex-1 flex-col overflow-hidden px-6 pb-6 pt-8">
         {/* Abas: lista de pacientes ou calendário da agenda — fixo, não rola */}
         <div className="mb-6 flex shrink-0 gap-2">
           {!acessoResolvido && !acessoErro ? (

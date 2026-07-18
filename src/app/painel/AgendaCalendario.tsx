@@ -587,7 +587,7 @@ export default function AgendaCalendario({
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
           <div ref={boxRef} className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-surface">
-            <div className="flex" style={{ minWidth: modo === "semana" ? 880 : 280 }}>
+            <div className="flex" style={{ minWidth: modo === "semana" ? 1100 : 280 }}>
               {/* Gutter de horários */}
               <div className="w-14 shrink-0 border-r border-border">
                 <div className="sticky top-0 z-10 h-10 border-b border-border bg-surface" />
@@ -721,7 +721,7 @@ function DiaColuna({
   );
 
   return (
-    <div className="min-w-[120px] flex-1 border-r border-border last:border-r-0">
+    <div className="min-w-[150px] flex-1 border-r border-border last:border-r-0">
       <div
         className={`sticky top-0 z-10 flex h-10 flex-col items-center justify-center border-b border-border bg-surface text-xs ${
           hoje ? "font-semibold text-gold" : "text-fg"
