@@ -27,32 +27,37 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ erro: "mes inválido — use o formato YYYYMM" }, { status: 400 });
   }
 
-  const { recebidoLiquidoNoMes, aReceberNoMes, inadimplenteNoMes } = await calcularAgregadosMensais(
-    usuario.clinicaId,
-    mesInfo.inicio,
-    mesInfo.fim
-  );
-
-  const [comissoesPendentes, impostoNoMes, comissaoLiberadaNoMes, comissaoPendenteNoMes, inadimplenciaAtual] =
-    await Promise.all([
-      prisma.mentoriaComissao.findMany({
-        where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
-        include: {
-          contrato: {
-            select: {
-              valorTotal: true,
-              taxaImpostoPct: true,
-              status: true,
-              parcelas: { where: { dataPagamento: { not: null }, estornoEm: null }, select: { valorLiquido: true } },
-            },
+  // As 6 buscas abaixo são independentes entre si (nenhuma usa o resultado
+  // de outra) — um único Promise.all em vez de esperar os agregados
+  // mensais resolverem pra só então disparar o resto (achado 3 da
+  // auditoria de performance).
+  const [
+    { recebidoLiquidoNoMes, aReceberNoMes, inadimplenteNoMes },
+    comissoesPendentes,
+    impostoNoMes,
+    comissaoLiberadaNoMes,
+    comissaoPendenteNoMes,
+    inadimplenciaAtual,
+  ] = await Promise.all([
+    calcularAgregadosMensais(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+    prisma.mentoriaComissao.findMany({
+      where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
+      include: {
+        contrato: {
+          select: {
+            valorTotal: true,
+            taxaImpostoPct: true,
+            status: true,
+            parcelas: { where: { dataPagamento: { not: null }, estornoEm: null }, select: { valorLiquido: true } },
           },
         },
-      }),
-      calcularImpostoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
-      calcularComissaoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
-      calcularComissaoPendenteNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
-      calcularInadimplenciaAtual(usuario.clinicaId),
-    ]);
+      },
+    }),
+    calcularImpostoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+    calcularComissaoNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+    calcularComissaoPendenteNoMes(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+    calcularInadimplenciaAtual(usuario.clinicaId),
+  ]);
 
   // Saldo de dívida — comissões PENDENTE, independente do mês selecionado.
   const totalComissoesAPagar = arred2(

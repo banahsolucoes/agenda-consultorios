@@ -24,27 +24,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ erro: "mes inválido — use o formato YYYYMM" }, { status: 400 });
   }
 
-  const agregados = await calcularAgregadosMensais(usuario.clinicaId, mesInfo.inicio, mesInfo.fim);
-
-  // Todas as parcelas com vencimento no mês, qualquer status — visão completa do mês.
-  const parcelas = await prisma.mentoriaParcela.findMany({
-    where: { clinicaId: usuario.clinicaId, vencimento: { gte: mesInfo.inicio, lt: mesInfo.fim } },
-    include: {
-      contrato: {
-        select: {
-          status: true,
-          totalParcelas: true,
-          taxaImpostoPct: true,
-          aluno: { select: { nomeCompleto: true } },
-          comissoes: {
-            where: { formaRecebimento: "POR_PARCELA", status: { not: "ESTORNADO" } },
-            include: { comissionado: { select: { id: true, nome: true } } },
+  // Agregados do mês e a lista completa de parcelas do mês não dependem um
+  // do outro — rodam em paralelo em vez de esperar o primeiro pra só então
+  // começar o segundo (achado 3 da auditoria de performance).
+  const [agregados, parcelas] = await Promise.all([
+    calcularAgregadosMensais(usuario.clinicaId, mesInfo.inicio, mesInfo.fim),
+    prisma.mentoriaParcela.findMany({
+      where: { clinicaId: usuario.clinicaId, vencimento: { gte: mesInfo.inicio, lt: mesInfo.fim } },
+      include: {
+        contrato: {
+          select: {
+            status: true,
+            totalParcelas: true,
+            taxaImpostoPct: true,
+            aluno: { select: { nomeCompleto: true } },
+            comissoes: {
+              where: { formaRecebimento: "POR_PARCELA", status: { not: "ESTORNADO" } },
+              include: { comissionado: { select: { id: true, nome: true } } },
+            },
           },
         },
       },
-    },
-    orderBy: { vencimento: "asc" },
-  });
+      orderBy: { vencimento: "asc" },
+    }),
+  ]);
 
   // Comissão gerada por parcela — derivada, nunca persistida. Estornada ou
   // contrato CANCELADO: nenhuma comissão.

@@ -19,26 +19,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ erro: "mes inválido — use o formato YYYYMM" }, { status: 400 });
   }
 
-  const [contratosAtivos, parcelasAbertas, contratosFechadosNoMes] = await Promise.all([
+  const [contratosAtivos, parcelasAbertasAgg, fechadosNoMesAgg] = await Promise.all([
     prisma.mentoriaContrato.count({ where: { clinicaId: usuario.clinicaId, status: "ATIVO" } }),
-    prisma.mentoriaParcela.findMany({
+    prisma.mentoriaParcela.aggregate({
       where: {
         clinicaId: usuario.clinicaId,
         dataPagamento: null,
         estornoEm: null,
         contrato: { status: "ATIVO" },
       },
-      select: { valorBruto: true },
+      _sum: { valorBruto: true },
     }),
-    prisma.mentoriaContrato.findMany({
+    prisma.mentoriaContrato.aggregate({
       where: { clinicaId: usuario.clinicaId, assinaturaContrato: { gte: mesInfo.inicio, lt: mesInfo.fim } },
-      select: { valorTotal: true },
+      _sum: { valorTotal: true },
+      _count: true,
     }),
   ]);
 
-  const totalAReceberGeral = arred2(parcelasAbertas.reduce((soma, p) => soma + numOrZero(p.valorBruto), 0));
-  const fechadosNoMesQtd = contratosFechadosNoMes.length;
-  const fechadosNoMesValor = arred2(contratosFechadosNoMes.reduce((soma, c) => soma + numOrZero(c.valorTotal), 0));
+  const totalAReceberGeral = arred2(numOrZero(parcelasAbertasAgg._sum.valorBruto));
+  const fechadosNoMesQtd = fechadosNoMesAgg._count;
+  const fechadosNoMesValor = arred2(numOrZero(fechadosNoMesAgg._sum.valorTotal));
 
   return NextResponse.json({ contratosAtivos, totalAReceberGeral, fechadosNoMesQtd, fechadosNoMesValor });
 }

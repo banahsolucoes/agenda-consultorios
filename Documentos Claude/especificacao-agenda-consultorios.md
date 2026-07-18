@@ -369,3 +369,5 @@ Status **derivado** (nunca uma coluna): ESTORNADA / PAGA / CANCELADA / ABERTA, n
 
 - Integração de importação de aluno via planilha (mesmo padrão usado hoje com o forms.app no consultório) ainda não implementada — os campos de metadados de submissão em `MentoriaAluno` já estão preparados para receber isso.
 - Ajustes finos no cadastro de comissionados seguem em andamento.
+
+**Auditoria de performance 2026-07-17**: corrigido o waterfall do guard de navegação do módulo e os awaits sequenciais + somas em JS das rotas de dashboard — ver relatório completo em `Documentos Claude/auditoria-mentoria-2026-07-17.md`.

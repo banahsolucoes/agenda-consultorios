@@ -165,19 +165,25 @@ export interface AgregadosMensais {
 
 // Núcleo de cálculo compartilhado entre /dashboard/mensal e /dashboard/resumo
 // — mesma definição de RECEBIDA/A RECEBER/INADIMPLENTE/ESTORNO nas duas rotas.
+// Somas direto no banco (aggregate), nunca trazendo as linhas pra somar em JS
+// (achado 3/5 da auditoria de performance).
 export async function calcularAgregadosMensais(clinicaId: string, inicio: Date, fim: Date): Promise<AgregadosMensais> {
   const agora = new Date();
+  // "Inadimplente" é o subconjunto de "a receber" com vencimento já passado
+  // — mesmo intervalo [inicio, limiteInadimplente), onde limiteInadimplente é
+  // o menor entre o fim do mês e agora (mês corrente ainda não fechou).
+  const limiteInadimplente = agora.getTime() < fim.getTime() ? agora : fim;
 
-  const [recebidas, estornadas, aReceber] = await Promise.all([
-    prisma.mentoriaParcela.findMany({
+  const [recebidoAgg, estornadoAgg, aReceberAgg, inadimplenteAgg] = await Promise.all([
+    prisma.mentoriaParcela.aggregate({
       where: { clinicaId, dataPagamento: { gte: inicio, lt: fim }, estornoEm: null },
-      select: { valorLiquido: true },
+      _sum: { valorLiquido: true },
     }),
-    prisma.mentoriaParcela.findMany({
+    prisma.mentoriaParcela.aggregate({
       where: { clinicaId, estornoEm: { gte: inicio, lt: fim } },
-      select: { valorEstornado: true },
+      _sum: { valorEstornado: true },
     }),
-    prisma.mentoriaParcela.findMany({
+    prisma.mentoriaParcela.aggregate({
       where: {
         clinicaId,
         dataPagamento: null,
@@ -185,19 +191,25 @@ export async function calcularAgregadosMensais(clinicaId: string, inicio: Date, 
         vencimento: { gte: inicio, lt: fim },
         contrato: { status: "ATIVO" },
       },
-      select: { valorBruto: true, vencimento: true },
+      _sum: { valorBruto: true },
+    }),
+    prisma.mentoriaParcela.aggregate({
+      where: {
+        clinicaId,
+        dataPagamento: null,
+        estornoEm: null,
+        vencimento: { gte: inicio, lt: limiteInadimplente },
+        contrato: { status: "ATIVO" },
+      },
+      _sum: { valorBruto: true },
     }),
   ]);
 
-  const recebidoNoMes = arred2(recebidas.reduce((soma, p) => soma + numOrZero(p.valorLiquido), 0));
-  const estornadoNoMes = arred2(estornadas.reduce((soma, p) => soma + numOrZero(p.valorEstornado), 0));
+  const recebidoNoMes = arred2(numOrZero(recebidoAgg._sum.valorLiquido));
+  const estornadoNoMes = arred2(numOrZero(estornadoAgg._sum.valorEstornado));
   const recebidoLiquidoNoMes = arred2(recebidoNoMes - estornadoNoMes);
-  const aReceberNoMes = arred2(aReceber.reduce((soma, p) => soma + numOrZero(p.valorBruto), 0));
-  const inadimplenteNoMes = arred2(
-    aReceber
-      .filter((p) => p.vencimento.getTime() < agora.getTime())
-      .reduce((soma, p) => soma + numOrZero(p.valorBruto), 0)
-  );
+  const aReceberNoMes = arred2(numOrZero(aReceberAgg._sum.valorBruto));
+  const inadimplenteNoMes = arred2(numOrZero(inadimplenteAgg._sum.valorBruto));
 
   return { recebidoNoMes, estornadoNoMes, recebidoLiquidoNoMes, aReceberNoMes, inadimplenteNoMes };
 }
@@ -316,7 +328,7 @@ export async function calcularInadimplenciaAtual(clinicaId: string): Promise<num
   const agora = new Date();
   const inicioMesAtual = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1));
 
-  const parcelasVencidas = await prisma.mentoriaParcela.findMany({
+  const agg = await prisma.mentoriaParcela.aggregate({
     where: {
       clinicaId,
       dataPagamento: null,
@@ -324,8 +336,8 @@ export async function calcularInadimplenciaAtual(clinicaId: string): Promise<num
       vencimento: { lt: inicioMesAtual },
       contrato: { status: "ATIVO" },
     },
-    select: { valorBruto: true },
+    _sum: { valorBruto: true },
   });
 
-  return arred2(parcelasVencidas.reduce((soma, p) => soma + numOrZero(p.valorBruto), 0));
+  return arred2(numOrZero(agg._sum.valorBruto));
 }

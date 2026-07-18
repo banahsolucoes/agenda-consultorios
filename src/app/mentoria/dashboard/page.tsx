@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 import { formatarMoedaBR } from "@/lib/mentoria/format";
@@ -155,6 +155,23 @@ export default function DashboardMentoriaPage() {
     null
   );
 
+  // Estado único de "acesso resolvido" — mesmo padrão de src/app/painel/page.tsx
+  // (acessoResolvido/acessoResolvidoRef): em vez de cada seção mostrar seu
+  // próprio "Carregando..." pra sempre se algum fetch travar, um único
+  // fail-safe cobre as 5 fontes de dados do dashboard de uma vez.
+  const carregado =
+    resumo !== null && mensal !== null && alunosData !== null && comissoesData !== null && geral !== null;
+  const carregadoRef = useRef(carregado);
+  carregadoRef.current = carregado;
+  const [erroCarregamento, setErroCarregamento] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!carregadoRef.current) setErroCarregamento(true);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, []);
+
   async function carregarResumo() {
     setCarregandoResumo(true);
     try {
@@ -295,6 +312,27 @@ export default function DashboardMentoriaPage() {
           </div>
         </div>
 
+        {!carregado && !erroCarregamento ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+              <div className="h-20 animate-pulse rounded-xl border border-border bg-surface" />
+            </div>
+            <div className="h-64 animate-pulse rounded-xl border border-border bg-surface" />
+          </div>
+        ) : !carregado && erroCarregamento ? (
+          <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
+            Não foi possível carregar os dados do dashboard. Recarregue a página.
+          </p>
+        ) : (
+          <>
         {/* Indicadores globais — Contratos ativos e Total a receber independem do mês; Fechados no mês acompanha o seletor */}
         {carregandoGeral ? (
           <p className="text-sm text-muted">Carregando indicadores gerais...</p>
@@ -520,6 +558,8 @@ export default function DashboardMentoriaPage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       <ModalBaixaParcela
