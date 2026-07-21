@@ -182,7 +182,7 @@ Decisão de arquitetura definida: a operadora (Daiane) trabalha **dentro do pain
 - **Visão de calendário** (dia/semana) mostrando as sessões como blocos, coloridos por **tipo de sessão** (ver §4).
 - **Arrastar** uma sessão move seu horário/dia — gravando direto no banco, respeitando as travas de negócio (agenda 08:00–19:30; regras de mesma semana quando aplicável).
 - É **somente a agenda visual** — o link do Meet é tratado à parte (botão de copiar mensagem), não embutido no calendário.
-- Quando o grid mostra o dia de hoje, uma linha fina e esmaecida indica o horário atual (atualizada a cada 60s), só como referência visual — sem label, sem interferir no drag-and-drop.
+- Quando o dia de hoje está entre os dias exibidos (visão semana ou dia), uma linha fina e esmaecida atravessa **todas as colunas visíveis** indicando o horário atual (atualizada a cada 60s), só como referência visual — sem label, sem interferir no drag-and-drop. Se a visão exibida não inclui hoje (ex.: semana seg-sex num sábado), a linha não aparece.
 - O Google Calendar continua recebendo o **espelho** (escrita a partir do banco), para quem quiser ver no Google. Mas a **edição oficial** passa a ser no painel.
 
 **Consequência boa:** como a edição volta a ter uma única porta (o painel → banco), não há mais necessidade de sincronização bidirecional nem de job noturno. O problema que nos consumiu no protótipo deixa de existir.

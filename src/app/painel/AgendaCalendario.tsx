@@ -370,6 +370,10 @@ export default function AgendaCalendario({
     [dias, sessoes]
   );
 
+  // A linha de horário atual só existe quando o dia de hoje está entre os
+  // dias exibidos (ex.: visão seg-sex não mostra a linha no fim de semana).
+  const semanaTemHoje = useMemo(() => dias.some((dia) => mesmoDia(dia, new Date())), [dias]);
+
   function mostrarAviso(msg: string) {
     setAviso(msg);
     if (avisoTimeout.current) clearTimeout(avisoTimeout.current);
@@ -605,27 +609,30 @@ export default function AgendaCalendario({
                 </div>
               </div>
 
-              {dias.map((dia, i) => (
-                <DiaColuna
-                  key={i}
-                  index={i}
-                  dia={dia}
-                  sessoesDoDia={sessoesPorDia[i]}
-                  janela={janela}
-                  marcadores={marcadores}
-                  gridHeightPx={gridHeightPx}
-                  rowPx={rowPx}
-                  colRefCallback={(idx, node) => {
-                    colRefs.current[idx] = node;
-                  }}
-                  onAbrirDetalhe={setSessaoDetalhe}
-                  clinica={clinica}
-                  agora={agora}
-                  horarios={horarios}
-                  onRedimensionar={redimensionarSessao}
-                  onAviso={mostrarAviso}
-                />
-              ))}
+              <div className="relative flex flex-1">
+                {semanaTemHoje && <LinhaHorarioAtual janela={janela} rowPx={rowPx} />}
+                {dias.map((dia, i) => (
+                  <DiaColuna
+                    key={i}
+                    index={i}
+                    dia={dia}
+                    sessoesDoDia={sessoesPorDia[i]}
+                    janela={janela}
+                    marcadores={marcadores}
+                    gridHeightPx={gridHeightPx}
+                    rowPx={rowPx}
+                    colRefCallback={(idx, node) => {
+                      colRefs.current[idx] = node;
+                    }}
+                    onAbrirDetalhe={setSessaoDetalhe}
+                    clinica={clinica}
+                    agora={agora}
+                    horarios={horarios}
+                    onRedimensionar={redimensionarSessao}
+                    onAviso={mostrarAviso}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </DndContext>
@@ -673,9 +680,15 @@ export default function AgendaCalendario({
   );
 }
 
-// Linha fina indicando o horário atual no grid — estado próprio (tick a cada
-// 60s) pra não forçar o re-render do grid inteiro a cada minuto, como
-// `agora` (em AgendaCalendario) já faz para esmaecer sessões passadas.
+// Linha fina indicando o horário atual, atravessando todas as colunas da
+// semana exibida — estado próprio (tick a cada 60s) pra não forçar o
+// re-render do grid inteiro a cada minuto, como `agora` (em AgendaCalendario)
+// já faz para esmaecer sessões passadas. Renderizada como irmã das
+// `DiaColuna`, não mais dentro de uma coluna específica — por isso o `top`
+// soma `ALTURA_CABECALHO_DIA`: o container-pai (o wrapper flex que envolve
+// todas as colunas) começa no topo do cabeçalho de dia/data (h-10), não no
+// topo da grade de horários como acontecia quando a linha vivia dentro do
+// próprio corpo da coluna.
 function LinhaHorarioAtual({
   janela,
   rowPx,
@@ -697,7 +710,7 @@ function LinhaHorarioAtual({
   return (
     <div
       className="pointer-events-none absolute inset-x-0 border-t border-gold/30"
-      style={{ top: ((minutosAtuais - janela.inicioMin) / ROW_MIN) * rowPx }}
+      style={{ top: ALTURA_CABECALHO_DIA + ((minutosAtuais - janela.inicioMin) / ROW_MIN) * rowPx }}
     />
   );
 }
@@ -775,7 +788,6 @@ function DiaColuna({
             style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
           />
         ))}
-        {hoje && <LinhaHorarioAtual janela={janela} rowPx={rowPx} />}
         {sessoesDoDia.map((s) => (
           <BlocoSessao
             key={s.id}
