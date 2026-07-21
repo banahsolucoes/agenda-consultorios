@@ -1479,6 +1479,7 @@ export default function PainelPage() {
     return renderizarTemplateMensagem(clinica.templateMeet, {
       saudacao: saudacaoAtual(),
       paciente: pacienteSelecionado.nome.split(" ")[0],
+      hora: formatarHorario(s.inicio),
       linkMeet: s.linkMeet ?? "(link ainda não gerado)",
       assistente: clinica.nomeAssistente,
     });

@@ -164,7 +164,7 @@ Nomes de domínio em português (decisão do projeto); termos de framework em in
 ### 5.8 Confirmação e link do Meet (mensagens copiar-colar)
 - Botão **copiar** a mensagem pronta (assinada "Daiane") para o operador colar no WhatsApp. Sem abrir instância, sem link automático.
 - **Mensagem de confirmação** (véspera): texto padrão parametrizável por clínica (nome do assistente, horário-limite).
-- **Mensagem com link do Meet** (dia da sessão): botão que copia um texto **contendo o link do Meet** da sessão, para o operador enviar ao cliente. Texto a definir.
+- **Mensagem com link do Meet** (dia da sessão): botão que copia um texto **contendo o link do Meet** da sessão, para o operador enviar ao cliente. Desde 2026-07-21, o texto inclui o horário da sessão (`{hora}`), ex.: "Segue o link da sua sessão de hoje às 14:30h."
 - *(Envio automático de mensagens — WhatsApp oficial/conversas — fica para a v2, ver seção 11.)*
 
 ### 5.9 Notificações (sino)
@@ -182,6 +182,7 @@ Decisão de arquitetura definida: a operadora (Daiane) trabalha **dentro do pain
 - **Visão de calendário** (dia/semana) mostrando as sessões como blocos, coloridos por **tipo de sessão** (ver §4).
 - **Arrastar** uma sessão move seu horário/dia — gravando direto no banco, respeitando as travas de negócio (agenda 08:00–19:30; regras de mesma semana quando aplicável).
 - É **somente a agenda visual** — o link do Meet é tratado à parte (botão de copiar mensagem), não embutido no calendário.
+- Quando o grid mostra o dia de hoje, uma linha fina e esmaecida indica o horário atual (atualizada a cada 60s), só como referência visual — sem label, sem interferir no drag-and-drop.
 - O Google Calendar continua recebendo o **espelho** (escrita a partir do banco), para quem quiser ver no Google. Mas a **edição oficial** passa a ser no painel.
 
 **Consequência boa:** como a edição volta a ter uma única porta (o painel → banco), não há mais necessidade de sincronização bidirecional nem de job noturno. O problema que nos consumiu no protótipo deixa de existir.

@@ -102,6 +102,7 @@ Toda rota exige `getUsuarioLogado()` (401 se ausente) exceto onde marcado "públ
 - **Card de sessão**: componente `BlocoSessao` (~linha 761); root JSX do card em ~linhas 892–972.
 - **Cálculo de altura do bloco** (~linhas 798–803): `top = ((minutos - inicioMin) / ROW_MIN) * rowPx`; `altura = Math.max(46, (duracaoMin / ROW_MIN) * rowPx - 2)`, onde `ROW_MIN = 30` e `rowPx` é recalculado dinamicamente por `recalcularRowPx()` (~linha 335) para caber a janela de expediente na tela, entre `ROW_PX_MIN=34` e `ROW_PX_MAX=52` (padrão inicial `ROW_PX_PADRAO=36`) — não é um pixel fixo.
 - Drag-and-drop via `dnd-kit` (`DndContext`/`useDraggable`/`useDroppable`) para mover sessão; resize por pointer handler manual (não dnd-kit) na borda inferior do card.
+- **Linha do horário atual**: componente `LinhaHorarioAtual` (2026-07-21), renderizado dentro de `DiaColuna` só quando a coluna é o dia de hoje (`hoje`). Estado próprio (`useState` + `setInterval` de 60s) isolado do resto do grid — não usa o `agora` de `AgendaCalendario` para não acoplar ao re-render que esmaece sessões passadas. Reaproveita o mesmo cálculo de `janela`/`rowPx`/`ROW_MIN` usado para posicionar `BlocoSessao`. Linha fina (`border-t`), esmaecida (`border-gold/30`), `pointer-events-none`, sem label; renderizada antes dos cards de sessão no DOM para eles ficarem por cima naturalmente (sem z-index).
 - `EscopoMoveModal` — pergunta "só esta" vs. "esta e futuras" ao mover sessão de pacote com irmãs futuras.
 - `SessaoDetalheModal` — modal de detalhe ao clicar no card: status, confirmar, editar data/hora/tipo/duração, cancelar com motivo, copiar mensagens.
 - Handlers-chave: `carregarSessoes` (GET `/api/agenda`), `moverSessao`/`redimensionarSessao` (PATCH `/api/sessoes/[id]` otimista), `handleDragEnd` (drop → valida → move), `handleResizePointerDown` (resize manual).
@@ -141,7 +142,7 @@ Página de gestão de tarefas: filtros status (Pendentes/Concluídas/Todas) e ti
 | `tarefas.ts` | `sincronizarTarefaRenovacao()` — cria/conclui `Tarefa RENOVACAO` nos 3 pontos que mudam `Paciente.statusGeral` |
 | `labels.ts` | Tradução de enums do banco (MAIÚSCULO) para rótulos amigáveis pt-BR |
 | `blocoAgenda.ts` | `textoLinhaBlocoAgenda()` — label do card de sessão no calendário |
-| `templatesMensagem.ts` | Templates padrão + `renderizarTemplateMensagem()` (placeholders de confirmação/Meet) |
+| `templatesMensagem.ts` | Templates padrão + `renderizarTemplateMensagem()` (placeholders de confirmação/Meet, inclui `{hora}` no Meet desde 2026-07-21) |
 | `emailBoasVindas.ts` | Renderiza assunto/corpo do e-mail de boas-vindas (texto → HTML) |
 | `nomes.ts` | `primeiroUltimoNome()` — nome curto para títulos de evento Google |
 | `validacao.ts` | Parsing/validação de link de pasta do Google Drive |

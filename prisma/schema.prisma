@@ -67,7 +67,7 @@ model Clinica {
   // paciente). Variáveis: {saudacao} {paciente} {data} {hora}
   // {horarioLimite} {linkMeet} {assistente} — ver src/lib/templatesMensagem.ts.
   templateConfirmacao       String            @default("{saudacao} {paciente}, tudo bem?! \n🌸 Passando para confirmar sua sessão no dia {data} às {hora}hr. 🗓\n👉 Podemos confirmar? ✅\n⸻\n⚠️ Importante\nCaso não haja confirmação até hoje, às {horarioLimite}hr, o horário será automaticamente cancelado.\nUm abraço\n\n{assistente} 🥰")
-  templateMeet              String            @default("{saudacao} {paciente}, tudo bem? ☀️\n\nSegue o link da sua sessão de hoje.\n🔗 {linkMeet} 🔗\n\nQualquer coisa, estou por aqui.\n\n{assistente} 🥰")
+  templateMeet              String            @default("{saudacao} {paciente}, tudo bem? ☀️\n\nSegue o link da sua sessão de hoje às {hora}h.\n🔗 {linkMeet} 🔗\n\nQualquer coisa, estou por aqui.\n\n{assistente} 🥰")
 
   usuarios                  Usuario[]
   pacientes                 Paciente[]

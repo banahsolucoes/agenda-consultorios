@@ -53,6 +53,7 @@ describe("renderizarTemplateMensagem", () => {
     const resultado = renderizarTemplateMensagem(TEMPLATE_MEET_PADRAO, {
       saudacao: "Boa tarde",
       paciente: "William",
+      hora: "14:30",
       linkMeet: "https://meet.google.com/fnz-tood-zgt",
       assistente: "Ana",
     });
@@ -60,7 +61,7 @@ describe("renderizarTemplateMensagem", () => {
     expect(resultado).toBe(
       "Boa tarde William, tudo bem? ☀️\n" +
         "\n" +
-        "Segue o link da sua sessão de hoje.\n" +
+        "Segue o link da sua sessão de hoje às 14:30h.\n" +
         "🔗 https://meet.google.com/fnz-tood-zgt 🔗\n" +
         "\n" +
         "Qualquer coisa, estou por aqui.\n" +

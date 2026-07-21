@@ -187,6 +187,7 @@ function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgen
   return renderizarTemplateMensagem(clinica.templateMeet, {
     saudacao: saudacaoAtual(),
     paciente: sessao.paciente.nome.split(" ")[0],
+    hora: formatarHorario(new Date(sessao.inicio)),
     linkMeet: sessao.linkMeet ?? "",
     assistente: clinica.nomeAssistente,
   });
@@ -672,6 +673,35 @@ export default function AgendaCalendario({
   );
 }
 
+// Linha fina indicando o horário atual no grid — estado próprio (tick a cada
+// 60s) pra não forçar o re-render do grid inteiro a cada minuto, como
+// `agora` (em AgendaCalendario) já faz para esmaecer sessões passadas.
+function LinhaHorarioAtual({
+  janela,
+  rowPx,
+}: {
+  janela: { inicioMin: number; fimMin: number };
+  rowPx: number;
+}) {
+  const [instante, setInstante] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setInstante(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const c = componentesSP(instante);
+  const minutosAtuais = c.hora * 60 + c.minuto;
+  if (minutosAtuais < janela.inicioMin || minutosAtuais > janela.fimMin) return null;
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 border-t border-gold/30"
+      style={{ top: ((minutosAtuais - janela.inicioMin) / ROW_MIN) * rowPx }}
+    />
+  );
+}
+
 function DiaColuna({
   index,
   dia,
@@ -745,6 +775,7 @@ function DiaColuna({
             style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
           />
         ))}
+        {hoje && <LinhaHorarioAtual janela={janela} rowPx={rowPx} />}
         {sessoesDoDia.map((s) => (
           <BlocoSessao
             key={s.id}

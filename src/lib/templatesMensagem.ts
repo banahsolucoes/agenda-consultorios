@@ -18,7 +18,7 @@ export const TEMPLATE_CONFIRMACAO_PADRAO =
 export const TEMPLATE_MEET_PADRAO =
   "{saudacao} {paciente}, tudo bem? ☀️\n" +
   "\n" +
-  "Segue o link da sua sessão de hoje.\n" +
+  "Segue o link da sua sessão de hoje às {hora}h.\n" +
   "🔗 {linkMeet} 🔗\n" +
   "\n" +
   "Qualquer coisa, estou por aqui.\n" +
