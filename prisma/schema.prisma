@@ -243,6 +243,7 @@ model Agendamento {
   googleEventId     String?
   googleCalendarId  String?
   linkMeet          String?
+  googleSyncStatus  StatusSincronizacaoGoogle @default(NAO_APLICAVEL)
   tipoSessaoId      String?
   motivoCancelamento String?
   confirmada        Boolean        @default(false)
@@ -345,6 +346,18 @@ enum StatusSessao {
   REALIZADA
   NAO_REALIZADA
   CANCELADA
+}
+
+// Status da tentativa de espelhar o Agendamento no Google Calendar na
+// criação (POST /api/pacotes). NAO_APLICAVEL cobre tanto "clínica sem Google
+// conectado" quanto dados anteriores a este campo (default). Os fluxos de
+// reagendar/empurrar/adiar/cancelar (PATCH /api/sessoes/[id] e variantes)
+// ainda não atualizam este campo — só a criação.
+enum StatusSincronizacaoGoogle {
+  NAO_APLICAVEL
+  PENDENTE
+  SINCRONIZADO
+  FALHOU
 }
 
 enum TarefaTipo {

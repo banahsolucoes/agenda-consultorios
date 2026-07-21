@@ -424,12 +424,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
       if (google) {
-        const resultado = await criarEventoGoogleMeet(google.calendar, google.clinica.googleCalendarId ?? "primary", {
-          titulo,
-          inicio: sessao.inicio,
-          duracaoMin: novaDuracaoMin,
-          cor: novoTipo.cor,
-        });
+        const resultado = await criarEventoGoogleMeet(
+          google.calendar,
+          google.clinica.googleCalendarId ?? "primary",
+          { titulo, inicio: sessao.inicio, duracaoMin: novaDuracaoMin, cor: novoTipo.cor },
+          true
+        );
         if (resultado.linkMeet) {
           dadosGoogle = resultado;
         } else {

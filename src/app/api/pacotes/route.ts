@@ -123,23 +123,30 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Sessão online + clínica com Google conectado: cria um evento (com Meet)
-  // por sessão e grava o link/id junto do agendamento. Fora desse caso, segue
-  // o caminho local de sempre — a integração nunca pode travar a criação da
-  // sessão em si.
-  const clinica = tipoSessaoEhOnline
-    ? await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } })
-    : null;
+  // Clínica com Google conectado: cria um evento por sessão — com Meet só
+  // quando o tipo de atendimento é online — e grava link/id + status de
+  // sincronização junto do agendamento. O gate é a conexão da clínica, não o
+  // tipo de sessão: antes, sessão presencial pulava a integração inteira
+  // mesmo com a clínica conectada (bug real — ver auditoria de 2026-07-21).
+  // Falha na chamada ao Google nunca pode travar a criação da sessão em si —
+  // só grava FALHOU pra não confundir com "nunca tentou".
+  const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
   const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
 
   if (calendar && clinica) {
     for (const sessao of sessoes) {
-      const dadosGoogle = await criarEventoGoogleMeet(calendar, clinica.googleCalendarId ?? "primary", {
-        titulo: `${primeiroUltimoNome(paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
-        inicio: sessao.inicio,
-        duracaoMin: sessao.duracaoMin,
-      });
-      await prisma.agendamento.create({ data: { ...sessao, ...dadosGoogle } });
+      const dadosGoogle = await criarEventoGoogleMeet(
+        calendar,
+        clinica.googleCalendarId ?? "primary",
+        {
+          titulo: `${primeiroUltimoNome(paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
+          inicio: sessao.inicio,
+          duracaoMin: sessao.duracaoMin,
+        },
+        tipoSessaoEhOnline
+      );
+      const googleSyncStatus = dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU";
+      await prisma.agendamento.create({ data: { ...sessao, ...dadosGoogle, googleSyncStatus } });
     }
   } else {
     await prisma.agendamento.createMany({ data: sessoes });
