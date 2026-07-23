@@ -82,6 +82,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     numeroSessao: number;
     totalPacote: number;
     ehOnline: boolean;
+    tipoSessaoGoogleCalendarId: string | null;
   }[] = [];
   for (const s of sessoes) {
     if (s.inicio < agora) continue;
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       numeroSessao: s.numeroSessao,
       totalPacote: s.totalPacote,
       ehOnline: s.tipoSessao?.ehOnline ?? false,
+      tipoSessaoGoogleCalendarId: s.tipoSessao?.googleCalendarId ?? null,
     });
   }
 
@@ -167,7 +169,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (mov.googleEventId) {
         const ok = await sincronizarEventoGoogle(
           google.calendar,
-          mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          mov.googleCalendarId ?? mov.tipoSessaoGoogleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           mov.googleEventId,
           { inicio: mov.novaData, duracaoMin: mov.duracaoMin }
         );
@@ -178,7 +180,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       } else {
         const dadosGoogle = await criarEventoGoogleMeet(
           google.calendar,
-          google.clinica.googleCalendarId ?? "primary",
+          mov.tipoSessaoGoogleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           {
             titulo: `${primeiroUltimoNome(paciente.nome)} (${mov.numeroSessao}/${mov.totalPacote})`,
             inicio: mov.novaData,

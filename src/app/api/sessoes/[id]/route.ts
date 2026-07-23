@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         if (google) {
           await google.calendar.events
             .delete({
-              calendarId: sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+              calendarId: sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
               eventId: sessao.googleEventId,
             })
             .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));
@@ -177,7 +177,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           status: "AGENDADA",
           arquivada: false,
         },
-        include: { paciente: true },
+        include: { paciente: true, tipoSessao: true },
         orderBy: { numeroSessao: "asc" },
       });
 
@@ -196,7 +196,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           novoInicio: novaData,
           duracaoMin: sessao.duracaoMin,
           googleEventId: sessao.googleEventId,
-          googleCalendarId: sessao.googleCalendarId,
+          googleCalendarId: sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? null,
         },
         ...irmas.map((irma) => ({
           id: irma.id,
@@ -204,7 +204,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           novoInicio: new Date(novaData.getTime() + (irma.numeroSessao - sessao.numeroSessao) * 7 * DIA_MS),
           duracaoMin: irma.duracaoMin,
           googleEventId: irma.googleEventId,
-          googleCalendarId: irma.googleCalendarId,
+          googleCalendarId: irma.googleCalendarId ?? irma.tipoSessao?.googleCalendarId ?? null,
         })),
       ];
 
@@ -326,7 +326,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (google) {
         await sincronizarEventoGoogle(
           google.calendar,
-          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
           { inicio: novaData, duracaoMin: sessao.duracaoMin }
         );
@@ -380,7 +380,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (google) {
         await sincronizarEventoGoogle(
           google.calendar,
-          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
           { inicio: sessao.inicio, duracaoMin: novaDuracaoMin }
         );
@@ -426,7 +426,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (google) {
         const resultado = await criarEventoGoogleMeet(
           google.calendar,
-          google.clinica.googleCalendarId ?? "primary",
+          novoTipo.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           { titulo, inicio: sessao.inicio, duracaoMin: novaDuracaoMin, cor: novoTipo.cor },
           true
         );
@@ -453,7 +453,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!dadosGoogle.googleEventId && sessao.googleEventId && google) {
       await sincronizarEventoGoogle(
         google.calendar,
-        sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+        sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
         sessao.googleEventId,
         { inicio: sessao.inicio, duracaoMin: novaDuracaoMin, titulo, cor: novoTipo.cor }
       );
@@ -477,7 +477,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${body.confirmada ? " ✅" : ""}`;
         await sincronizarEventoGoogle(
           google.calendar,
-          sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
           { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo }
         );

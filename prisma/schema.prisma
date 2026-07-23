@@ -103,6 +103,11 @@ model TipoSessao {
   ehOnline           Boolean       @default(false)
   ehAtendimentoUnico Boolean       @default(false)
   valor              Decimal?
+  // Calendário do Google pra onde o evento desse tipo de sessão vai (2026-07-23).
+  // Sem isso, todo evento caía no googleCalendarId único da Clinica
+  // (default "primary") independente do tipo — bug histórico: sessão
+  // presencial e online se misturavam no mesmo calendário.
+  googleCalendarId   String?
   criadoEm           DateTime      @default(now())
 
   clinica           Clinica       @relation(fields: [clinicaId], references: [id])

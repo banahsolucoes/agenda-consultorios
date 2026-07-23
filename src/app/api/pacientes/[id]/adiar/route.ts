@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (mov.sessao.googleEventId) {
         const ok = await sincronizarEventoGoogle(
           google.calendar,
-          mov.sessao.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          mov.sessao.googleCalendarId ?? mov.sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           mov.sessao.googleEventId,
           { inicio: mov.novaData, duracaoMin: mov.sessao.duracaoMin }
         );
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       } else {
         const dadosGoogle = await criarEventoGoogleMeet(
           google.calendar,
-          google.clinica.googleCalendarId ?? "primary",
+          mov.sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           {
             titulo: `${primeiroUltimoNome(paciente.nome)} (${mov.sessao.numeroSessao}/${mov.sessao.totalPacote})`,
             inicio: mov.novaData,

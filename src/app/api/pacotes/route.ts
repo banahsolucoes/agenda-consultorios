@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
   let tipoSessaoEhAtendimentoUnico = paciente.tipoSessao?.ehAtendimentoUnico ?? false;
   let tipoSessaoNome = paciente.tipoSessao?.nome ?? null;
   let tipoSessaoDuracaoMin = paciente.tipoSessao?.duracaoPadraoMin ?? 45;
+  let tipoSessaoGoogleCalendarId = paciente.tipoSessao?.googleCalendarId ?? null;
   if (body.tipoSessaoId !== undefined) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
     tipoSessaoEhAtendimentoUnico = tipoSessao.ehAtendimentoUnico;
     tipoSessaoNome = tipoSessao.nome;
     tipoSessaoDuracaoMin = tipoSessao.duracaoPadraoMin;
+    tipoSessaoGoogleCalendarId = tipoSessao.googleCalendarId;
   }
 
   // Tipo de sessão de atendimento único (ex.: avaliação) só pode ser usado
@@ -129,7 +131,11 @@ export async function POST(req: NextRequest) {
   // tipo de sessão: antes, sessão presencial pulava a integração inteira
   // mesmo com a clínica conectada (bug real — ver auditoria de 2026-07-21).
   // Falha na chamada ao Google nunca pode travar a criação da sessão em si —
-  // só grava FALHOU pra não confundir com "nunca tentou".
+  // só grava FALHOU pra não confundir com "nunca tentou". O calendário é
+  // escolhido pelo tipo de sessão (TipoSessao.googleCalendarId) quando
+  // configurado — sem isso, todo evento caía no googleCalendarId único da
+  // Clinica, misturando presencial e online no mesmo calendário (bug
+  // histórico corrigido em 2026-07-23).
   const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
   const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
 
@@ -137,7 +143,7 @@ export async function POST(req: NextRequest) {
     for (const sessao of sessoes) {
       const dadosGoogle = await criarEventoGoogleMeet(
         calendar,
-        clinica.googleCalendarId ?? "primary",
+        tipoSessaoGoogleCalendarId ?? clinica.googleCalendarId ?? "primary",
         {
           titulo: `${primeiroUltimoNome(paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
           inicio: sessao.inicio,
