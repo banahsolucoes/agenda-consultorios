@@ -361,13 +361,15 @@ export async function criarEventoGoogleMeet(
 // opcionalmente título e cor (colorId). Usado por toda operação que move,
 // empurra, adia ou muda a duração/tipo/confirmação de uma sessão que já tem
 // googleEventId. Melhor esforço: qualquer falha só é logada, nunca
-// interrompe a operação local que já foi persistida.
+// interrompe a operação local que já foi persistida — mas o caller ainda
+// recebe se deu certo (para gravar googleSyncStatus), daí retornar boolean
+// em vez de void.
 export async function sincronizarEventoGoogle(
   calendar: calendar_v3.Calendar,
   googleCalendarId: string,
   eventId: string,
   dados: { inicio: Date; duracaoMin: number; titulo?: string; cor?: string | null }
-): Promise<void> {
+): Promise<boolean> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
     const colorId = mapearCorParaGoogleColorId(dados.cor);
@@ -381,7 +383,9 @@ export async function sincronizarEventoGoogle(
         ...(colorId ? { colorId } : {}),
       },
     });
+    return true;
   } catch (err) {
     console.error("Falha ao atualizar evento no Google Calendar:", err);
+    return false;
   }
 }

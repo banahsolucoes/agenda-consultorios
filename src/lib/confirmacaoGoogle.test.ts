@@ -74,6 +74,6 @@ describe("confirmação de sessão refletida no título do evento Google", () =>
         duracaoMin: 45,
         titulo: "William Silva (12/12) ✅",
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 });

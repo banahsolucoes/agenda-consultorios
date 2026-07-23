@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
-import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
+import { obterClinicaECalendar, sincronizarEventoGoogle, criarEventoGoogleMeet } from "@/lib/google";
+import { primeiroUltimoNome } from "@/lib/nomes";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const sessoes = await prisma.agendamento.findMany({
     where: { pacienteId, status: { notIn: ["CANCELADA"] } },
     orderBy: { numeroSessao: "asc" },
+    include: { tipoSessao: true },
   });
 
   const movimentos: {
@@ -77,6 +79,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     googleEventId: string | null;
     googleCalendarId: string | null;
     duracaoMin: number;
+    numeroSessao: number;
+    totalPacote: number;
+    ehOnline: boolean;
   }[] = [];
   for (const s of sessoes) {
     if (s.inicio < agora) continue;
@@ -106,6 +111,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       googleEventId: s.googleEventId,
       googleCalendarId: s.googleCalendarId,
       duracaoMin: s.duracaoMin,
+      numeroSessao: s.numeroSessao,
+      totalPacote: s.totalPacote,
+      ehOnline: s.tipoSessao?.ehOnline ?? false,
     });
   }
 
@@ -143,20 +151,45 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       : []),
   ]);
 
-  // Reflete a nova data/hora no Google Calendar de cada sessão movida que
-  // tenha evento vinculado. Melhor esforço — busca o client uma única vez
-  // para o lote todo, e falha na integração nunca desfaz o que já foi movido.
-  const movimentosComEvento = movimentos.filter((mov) => mov.googleEventId);
-  if (movimentosComEvento.length > 0) {
-    const google = await obterClinicaECalendar(usuario.clinicaId);
-    if (google) {
-      for (const mov of movimentosComEvento) {
-        await sincronizarEventoGoogle(
+  // Reflete a nova data/hora no Google Calendar de cada sessão movida —
+  // atualiza o evento já existente, ou cria um novo se a sessão nunca teve
+  // evento (mesmo gate de criação de POST /api/pacotes: clínica conectada,
+  // Meet só quando o tipo de atendimento é online). Melhor esforço — busca o
+  // client uma única vez para o lote todo, e falha na integração nunca
+  // desfaz o que já foi movido no banco; grava googleSyncStatus pra
+  // distinguir sucesso de falha em vez de deixar como se nada tivesse
+  // acontecido (achado da auditoria de 2026-07-23: sessões do paciente Jadir
+  // ficaram com a data desatualizada no Google porque a falha aqui era só
+  // logada e nunca registrada).
+  const google = await obterClinicaECalendar(usuario.clinicaId);
+  if (google) {
+    for (const mov of movimentos) {
+      if (mov.googleEventId) {
+        const ok = await sincronizarEventoGoogle(
           google.calendar,
           mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          mov.googleEventId!,
+          mov.googleEventId,
           { inicio: mov.novaData, duracaoMin: mov.duracaoMin }
         );
+        await prisma.agendamento.update({
+          where: { id: mov.id },
+          data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
+        });
+      } else {
+        const dadosGoogle = await criarEventoGoogleMeet(
+          google.calendar,
+          google.clinica.googleCalendarId ?? "primary",
+          {
+            titulo: `${primeiroUltimoNome(paciente.nome)} (${mov.numeroSessao}/${mov.totalPacote})`,
+            inicio: mov.novaData,
+            duracaoMin: mov.duracaoMin,
+          },
+          mov.ehOnline
+        );
+        await prisma.agendamento.update({
+          where: { id: mov.id },
+          data: { ...dadosGoogle, googleSyncStatus: dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU" },
+        });
       }
     }
   }
