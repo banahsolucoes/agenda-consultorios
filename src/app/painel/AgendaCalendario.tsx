@@ -236,6 +236,12 @@ export default function AgendaCalendario({
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const avisoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Trava o grid (visual + interação) do início de um drag até a mutação
+  // resolver — cobre a checagem de irmãs futuras, o modal de escopo (se
+  // abrir) e o PATCH em si. Rede de segurança: se nenhum caminho destravar
+  // em 25s (bug não previsto), força destravar sozinho.
+  const [movendoSessao, setMovendoSessao] = useState(false);
+  const lockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Aborta a busca anterior antes de disparar uma nova — sem isso, trocar de
   // semana rapidamente pode fazer uma resposta antiga (mais lenta) chegar
   // depois da mais recente e sobrescrever a semana atual com dados errados.
@@ -380,6 +386,27 @@ export default function AgendaCalendario({
     avisoTimeout.current = setTimeout(() => setAviso(""), 4000);
   }
 
+  const LOCK_TIMEOUT_MS = 25000;
+
+  function travarMovimento() {
+    setMovendoSessao(true);
+    if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
+    lockTimeoutRef.current = setTimeout(() => {
+      console.warn(
+        "Lock de movimento da agenda destravado por timeout de segurança (25s) — algum caminho não liberou o lock."
+      );
+      setMovendoSessao(false);
+    }, LOCK_TIMEOUT_MS);
+  }
+
+  function destravarMovimento() {
+    if (lockTimeoutRef.current) {
+      clearTimeout(lockTimeoutRef.current);
+      lockTimeoutRef.current = null;
+    }
+    setMovendoSessao(false);
+  }
+
   // No modo "dia", pula direto para o próximo dia em que a clínica atende
   // (sem parar num fim de semana ou dia fechado, por exemplo).
   function proximoDiaComAtendimento(d: Date, direcao: 1 | -1) {
@@ -513,25 +540,35 @@ export default function AgendaCalendario({
       return;
     }
 
-    // Só pergunta o escopo quando existe irmã futura elegível no mesmo
-    // pacote — sem irmã, move direto (comportamento atual, sem fricção).
-    // Consulta o banco (não o array `sessoes`, que só tem a semana visível
-    // do calendário — a irmã seguinte, +7 dias, quase sempre cai fora dela).
+    // A partir daqui a mutação é real (vai persistir) — trava o grid até
+    // resolver. Se abrir o modal de escopo, o lock continua true: só
+    // destrava quando o modal for respondido (onEscolher/onCancelar).
+    travarMovimento();
+    let vaiAbrirModal = false;
     try {
-      const res = await fetch(`/api/sessoes/${sessao.id}/irmas-futuras/`);
-      if (!res.ok) throw new Error("falha ao consultar irmãs futuras");
-      const data: { temFuturas: boolean; quantidade: number } = await res.json();
-      if (data.temFuturas) {
-        setEscopoPendente({ sessao, novaData, novoHorario, qtdIrmas: data.quantidade });
-        return;
+      // Só pergunta o escopo quando existe irmã futura elegível no mesmo
+      // pacote — sem irmã, move direto (comportamento atual, sem fricção).
+      // Consulta o banco (não o array `sessoes`, que só tem a semana visível
+      // do calendário — a irmã seguinte, +7 dias, quase sempre cai fora dela).
+      try {
+        const res = await fetch(`/api/sessoes/${sessao.id}/irmas-futuras/`);
+        if (!res.ok) throw new Error("falha ao consultar irmãs futuras");
+        const data: { temFuturas: boolean; quantidade: number } = await res.json();
+        if (data.temFuturas) {
+          setEscopoPendente({ sessao, novaData, novoHorario, qtdIrmas: data.quantidade });
+          vaiAbrirModal = true;
+          return;
+        }
+      } catch (err) {
+        // Em dúvida, move só a sessão arrastada — nunca aplica ESTA_E_FUTURAS
+        // sem confirmação de que há irmã futura de fato.
+        console.error("Falha ao consultar irmãs futuras da sessão:", err);
       }
-    } catch (err) {
-      // Em dúvida, move só a sessão arrastada — nunca aplica ESTA_E_FUTURAS
-      // sem confirmação de que há irmã futura de fato.
-      console.error("Falha ao consultar irmãs futuras da sessão:", err);
-    }
 
-    moverSessao(sessao, novaData, novoHorario, "ESTA");
+      await moverSessao(sessao, novaData, novoHorario, "ESTA");
+    } finally {
+      if (!vaiAbrirModal) destravarMovimento();
+    }
   }
 
   const titulo =
@@ -591,49 +628,63 @@ export default function AgendaCalendario({
         <p className="text-sm text-muted">Carregando agenda...</p>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div ref={boxRef} className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-surface">
-            <div className="flex" style={{ minWidth: modo === "semana" ? 1100 : 280 }}>
-              {/* Gutter de horários */}
-              <div className="w-14 shrink-0 border-r border-border">
-                <div className="sticky top-0 z-10 h-10 border-b border-border bg-surface" />
-                <div className="relative" style={{ height: gridHeightPx }}>
-                  {marcadores.map((min) => (
-                    <span
-                      key={min}
-                      className="absolute right-1.5 -translate-y-1/2 text-[10px] text-muted"
-                      style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
-                    >
-                      {minutosParaHora(min)}
-                    </span>
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={boxRef}
+              className={`h-full min-h-0 overflow-auto rounded-xl border border-border bg-surface transition-opacity ${
+                movendoSessao ? "pointer-events-none opacity-50" : ""
+              }`}
+            >
+              <div className="flex" style={{ minWidth: modo === "semana" ? 1100 : 280 }}>
+                {/* Gutter de horários */}
+                <div className="w-14 shrink-0 border-r border-border">
+                  <div className="sticky top-0 z-10 h-10 border-b border-border bg-surface" />
+                  <div className="relative" style={{ height: gridHeightPx }}>
+                    {marcadores.map((min) => (
+                      <span
+                        key={min}
+                        className="absolute right-1.5 -translate-y-1/2 text-[10px] text-muted"
+                        style={{ top: ((min - janela.inicioMin) / ROW_MIN) * rowPx }}
+                      >
+                        {minutosParaHora(min)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="relative flex flex-1">
+                  {semanaTemHoje && <LinhaHorarioAtual janela={janela} rowPx={rowPx} />}
+                  {dias.map((dia, i) => (
+                    <DiaColuna
+                      key={i}
+                      index={i}
+                      dia={dia}
+                      sessoesDoDia={sessoesPorDia[i]}
+                      janela={janela}
+                      marcadores={marcadores}
+                      gridHeightPx={gridHeightPx}
+                      rowPx={rowPx}
+                      colRefCallback={(idx, node) => {
+                        colRefs.current[idx] = node;
+                      }}
+                      onAbrirDetalhe={setSessaoDetalhe}
+                      clinica={clinica}
+                      agora={agora}
+                      horarios={horarios}
+                      onRedimensionar={redimensionarSessao}
+                      onAviso={mostrarAviso}
+                    />
                   ))}
                 </div>
               </div>
-
-              <div className="relative flex flex-1">
-                {semanaTemHoje && <LinhaHorarioAtual janela={janela} rowPx={rowPx} />}
-                {dias.map((dia, i) => (
-                  <DiaColuna
-                    key={i}
-                    index={i}
-                    dia={dia}
-                    sessoesDoDia={sessoesPorDia[i]}
-                    janela={janela}
-                    marcadores={marcadores}
-                    gridHeightPx={gridHeightPx}
-                    rowPx={rowPx}
-                    colRefCallback={(idx, node) => {
-                      colRefs.current[idx] = node;
-                    }}
-                    onAbrirDetalhe={setSessaoDetalhe}
-                    clinica={clinica}
-                    agora={agora}
-                    horarios={horarios}
-                    onRedimensionar={redimensionarSessao}
-                    onAviso={mostrarAviso}
-                  />
-                ))}
-              </div>
             </div>
+            {movendoSessao && (
+              <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
+                <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg shadow-md">
+                  Salvando alteração...
+                </span>
+              </div>
+            )}
           </div>
         </DndContext>
       )}
@@ -668,11 +719,18 @@ export default function AgendaCalendario({
         <EscopoMoveModal
           sessao={escopoPendente.sessao}
           qtdIrmas={escopoPendente.qtdIrmas}
-          onCancelar={() => setEscopoPendente(null)}
-          onEscolher={(escopo) => {
+          onCancelar={() => {
+            setEscopoPendente(null);
+            destravarMovimento();
+          }}
+          onEscolher={async (escopo) => {
             const alvo = escopoPendente;
             setEscopoPendente(null);
-            moverSessao(alvo.sessao, alvo.novaData, alvo.novoHorario, escopo);
+            try {
+              await moverSessao(alvo.sessao, alvo.novaData, alvo.novoHorario, escopo);
+            } finally {
+              destravarMovimento();
+            }
           }}
         />
       )}
