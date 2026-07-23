@@ -43,6 +43,11 @@ export async function GET(req: NextRequest) {
         ...(tokens.scope ? { googleEscopos: tokens.scope } : {}),
         googleTokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         googleConectado: true,
+        // Reconectar com sucesso é prova de que o token voltou a funcionar —
+        // limpa o estado de falha que a detecção de invalid_grant (google.ts)
+        // possa ter marcado.
+        googleTokenValido: true,
+        googleUltimaFalhaEm: null,
       },
     });
     destino.searchParams.set("google_conectado", "1");

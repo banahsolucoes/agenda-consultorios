@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       if (clinica?.googleConectado && clinica.pastaRaizDriveId) {
         const drive = await obterDriveDaClinica(clinica);
         if (drive) {
-          const pasta = await criarPastaPacienteDrive(drive, clinica.pastaRaizDriveId, paciente.nome);
+          const pasta = await criarPastaPacienteDrive(drive, clinica.pastaRaizDriveId, paciente.nome, clinica.id);
           if (pasta.pastaDriveUrl) {
             await prisma.paciente.update({
               where: { id: paciente.id },

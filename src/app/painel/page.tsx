@@ -128,6 +128,7 @@ interface Tarefa {
 interface Notificacoes {
   reagendadas: NotificacaoSessao[];
   tarefas: Tarefa[];
+  integracaoGoogleFalhou: boolean;
 }
 
 interface Sessao {
@@ -421,7 +422,11 @@ export default function PainelPage() {
   const [tiposSessao, setTiposSessao] = useState<TipoSessao[]>([]);
 
   // Sino de notificações (sessões reagendadas + tarefas pendentes)
-  const [notificacoes, setNotificacoes] = useState<Notificacoes>({ reagendadas: [], tarefas: [] });
+  const [notificacoes, setNotificacoes] = useState<Notificacoes>({
+    reagendadas: [],
+    tarefas: [],
+    integracaoGoogleFalhou: false,
+  });
   const [sinoAberto, setSinoAberto] = useState(false);
   const [avisoNotificacao, setAvisoNotificacao] = useState("");
   const [tarefaConcluindoId, setTarefaConcluindoId] = useState<string | null>(null);
@@ -734,7 +739,8 @@ export default function PainelPage() {
     return pacientes.filter((p) => normalizar(p.nome).includes(termo));
   }, [pacientes, busca]);
 
-  const totalPendencias = notificacoes.reagendadas.length + notificacoes.tarefas.length;
+  const totalPendencias =
+    notificacoes.reagendadas.length + notificacoes.tarefas.length + (notificacoes.integracaoGoogleFalhou ? 1 : 0);
 
   // Sessões futuras marcadas incorretamente como Realizada/Não realizada —
   // mesmo critério da trava do servidor (validarStatusSessao/dataEhFutura).
@@ -1655,6 +1661,12 @@ export default function PainelPage() {
           </div>
         </div>
       </header>
+
+      {notificacoes.integracaoGoogleFalhou && (
+        <div className="shrink-0 border-b border-red/30 bg-red/10 px-6 py-2 text-center text-sm font-medium text-red">
+          Conexão com Google Agenda perdida — reconecte em Configurações → Integrações.
+        </div>
+      )}
 
       <main className="mx-auto flex w-full min-h-0 max-w-[1360px] flex-1 flex-col overflow-hidden px-6 pb-6 pt-8">
         {/* Abas: lista de pacientes ou calendário da agenda — fixo, não rola */}

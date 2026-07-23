@@ -49,6 +49,13 @@ model Clinica {
   googleTokenExpiry         DateTime?
   googleConectado           Boolean           @default(false)
   googleCalendarId          String?           @default("primary")
+  // Saúde real da conexão (2026-07-24) — diferente de googleConectado, que só
+  // reflete a ação manual de conectar/desconectar. Vira false quando qualquer
+  // chamada à API detecta invalid_grant (token revogado/expirado de verdade);
+  // volta a true quando a clínica reconecta com sucesso. Alimenta o banner de
+  // "conexão perdida" e a checagem noturna.
+  googleTokenValido         Boolean           @default(true)
+  googleUltimaFalhaEm       DateTime?
   // Escopos concedidos pela clínica na última autorização OAuth (string
   // separada por espaço, formato do próprio Google) — usado só para saber
   // se a conexão já cobre Drive/Gmail, sem precisar chamar a API pra checar.

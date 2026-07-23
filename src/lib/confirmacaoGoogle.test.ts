@@ -16,11 +16,13 @@ describe("confirmação de sessão refletida no título do evento Google", () =>
     const calendar = { events: { patch } } as unknown as Parameters<typeof sincronizarEventoGoogle>[0];
 
     const titulo = tituloConfirmacao("William Silva", 12, 12, true);
-    await sincronizarEventoGoogle(calendar, "primary", "evt-1", {
-      inicio: new Date("2026-07-10T16:00:00.000Z"),
-      duracaoMin: 45,
-      titulo,
-    });
+    await sincronizarEventoGoogle(
+      calendar,
+      "primary",
+      "evt-1",
+      { inicio: new Date("2026-07-10T16:00:00.000Z"), duracaoMin: 45, titulo },
+      "clinica-teste"
+    );
 
     expect(titulo).toBe("William Silva (12/12) ✅");
     expect(patch.mock.calls[0][0].requestBody.summary).toBe("William Silva (12/12) ✅");
@@ -38,11 +40,13 @@ describe("confirmação de sessão refletida no título do evento Google", () =>
     const calendar = { events: { patch } } as unknown as Parameters<typeof sincronizarEventoGoogle>[0];
 
     const titulo = tituloConfirmacao("William Silva", 12, 12, false);
-    await sincronizarEventoGoogle(calendar, "primary", "evt-1", {
-      inicio: new Date("2026-07-10T16:00:00.000Z"),
-      duracaoMin: 45,
-      titulo,
-    });
+    await sincronizarEventoGoogle(
+      calendar,
+      "primary",
+      "evt-1",
+      { inicio: new Date("2026-07-10T16:00:00.000Z"), duracaoMin: 45, titulo },
+      "clinica-teste"
+    );
 
     expect(titulo).toBe("William Silva (12/12)");
     expect(titulo.includes("✅")).toBe(false);
@@ -53,11 +57,13 @@ describe("confirmação de sessão refletida no título do evento Google", () =>
     const patch = vi.fn().mockResolvedValue({});
     const calendar = { events: { patch } } as unknown as Parameters<typeof sincronizarEventoGoogle>[0];
 
-    await sincronizarEventoGoogle(calendar, "primary", "evt-1", {
-      inicio: new Date("2026-07-10T16:00:00.000Z"),
-      duracaoMin: 45,
-      titulo: "William Silva (12/12) ✅",
-    });
+    await sincronizarEventoGoogle(
+      calendar,
+      "primary",
+      "evt-1",
+      { inicio: new Date("2026-07-10T16:00:00.000Z"), duracaoMin: 45, titulo: "William Silva (12/12) ✅" },
+      "clinica-teste"
+    );
 
     const body = patch.mock.calls[0][0].requestBody;
     expect(body.start.timeZone).toBe("America/Sao_Paulo");
@@ -69,11 +75,13 @@ describe("confirmação de sessão refletida no título do evento Google", () =>
     const calendar = { events: { patch } } as unknown as Parameters<typeof sincronizarEventoGoogle>[0];
 
     await expect(
-      sincronizarEventoGoogle(calendar, "primary", "evt-1", {
-        inicio: new Date(),
-        duracaoMin: 45,
-        titulo: "William Silva (12/12) ✅",
-      })
+      sincronizarEventoGoogle(
+        calendar,
+        "primary",
+        "evt-1",
+        { inicio: new Date(), duracaoMin: 45, titulo: "William Silva (12/12) ✅" },
+        "clinica-teste"
+      )
     ).resolves.toBe(false);
   });
 });

@@ -88,7 +88,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           google.calendar,
           mov.sessao.googleCalendarId ?? mov.sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           mov.sessao.googleEventId,
-          { inicio: mov.novaData, duracaoMin: mov.sessao.duracaoMin }
+          { inicio: mov.novaData, duracaoMin: mov.sessao.duracaoMin },
+          google.clinica.id
         );
         await prisma.agendamento.update({
           where: { id: mov.sessao.id },
@@ -103,7 +104,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             inicio: mov.novaData,
             duracaoMin: mov.sessao.duracaoMin,
           },
-          mov.sessao.tipoSessao?.ehOnline ?? false
+          mov.sessao.tipoSessao?.ehOnline ?? false,
+          google.clinica.id
         );
         await prisma.agendamento.update({
           where: { id: mov.sessao.id },

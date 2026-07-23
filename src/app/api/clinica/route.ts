@@ -198,7 +198,7 @@ export async function PATCH(req: NextRequest) {
     const clinicaAtual = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
     if (clinicaAtual?.googleConectado) {
       const drive = await obterDriveDaClinica(clinicaAtual);
-      const acessivel = drive ? await verificarPastaDriveAcessivel(drive, idExtraido) : false;
+      const acessivel = drive ? await verificarPastaDriveAcessivel(drive, idExtraido, clinicaAtual.id) : false;
       if (!acessivel) {
         return NextResponse.json({ erro: "pasta não encontrada ou sem acesso" }, { status: 400 });
       }

@@ -276,7 +276,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
               google.calendar,
               mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
               mov.googleEventId!,
-              { inicio: mov.novoInicio, duracaoMin: mov.duracaoMin }
+              { inicio: mov.novoInicio, duracaoMin: mov.duracaoMin },
+              google.clinica.id
             );
           }
         }
@@ -328,7 +329,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
-          { inicio: novaData, duracaoMin: sessao.duracaoMin }
+          { inicio: novaData, duracaoMin: sessao.duracaoMin },
+          google.clinica.id
         );
       }
     }
@@ -382,7 +384,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
-          { inicio: sessao.inicio, duracaoMin: novaDuracaoMin }
+          { inicio: sessao.inicio, duracaoMin: novaDuracaoMin },
+          google.clinica.id
         );
       }
     }
@@ -428,7 +431,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           google.calendar,
           novoTipo.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           { titulo, inicio: sessao.inicio, duracaoMin: novaDuracaoMin, cor: novoTipo.cor },
-          true
+          true,
+          google.clinica.id
         );
         if (resultado.linkMeet) {
           dadosGoogle = resultado;
@@ -455,7 +459,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         google.calendar,
         sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
         sessao.googleEventId,
-        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin, titulo, cor: novoTipo.cor }
+        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin, titulo, cor: novoTipo.cor },
+        google.clinica.id
       );
     }
 
@@ -479,7 +484,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           sessao.googleEventId,
-          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo }
+          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo },
+          google.clinica.id
         );
       }
     }

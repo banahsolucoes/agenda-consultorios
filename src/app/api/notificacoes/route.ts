@@ -3,14 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 
 // GET /api/notificacoes — pendências para o sino do painel: sessões reagendadas
-// aguardando novo horário e tarefas pendentes já visíveis (sem aviso futuro).
+// aguardando novo horário, tarefas pendentes já visíveis (sem aviso futuro) e
+// se a integração Google da clínica caiu de verdade (token revogado — ver
+// google.ts:ehErroTokenRevogado), pro banner persistente do painel.
 export async function GET() {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
 
   const agora = new Date();
 
-  const [reagendadas, tarefas] = await Promise.all([
+  const [reagendadas, tarefas, clinica] = await Promise.all([
     prisma.agendamento.findMany({
       where: { status: "REAGENDADA", paciente: { clinicaId: usuario.clinicaId } },
       include: { paciente: { select: { id: true, nome: true } } },
@@ -24,7 +26,13 @@ export async function GET() {
       },
       orderBy: { dataVencimento: { sort: "asc", nulls: "last" } },
     }),
+    prisma.clinica.findUnique({
+      where: { id: usuario.clinicaId },
+      select: { googleConectado: true, googleTokenValido: true },
+    }),
   ]);
 
-  return NextResponse.json({ reagendadas, tarefas });
+  const integracaoGoogleFalhou = Boolean(clinica?.googleConectado && !clinica.googleTokenValido);
+
+  return NextResponse.json({ reagendadas, tarefas, integracaoGoogleFalhou });
 }

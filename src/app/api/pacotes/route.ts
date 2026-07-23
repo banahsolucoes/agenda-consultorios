@@ -149,7 +149,8 @@ export async function POST(req: NextRequest) {
           inicio: sessao.inicio,
           duracaoMin: sessao.duracaoMin,
         },
-        tipoSessaoEhOnline
+        tipoSessaoEhOnline,
+        clinica.id
       );
       const googleSyncStatus = dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU";
       await prisma.agendamento.create({ data: { ...sessao, ...dadosGoogle, googleSyncStatus } });

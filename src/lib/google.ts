@@ -25,6 +25,32 @@ const ESCOPOS_GOOGLE = [
   "https://www.googleapis.com/auth/spreadsheets.readonly",
 ];
 
+// Detecta se um erro de chamada à API do Google é especificamente token
+// revogado/expirado de verdade (não um erro transitório de rede/quota) —
+// confirmado por teste controlado: err.response.data.error === "invalid_grant"
+// nesse formato tanto num refresh direto quanto numa chamada de API que
+// dispara refresh internamente (googleapis/gaxios).
+export function ehErroTokenRevogado(err: unknown): boolean {
+  const data = (err as { response?: { data?: { error?: string } } })?.response?.data;
+  return data?.error === "invalid_grant";
+}
+
+// Persiste a "saúde real" da conexão quando o erro é invalid_grant — separado
+// de `googleConectado`, que só muda por ação manual do usuário (conectar/
+// desconectar). Chamado nos 6 catches que fazem chamada de API — melhor
+// esforço, nunca lança (se o próprio update falhar, só loga). Exportado
+// porque a checagem noturna (GET /api/cron/verificar-google-noturno) chama
+// a API por fora dessas 6 funções (events.list) e precisa da mesma lógica.
+export async function marcarFalhaTokenSeRevogado(clinicaId: string, err: unknown): Promise<void> {
+  if (!ehErroTokenRevogado(err)) return;
+  await prisma.clinica
+    .update({
+      where: { id: clinicaId },
+      data: { googleTokenValido: false, googleUltimaFalhaEm: new Date() },
+    })
+    .catch((updateErr) => console.error("Falha ao marcar googleTokenValido=false:", updateErr));
+}
+
 // Confere se a última autorização OAuth da clínica concedeu um escopo
 // específico — usado pra saber se dá pra compartilhar pasta/mandar e-mail
 // sem precisar tentar a chamada pra descobrir.
@@ -166,11 +192,17 @@ export async function obterDriveDaClinica(clinica: Clinica): Promise<drive_v3.Dr
 // na lixeira, usando a conta conectada da clínica — usado antes de salvar a
 // pasta-mãe em Configurações, pra pegar erro de digitação/pasta errada na
 // hora, em vez de só quando a criação automática de pastas falhar depois.
-export async function verificarPastaDriveAcessivel(drive: drive_v3.Drive, pastaId: string): Promise<boolean> {
+export async function verificarPastaDriveAcessivel(
+  drive: drive_v3.Drive,
+  pastaId: string,
+  clinicaId: string
+): Promise<boolean> {
   try {
     const { data } = await drive.files.get({ fileId: pastaId, fields: "id, mimeType, trashed" });
     return data.mimeType === "application/vnd.google-apps.folder" && !data.trashed;
-  } catch {
+  } catch (err) {
+    console.error("Falha ao verificar pasta do Drive:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
     return false;
   }
 }
@@ -182,7 +214,8 @@ export async function verificarPastaDriveAcessivel(drive: drive_v3.Drive, pastaI
 export async function criarPastaPacienteDrive(
   drive: drive_v3.Drive,
   pastaRaizDriveId: string,
-  nomePaciente: string
+  nomePaciente: string,
+  clinicaId: string
 ): Promise<{ pastaDriveId: string | null; pastaDriveUrl: string | null }> {
   try {
     const { data } = await drive.files.create({
@@ -197,6 +230,7 @@ export async function criarPastaPacienteDrive(
     return { pastaDriveId: data.id ?? null, pastaDriveUrl: data.webViewLink ?? null };
   } catch (err) {
     console.error("Falha ao criar pasta do paciente no Google Drive:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
     return { pastaDriveId: null, pastaDriveUrl: null };
   }
 }
@@ -208,7 +242,8 @@ export async function criarPastaPacienteDrive(
 export async function compartilharPastaComEmail(
   drive: drive_v3.Drive,
   pastaDriveId: string,
-  email: string
+  email: string,
+  clinicaId: string
 ): Promise<{ compartilhado: boolean }> {
   try {
     await drive.permissions.create({
@@ -219,6 +254,7 @@ export async function compartilharPastaComEmail(
     return { compartilhado: true };
   } catch (err) {
     console.error("Falha ao compartilhar pasta do Drive:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
     return { compartilhado: false };
   }
 }
@@ -259,7 +295,8 @@ export async function enviarEmailBoasVindas(
   gmail: gmail_v1.Gmail,
   para: string,
   assunto: string,
-  corpoHtml: string
+  corpoHtml: string,
+  clinicaId: string
 ): Promise<{ enviado: boolean }> {
   try {
     await gmail.users.messages.send({
@@ -269,6 +306,7 @@ export async function enviarEmailBoasVindas(
     return { enviado: true };
   } catch (err) {
     console.error("Falha ao enviar e-mail de boas-vindas via Gmail:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
     return { enviado: false };
   }
 }
@@ -319,7 +357,8 @@ export async function criarEventoGoogleMeet(
   calendar: calendar_v3.Calendar,
   googleCalendarId: string,
   dados: { titulo: string; inicio: Date; duracaoMin: number; cor?: string | null },
-  comMeet: boolean
+  comMeet: boolean,
+  clinicaId: string
 ): Promise<{ googleEventId: string | null; googleCalendarId: string | null; linkMeet: string | null }> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
@@ -352,6 +391,7 @@ export async function criarEventoGoogleMeet(
     };
   } catch (err) {
     console.error("Falha ao criar evento no Google Calendar:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
     return { googleEventId: null, googleCalendarId: null, linkMeet: null };
   }
 }
@@ -368,7 +408,8 @@ export async function sincronizarEventoGoogle(
   calendar: calendar_v3.Calendar,
   googleCalendarId: string,
   eventId: string,
-  dados: { inicio: Date; duracaoMin: number; titulo?: string; cor?: string | null }
+  dados: { inicio: Date; duracaoMin: number; titulo?: string; cor?: string | null },
+  clinicaId: string
 ): Promise<boolean> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
@@ -386,6 +427,7 @@ export async function sincronizarEventoGoogle(
     return true;
   } catch (err) {
     console.error("Falha ao atualizar evento no Google Calendar:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
     return false;
   }
 }

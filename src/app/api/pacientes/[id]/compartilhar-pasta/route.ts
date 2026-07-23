@@ -54,8 +54,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const pastaDriveId = extrairIdPastaDrive(paciente.pastaDriveUrl);
   const [resultadoPasta, resultadoEmail] = await Promise.all([
-    compartilharPastaComEmail(drive, pastaDriveId, paciente.email),
-    enviarEmailBoasVindas(gmail, paciente.email, assunto, renderizarCorpoEmailHtml(corpo)),
+    compartilharPastaComEmail(drive, pastaDriveId, paciente.email, clinica.id),
+    enviarEmailBoasVindas(gmail, paciente.email, assunto, renderizarCorpoEmailHtml(corpo), clinica.id),
   ]);
 
   await registrarLog(
