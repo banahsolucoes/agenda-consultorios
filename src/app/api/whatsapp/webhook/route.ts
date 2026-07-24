@@ -92,7 +92,12 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
   // paciente cadastrado, e só enquanto nenhum humano assumiu a conversa
   // (estado "aguardando_humano" — setado pela própria IA ao detectar pedido
   // de reagendamento — trava qualquer resposta automática até alguém tratar).
-  const podeResponderPorIa = Boolean(conversa.pacienteId) && conversa.estado !== "aguardando_humano";
+  // Kill switch: WHATSAPP_IA_ATIVA="false" desliga a IA sem reverter código —
+  // mensagem continua sendo gravada normalmente, só não gera resposta nem
+  // custo de IA. Qualquer outro valor (ou ausente) mantém a IA ativa.
+  const iaAtiva = process.env.WHATSAPP_IA_ATIVA !== "false";
+  const podeResponderPorIa =
+    iaAtiva && Boolean(conversa.pacienteId) && conversa.estado !== "aguardando_humano";
   const nomePaciente = podeResponderPorIa
     ? (await prisma.paciente.findUnique({ where: { id: conversa.pacienteId! }, select: { nome: true } }))?.nome
     : null;

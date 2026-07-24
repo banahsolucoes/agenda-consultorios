@@ -136,10 +136,17 @@ export async function responderMensagemWhatsapp(params: ResponderMensagemWhatsap
   }
 
   if (decisao.intencao === "REAGENDAR") {
-    await prisma.conversaWhatsapp.update({
-      where: { id: conversaId },
+    // updateMany + where estado != "aguardando_humano" faz a transição e a
+    // checagem atomicamente: só notifica quando essa chamada foi quem de
+    // fato mudou o estado (count > 0), nunca a cada nova mensagem enquanto a
+    // conversa já estava aguardando humano.
+    const transicao = await prisma.conversaWhatsapp.updateMany({
+      where: { id: conversaId, estado: { not: "aguardando_humano" } },
       data: { estado: "aguardando_humano" },
     });
+    if (transicao.count > 0) {
+      await notificarHandoffHumano({ nomePaciente, telefone, textoRecebido });
+    }
     return;
   }
 
@@ -169,4 +176,33 @@ export async function responderMensagemWhatsapp(params: ResponderMensagemWhatsap
       wamid: resultado.wamid ?? null,
     },
   });
+}
+
+// Avisa a Daiane (WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO) que uma conversa
+// acabou de passar pra "aguardando_humano" — só na transição (ver chamada em
+// responderMensagemWhatsapp), nunca a cada mensagem nova enquanto já está
+// aguardando. Nunca lança — falha aqui não pode derrubar o fluxo principal.
+async function notificarHandoffHumano(params: {
+  nomePaciente: string;
+  telefone: string;
+  textoRecebido: string;
+}): Promise<void> {
+  const numeroHumano = process.env.WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO;
+  if (!numeroHumano) {
+    console.error(
+      "[whatsapp ia] WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO não configurado — notificação de handoff não enviada"
+    );
+    return;
+  }
+
+  const texto =
+    `⚠️ Atendimento humano necessário\n` +
+    `Paciente: ${params.nomePaciente}\n` +
+    `Telefone: ${params.telefone}\n` +
+    `Mensagem: "${params.textoRecebido}"`;
+
+  const resultado = await enviarMensagemLivre(numeroHumano, texto);
+  if (!resultado.sucesso) {
+    console.error("[whatsapp ia] falha ao notificar handoff humano:", resultado.erro);
+  }
 }

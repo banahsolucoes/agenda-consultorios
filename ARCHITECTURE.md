@@ -219,7 +219,8 @@ Migration `20260724110000_add_whatsapp_conversas_mensagens` aplicada manualmente
   - `statuses` (status de entrega): só logado, nunca persistido.
   - Qualquer erro de processamento é logado internamente; a rota sempre responde 200 no final para não disparar retry por timeout da Meta.
 - **Dívida conhecida**: `resolverClinicaId()` hoje pega a primeira `Clinica` do banco (`findFirst`) — não há campo que mapeie `phone_number_id` da Meta para uma `Clinica` específica. Quando houver mais de uma clínica com WhatsApp conectado, isso precisa virar um lookup real usando `value.metadata.phone_number_id` do payload.
-- Envio de mensagem (saída), resposta automática/IA e fechamento de janela de 24h ainda não implementados — só recepção e persistência.
+- **Bug conhecido, encontrado em teste manual (2026-07-24), ainda não corrigido**: o match de `pacienteId` em `processarMensagensEntrada` compara o telefone bruto que a Meta manda (`value.messages[0].from`, sempre dígitos com DDI, ex. `5511919395401`) direto contra `Paciente.telefone` sem normalizar — e `Paciente.telefone` está salvo em formatos inconsistentes (às vezes sem DDI, ex. `11919395401`, ver §10.5). Resultado: o match quase nunca bate, `ConversaWhatsapp.pacienteId` fica `null`, e por consequência a IA de resposta (§10.6, que exige `pacienteId` pra rodar) nunca chega a processar essas mensagens — confirmado em teste real: paciente "Pamela Rachid (Teste)" mandou "confirmado" duas vezes e nenhuma sessão foi marcada como confirmada. Correção pendente: usar `normalizarTelefoneE164()` (já existe em `enviarTemplate.ts`) nos dois lados da comparação antes do match.
+- Envio de mensagem (saída) implementado — ver §10.5-10.7. Fechamento automático da janela de 24h (a `ConversaWhatsapp.estado` virar `"fechada"`) ainda não implementado.
 
 ### 10.4 Variáveis de ambiente
 
@@ -252,6 +253,16 @@ Segundo critério da mesma rota `GET /api/cron/whatsapp-lembretes` (função `en
 
 - **Limitação real, documentada e aceita pelo usuário**: mensagem de texto livre só é aceita pela Meta dentro da janela de 24h da conversa (paciente precisa ter escrito recentemente) — diferente do lembrete de 48h, que usa um template aprovado (`confirmacao_agenda`) e por isso funciona fora da janela. Não existe ainda um template aprovado equivalente pro link do Meet. Quem está fora da janela aparece no resumo do cron (`falhas`) com o motivo — a rotina não tenta contornar isso nem envia de outra forma.
 - **Idempotência sem campo novo no schema**: usa `MensagemWhatsapp.tipo = "meet_dia"` como marcador — antes de enviar, checa se já existe uma mensagem desse tipo na conversa criada hoje; se sim, pula (evita duplicata em reexecução manual do cron no mesmo dia).
+
+### 10.8 Kill switch da IA + notificação de handoff (2026-07-24)
+
+**Kill switch**: `WHATSAPP_IA_ATIVA` — `"false"` desliga a resposta automática por IA sem reverter código; qualquer outro valor (ou a env var ausente) mantém ativa. Checada em `src/app/api/whatsapp/webhook/route.ts` (`podeResponderPorIa`), antes de agendar `responderMensagemWhatsapp` via `after()`. A mensagem recebida continua sendo gravada normalmente (webhook de entrada não depende disso) — só para de gerar resposta automática e custo de IA.
+
+**Como desligar rápido em produção**: mudar `WHATSAPP_IA_ATIVA` para `false` nas env vars do projeto na Vercel (`vercel env add WHATSAPP_IA_ATIVA production` sobrescrevendo, ou pelo painel) e **rodar um novo deploy** (`vercel --prod`) — env var alterada só no painel não afeta funções já publicadas, precisa de redeploy pra valer. Não precisa reverter nenhum commit.
+
+**Notificação de handoff pra Daiane**: quando a IA decide `REAGENDAR` (`ConversaWhatsapp.estado` vira `"aguardando_humano"`), dispara uma mensagem de texto livre pro número configurado em `WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO` (E.164, mesma normalização de `enviarTemplate.ts`), com nome do paciente, telefone e a mensagem que gerou o handoff. Implementado em `notificarHandoffHumano()` (`src/lib/ia/responderWhatsapp.ts`), nunca lança — falha de envio (ex.: `WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO` não configurado, ou janela de 24h fechada com a Daiane) é só logada, não derruba o fluxo principal.
+
+- **Idempotência da notificação**: a transição de estado usa `updateMany({ where: { id, estado: { not: "aguardando_humano" } } })` — só notifica quando essa chamada foi quem de fato mudou o estado (`count > 0`), nunca a cada mensagem nova enquanto a conversa já está `aguardando_humano`. Evita notificação duplicada em retry/mensagens repetidas do paciente.
 
 ## 11. Módulo Mentoria
 
