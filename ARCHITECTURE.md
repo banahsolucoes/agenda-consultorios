@@ -133,6 +133,9 @@ Página de gestão de tarefas: filtros status (Pendentes/Concluídas/Todas) e ti
 - `AnamneseEditor.tsx` / `AnamneseModal.tsx` — textarea de anamnese reutilizável + modal leve de acesso rápido.
 - `DatePickerSP.tsx` — seletor de data por clique, fixo no fuso de São Paulo.
 
+### `src/components/TarefaForm.tsx` (2026-07-25)
+Modal de criar/editar tarefa (tipo `CONTA`) — extraído de duas implementações quase idênticas duplicadas em `painel/page.tsx` (só criação, campo "Nova tarefa" no sino) e `tarefas/page.tsx` (criação e edição). Componente não-controlado: recebe `valoresIniciais` só pra inicializar o estado interno uma vez — quem chama força reset trocando a `key` do componente (`tarefas/page.tsx` usa `key={tarefaEditando?.id ?? "novo"}`) ao trocar de tarefa/nova tarefa, nunca via re-render normal. Isso importa: um `useEffect` ouvindo `valoresIniciais` foi cogitado e descartado durante a extração — como esse objeto é recriado a cada render do pai, resetaria o formulário (apagando o que o usuário já tinha digitado) em qualquer re-render, incluindo o próprio `salvando=true` no envio. A diferença real entre os dois usos (editar existe ou não, textos de título/botão, POST vs. PATCH, o que fazer depois de salvar) fica com quem chama, via props — nenhum comportamento foi perdido na unificação.
+
 ## 6. Libs de apoio (`src/lib/`)
 
 | Arquivo | Função pública principal |

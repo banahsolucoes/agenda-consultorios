@@ -17,6 +17,7 @@ import AgendaCalendario from "./AgendaCalendario";
 import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
 import AnamneseEditor from "./AnamneseEditor";
+import TarefaForm, { type TarefaFormValores } from "@/components/TarefaForm";
 import { pode, type Papel } from "@/lib/permissoes";
 import ContextoSwitcher from "../_components/ContextoSwitcher";
 
@@ -433,11 +434,6 @@ export default function PainelPage() {
 
   // Modal: criar tarefa manual (tipo CONTA)
   const [modalTarefa, setModalTarefa] = useState(false);
-  const [tituloTarefa, setTituloTarefa] = useState("");
-  const [descricaoTarefa, setDescricaoTarefa] = useState("");
-  const [dataVencimentoTarefa, setDataVencimentoTarefa] = useState("");
-  const [dataAvisoTarefa, setDataAvisoTarefa] = useState("");
-  const [recorrenciaTarefa, setRecorrenciaTarefa] = useState<"NENHUMA" | "MENSAL">("NENHUMA");
   const [salvandoTarefa, setSalvandoTarefa] = useState(false);
   const [erroTarefa, setErroTarefa] = useState("");
 
@@ -944,21 +940,11 @@ export default function PainelPage() {
   }
 
   function abrirModalTarefa() {
-    setTituloTarefa("");
-    setDescricaoTarefa("");
-    setDataVencimentoTarefa("");
-    setDataAvisoTarefa("");
-    setRecorrenciaTarefa("NENHUMA");
     setErroTarefa("");
     setModalTarefa(true);
   }
 
-  async function handleCriarTarefa(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tituloTarefa.trim()) {
-      setErroTarefa("informe o título");
-      return;
-    }
+  async function handleCriarTarefa(valores: TarefaFormValores) {
     setErroTarefa("");
     setSalvandoTarefa(true);
     try {
@@ -967,11 +953,11 @@ export default function PainelPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tipo: "CONTA",
-          titulo: tituloTarefa.trim(),
-          descricao: descricaoTarefa.trim() || undefined,
-          dataVencimento: dataVencimentoTarefa || undefined,
-          dataAviso: dataAvisoTarefa || undefined,
-          recorrencia: recorrenciaTarefa,
+          titulo: valores.titulo.trim(),
+          descricao: valores.descricao.trim() || undefined,
+          dataVencimento: valores.dataVencimento || undefined,
+          dataAviso: valores.dataAviso || undefined,
+          recorrencia: valores.recorrencia,
         }),
       });
       if (!res.ok) {
@@ -2496,82 +2482,15 @@ export default function PainelPage() {
 
       {/* Modal: criar tarefa manual (tipo CONTA) */}
       {modalTarefa && (
-        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
-            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">Nova tarefa</h2>
-            <form onSubmit={handleCriarTarefa} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Título</label>
-                <input
-                  type="text"
-                  required
-                  value={tituloTarefa}
-                  onChange={(e) => setTituloTarefa(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Descrição (opcional)</label>
-                <textarea
-                  value={descricaoTarefa}
-                  onChange={(e) => setDescricaoTarefa(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
-                    Data de vencimento
-                  </label>
-                  <DatePickerSP value={dataVencimentoTarefa} onChange={setDataVencimentoTarefa} />
-                </div>
-                <div>
-                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
-                    Data de aviso
-                  </label>
-                  <DatePickerSP value={dataAvisoTarefa} onChange={setDataAvisoTarefa} />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Recorrência</label>
-                <select
-                  value={recorrenciaTarefa}
-                  onChange={(e) => setRecorrenciaTarefa(e.target.value as "NENHUMA" | "MENSAL")}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
-                  <option value="NENHUMA">Nenhuma</option>
-                  <option value="MENSAL">Mensal</option>
-                </select>
-              </div>
-
-              {erroTarefa && (
-                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroTarefa}</p>
-              )}
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setModalTarefa(false)}
-                  disabled={salvandoTarefa}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={salvandoTarefa || !tituloTarefa.trim()}
-                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvandoTarefa ? "Criando..." : "Criar"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <TarefaForm
+          tituloModal="Nova tarefa"
+          erroExterno={erroTarefa}
+          salvando={salvandoTarefa}
+          textoSalvar="Criar"
+          textoSalvando="Criando..."
+          onSalvar={handleCriarTarefa}
+          onCancelar={() => setModalTarefa(false)}
+        />
       )}
 
       {/* Modal: editar sessão pontual */}

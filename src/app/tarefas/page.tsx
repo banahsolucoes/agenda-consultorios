@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 import { tarefaTipoLabel, tarefaRecorrenciaLabel, statusLabel } from "@/lib/labels";
-import DatePickerSP from "../painel/DatePickerSP";
+import TarefaForm, { type TarefaFormValores } from "@/components/TarefaForm";
 
 interface Tarefa {
   id: string;
@@ -50,8 +50,6 @@ function corStatus(status: string) {
   }
 }
 
-const FORM_VAZIO = { titulo: "", descricao: "", dataVencimento: "", dataAviso: "", recorrencia: "NENHUMA" as "NENHUMA" | "MENSAL" };
-
 export default function TarefasPage() {
   const router = useRouter();
 
@@ -62,7 +60,6 @@ export default function TarefasPage() {
 
   const [modalAberto, setModalAberto] = useState(false);
   const [tarefaEditando, setTarefaEditando] = useState<Tarefa | null>(null);
-  const [form, setForm] = useState(FORM_VAZIO);
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState("");
 
@@ -89,39 +86,26 @@ export default function TarefasPage() {
 
   function abrirNovaTarefa() {
     setTarefaEditando(null);
-    setForm(FORM_VAZIO);
     setErroForm("");
     setModalAberto(true);
   }
 
   function abrirEditarTarefa(t: Tarefa) {
     setTarefaEditando(t);
-    setForm({
-      titulo: t.titulo,
-      descricao: t.descricao ?? "",
-      dataVencimento: t.dataVencimento ? t.dataVencimento.slice(0, 10) : "",
-      dataAviso: t.dataAviso ? t.dataAviso.slice(0, 10) : "",
-      recorrencia: t.recorrencia,
-    });
     setErroForm("");
     setModalAberto(true);
   }
 
-  async function handleSalvar(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.titulo.trim()) {
-      setErroForm("informe o título");
-      return;
-    }
+  async function handleSalvar(valores: TarefaFormValores) {
     setErroForm("");
     setSalvando(true);
     try {
       const body: Record<string, unknown> = {
-        titulo: form.titulo.trim(),
-        descricao: form.descricao.trim() || undefined,
-        dataVencimento: form.dataVencimento || undefined,
-        dataAviso: form.dataAviso || undefined,
-        recorrencia: form.recorrencia,
+        titulo: valores.titulo.trim(),
+        descricao: valores.descricao.trim() || undefined,
+        dataVencimento: valores.dataVencimento || undefined,
+        dataAviso: valores.dataAviso || undefined,
+        recorrencia: valores.recorrencia,
       };
 
       const res = tarefaEditando
@@ -352,83 +336,27 @@ export default function TarefasPage() {
       </div>
 
       {modalAberto && (
-        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
-            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              {tarefaEditando ? "Editar tarefa" : "Nova tarefa"}
-            </h2>
-            <form onSubmit={handleSalvar} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Título</label>
-                <input
-                  type="text"
-                  required
-                  value={form.titulo}
-                  onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Descrição (opcional)</label>
-                <textarea
-                  value={form.descricao}
-                  onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))}
-                  rows={2}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">
-                    Data de vencimento
-                  </label>
-                  <DatePickerSP
-                    value={form.dataVencimento}
-                    onChange={(v) => setForm((f) => ({ ...f, dataVencimento: v }))}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">Data de aviso</label>
-                  <DatePickerSP value={form.dataAviso} onChange={(v) => setForm((f) => ({ ...f, dataAviso: v }))} />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">Recorrência</label>
-                <select
-                  value={form.recorrencia}
-                  onChange={(e) => setForm((f) => ({ ...f, recorrencia: e.target.value as "NENHUMA" | "MENSAL" }))}
-                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
-                  <option value="NENHUMA">Nenhuma</option>
-                  <option value="MENSAL">Mensal</option>
-                </select>
-              </div>
-
-              {erroForm && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erroForm}</p>}
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setModalAberto(false)}
-                  disabled={salvando}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={salvando || !form.titulo.trim()}
-                  className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-bg hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvando ? "Salvando..." : tarefaEditando ? "Salvar" : "Criar"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <TarefaForm
+          key={tarefaEditando?.id ?? "novo"}
+          tituloModal={tarefaEditando ? "Editar tarefa" : "Nova tarefa"}
+          valoresIniciais={
+            tarefaEditando
+              ? {
+                  titulo: tarefaEditando.titulo,
+                  descricao: tarefaEditando.descricao ?? "",
+                  dataVencimento: tarefaEditando.dataVencimento ? tarefaEditando.dataVencimento.slice(0, 10) : "",
+                  dataAviso: tarefaEditando.dataAviso ? tarefaEditando.dataAviso.slice(0, 10) : "",
+                  recorrencia: tarefaEditando.recorrencia,
+                }
+              : undefined
+          }
+          erroExterno={erroForm}
+          salvando={salvando}
+          textoSalvar={tarefaEditando ? "Salvar" : "Criar"}
+          textoSalvando="Salvando..."
+          onSalvar={handleSalvar}
+          onCancelar={() => setModalAberto(false)}
+        />
       )}
     </div>
   );
