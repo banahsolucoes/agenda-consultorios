@@ -1,0 +1,13 @@
+-- Migration vazia, só de documentação. Não altera nada no banco real.
+--
+-- Resolve o drift histórico entre prisma/schema.prisma e o banco real na
+-- tabela "Paciente":
+--   - "horarioFixo" já era nullable no banco (nunca teve NOT NULL de
+--     verdade); o schema é que estava errado, declarando NOT NULL.
+--   - "dataCadastroForms" (DateTime?, legado do import via forms.app) já
+--     existia no banco e nunca esteve no schema.
+--
+-- Nenhuma das duas colunas precisou de ALTER TABLE — confirmado via
+-- `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma`
+-- retornando diff vazio depois do ajuste do schema. Esta migration só marca
+-- o histórico do Prisma como sincronizado com a realidade.

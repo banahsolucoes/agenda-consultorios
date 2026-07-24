@@ -174,7 +174,10 @@ model Paciente {
   pastaDriveUrl   String?
   origemCadastro  OrigemCadastro  @default(MANUAL)
   diaPreferido    DiaSemana?
-  horarioFixo     String          // "HH:MM"
+  // Nullable no banco real (drift histórico, corrigido em 2026-07-25 — nunca
+  // teve NOT NULL de verdade, o schema é que estava errado). Continua "HH:MM"
+  // quando preenchido.
+  horarioFixo     String?
   tipoSessaoId    String?
   // Legado temporário: cópia em texto do valor do antigo enum TipoSessao (ex.: "ONLINE"),
   // gravada pela migration antes de dropar a coluna/enum originais. Serve só para o script
@@ -184,6 +187,12 @@ model Paciente {
   finalizadoEm    DateTime?
   criadoEm        DateTime        @default(now())
   anamnese        String?         @db.Text
+  // Legado do import via forms.app — coluna existe no banco desde antes deste
+  // schema ser a fonte de verdade, nunca foi usada por nenhuma rota atual.
+  // Adicionada aqui em 2026-07-25 só pra eliminar o drift de migration
+  // (schema estava sem ela, banco tinha); não passou a ser gravada/lida por
+  // nada novo.
+  dataCadastroForms DateTime?
 
   clinica         Clinica         @relation(fields: [clinicaId], references: [id])
   tipoSessao      TipoSessao?     @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
