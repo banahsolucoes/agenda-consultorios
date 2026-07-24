@@ -85,6 +85,7 @@ Toda rota exige `getUsuarioLogado()` (401 se ausente) exceto onde marcado "públ
 | GET | `/api/importacao/preview` | `importacao/preview/route.ts` | Lê/dedupe planilha configurada (sem gravar) | NONE |
 | POST | `/api/importacao/executar` | `importacao/executar/route.ts` | Cria pacientes a partir da planilha (só CPFs selecionados vêm do body) | NONE |
 | GET | `/api/cron/verificar-google-noturno` | `cron/verificar-google-noturno/route.ts` | Checagem noturna de sync Google (2026-07-24) — protegida por `CRON_SECRET`, não usuário | `CRON_SECRET` |
+| GET/POST | `/api/whatsapp/webhook` | `whatsapp/webhook/route.ts` | Verificação do webhook (GET) / recepção e persistência de mensagens (POST) — ver seção 10 | público, validado por `WHATSAPP_VERIFY_TOKEN`/assinatura HMAC |
 
 **Dívida conhecida**: a maioria das rotas de escrita (criar/editar paciente, mudar status de sessão, criar atendimento, importar, tarefas) não tem nenhum gate de capacidade além de "estar logado" — qualquer papel (OPERADOR incluso) pode executar. Só `excluirPaciente` (delete de paciente), `gerirUsuarios`, `gerirIntegracoes`, `gerirIdentidadeVisual`, `editarConfiguracoes`, `criarClinica` e o branch de mover sessão (`operarAgenda`) são checados via `pode()`. Isso é intencional em parte (operação do dia a dia liberada pra todo mundo) mas não está auditado — tratar como TODO.
 
@@ -194,7 +195,36 @@ Capacidades hoje sem nenhuma rota checando (`verLog`, `gerirBilling`) ou checada
   - Validado com simulação read-only contra o banco real antes de commitar: Nível 1 encontrou 10 agendamentos sem `SINCRONIZADO` na Clínica Teste (não conectada, esperado); Nível 2 encontrou 12 drifts reais de horário na Fono Pâmela Rachid (mesmo padrão do caso Jadir) depois de corrigido o bug da janela.
   - **Primeira prova de valor em produção (2026-07-23/24)**: rodada manual em `https://banahdigital.vercel.app/api/cron/verificar-google-noturno` bateu 1:1 com a simulação (10/0/12). Os 12 drifts eram 6 sessões de Guilherme Messias + 6 de Felipe Pezzoni, todas com o Google exatamente 7 dias atrasado em relação ao banco (mesmo padrão do Jadir — `empurrar` que não sincronizou por falha silenciosa, antes da correção de causa raiz) — nenhuma tinha evento apagado, e o `calendarId` (`primary`) já estava certo. Corrigidas via `events.patch` pontual (não recriado, `googleEventId` preservado), 12/12 com sucesso, confirmado por leitura pós-patch.
 
-## 10. Módulo Mentoria
+## 10. Módulo Atendimento WhatsApp
+
+### 10.1 Visão geral
+
+Recepção e persistência de mensagens via WhatsApp Cloud API (Meta), app "atendimentobanah". Escopo atual: só o webhook de entrada (recebe e grava); envio/resposta automática fica para depois. Não pensado para multi-clínica ainda — hoje resolve sempre a primeira `Clinica` do banco (ver dívida abaixo), mas o schema já é multi-tenant (`clinicaId` em ambas as tabelas).
+
+### 10.2 Modelo de dados (`prisma/schema.prisma`)
+
+| Model | Papel | Campos-chave |
+|---|---|---|
+| `ConversaWhatsapp` | Uma conversa por (clínica, telefone) | `clinicaId`, `pacienteId?` (match por telefone, best-effort), `telefone`, `janelaAbertaAte` (24h desde a última mensagem do paciente — janela de mensagem livre da Meta), `estado` (`aberta`/`aguardando_humano`/`fechada`) |
+| `MensagemWhatsapp` | Uma mensagem dentro de uma conversa | `conversaId`, `direcao` (`entrada`/`saida`), `texto`, `tipo` (tipo bruto da Meta: `text`/`button`/`interactive`/...), `wamid` (único — idempotência de retry do webhook), `respondidaPorIa` |
+
+Migration `20260724110000_add_whatsapp_conversas_mensagens` aplicada manualmente via `prisma db execute` + `migrate resolve --applied` (não por `migrate dev`) por causa do drift pré-existente descrito na seção 2 — mesmo padrão já usado antes neste projeto.
+
+### 10.3 Fluxo do webhook (`GET/POST /api/whatsapp/webhook`)
+
+- **GET**: verificação do webhook pela Meta — compara `hub.verify_token` com `WHATSAPP_VERIFY_TOKEN`, responde `hub.challenge` em texto puro (200) ou 403.
+- **POST**: valida a assinatura `X-Hub-Signature-256` (HMAC SHA256 do corpo bruto, `WHATSAPP_APP_SECRET`) antes de tocar no payload — assinatura inválida responde 401 sem processar. Com assinatura válida, extrai `entry[0].changes[0].value`:
+  - `messages`: para cada mensagem, busca/cria `ConversaWhatsapp` por `(clinicaId, telefone)`, tenta casar `pacienteId` pelo campo `telefone` do `Paciente` (best-effort, sem bloquear o fluxo se não achar), grava `MensagemWhatsapp` com `direcao: "entrada"` — pulando duplicata se o `wamid` já existir (idempotência de retry da Meta).
+  - `statuses` (status de entrega): só logado, nunca persistido.
+  - Qualquer erro de processamento é logado internamente; a rota sempre responde 200 no final para não disparar retry por timeout da Meta.
+- **Dívida conhecida**: `resolverClinicaId()` hoje pega a primeira `Clinica` do banco (`findFirst`) — não há campo que mapeie `phone_number_id` da Meta para uma `Clinica` específica. Quando houver mais de uma clínica com WhatsApp conectado, isso precisa virar um lookup real usando `value.metadata.phone_number_id` do payload.
+- Envio de mensagem (saída), resposta automática/IA e fechamento de janela de 24h ainda não implementados — só recepção e persistência.
+
+### 10.4 Variáveis de ambiente
+
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` — chaves em `.env.example` (sem valores), `.env` real segue fora do controle de versão.
+
+## 11. Módulo Mentoria
 
 ### 10.1 Visão geral
 

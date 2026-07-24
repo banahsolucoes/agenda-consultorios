@@ -83,6 +83,7 @@ model Clinica {
   tiposSessao               TipoSessao[]
   anexos                    Anexo[]
   tarefas                   Tarefa[]
+  conversasWhatsapp         ConversaWhatsapp[]
 
   mentoriaAtivada    Boolean            @default(false)
   mentoriaAlunos     MentoriaAluno[]
@@ -191,6 +192,7 @@ model Paciente {
   consentimentos  Consentimento[]
   anexos          Anexo[]
   tarefas         Tarefa[]
+  conversasWhatsapp ConversaWhatsapp[]
 
   @@index([clinicaId])
   @@index([tipoSessaoId])
@@ -294,6 +296,40 @@ model Tarefa {
 
   @@index([clinicaId, status])
   @@index([pacienteId])
+}
+
+model ConversaWhatsapp {
+  id               String    @id @default(cuid())
+  clinicaId        String
+  pacienteId       String?
+  telefone         String
+  janelaAbertaAte  DateTime?
+  estado           String    @default("aberta") // aberta | aguardando_humano | fechada
+  ultimaMensagemEm DateTime  @default(now())
+  criadoEm         DateTime  @default(now())
+
+  clinica          Clinica            @relation(fields: [clinicaId], references: [id])
+  paciente         Paciente?          @relation(fields: [pacienteId], references: [id])
+  mensagens        MensagemWhatsapp[]
+
+  @@index([clinicaId])
+  @@index([pacienteId])
+  @@index([clinicaId, telefone])
+}
+
+model MensagemWhatsapp {
+  id              String   @id @default(cuid())
+  conversaId      String
+  conversa        ConversaWhatsapp @relation(fields: [conversaId], references: [id])
+  direcao         String   // entrada | saida
+  texto           String
+  tipo            String   // template | livre | botao
+  respondidaPorIa Boolean  @default(false)
+  wamid           String?  // id da mensagem na Meta, evita duplicata em retry de webhook
+  criadoEm        DateTime @default(now())
+
+  @@index([conversaId])
+  @@unique([wamid])
 }
 
 model LogAuditoria {

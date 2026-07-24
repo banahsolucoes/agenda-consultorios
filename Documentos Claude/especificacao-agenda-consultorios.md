@@ -268,7 +268,7 @@ Registrado para não se perder. Nada disso entra no MVP — mas o modelo de dado
 
 | Recurso | O que é | Depende de |
 |---|---|---|
-| **Envio automático de mensagens** | Disparar confirmação/link do Meet sozinho (não copiar-colar) | WhatsApp API oficial (pago) ou e-mail; fluxo de conversação |
+| **Envio automático de mensagens** | Disparar confirmação/link do Meet sozinho (não copiar-colar) | WhatsApp API oficial (pago) ou e-mail; fluxo de conversação — **recepção já iniciada, ver §11.1** |
 | **Integração forms.app** | Puxar cadastro do paciente do formulário externo | Webhook/API do forms.app (a validar; plano B: importação CSV) |
 | **Formulário de cadastro próprio** | Substituir forms.app por formulário do sistema | — |
 | **Módulo de anamnese** | Cliente que agenda avaliação recebe link de anamnese; preenche; dados ficam vinculados ao paciente; a profissional vê na tela ao clicar no nome | Formulário próprio + tela de visualização |
@@ -277,6 +277,14 @@ Registrado para não se perder. Nada disso entra no MVP — mas o modelo de dado
 | **Relatórios e financeiro** | Faturamento por pacote, taxa de comparecimento, etc. | — |
 
 **Sequência sugerida da v2:** (1) módulo de anamnese — maior valor percebido pela profissional; (2) formulário de cadastro próprio; (3) envio automático de mensagens; (4) integrações externas.
+
+### 11.1 Atendimento WhatsApp — recepção (implementado)
+
+Conta Meta Business "atendimentobanah" configurada, número de produção verificado, template utility `confirmacao_agenda` submetido. Implementado até aqui: só a **recepção** — webhook que recebe mensagens do WhatsApp Cloud API e grava no banco (`ConversaWhatsapp`/`MensagemWhatsapp`, ver `ARCHITECTURE.md` §10). Envio automático de mensagem e resposta por IA continuam como trabalho futuro, não fazem parte deste recorte.
+
+- **Modelo de dados**: `ConversaWhatsapp` (uma por `clinicaId`+`telefone`, com `janelaAbertaAte` — a janela de 24h da Meta em que a clínica pode responder livremente sem template) e `MensagemWhatsapp` (uma por mensagem, `wamid` único garante idempotência em retry do webhook).
+- **Fluxo**: `GET /api/whatsapp/webhook` responde à verificação da Meta; `POST /api/whatsapp/webhook` valida a assinatura HMAC do corpo antes de processar, grava mensagens de entrada (`messages`), só loga status de entrega (`statuses`), e sempre responde 200 rápido (erro interno é logado, nunca propagado pra Meta re-tentar).
+- **Limite atual**: como o produto hoje atende só uma clínica de verdade, o webhook associa toda mensagem à primeira `Clinica` do banco — falta o mapeamento `phone_number_id` → `Clinica` para suportar múltiplas clínicas com WhatsApp conectado.
 
 ---
 
