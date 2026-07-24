@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { responderMensagemWhatsapp } from "@/lib/ia/responderWhatsapp";
+import { normalizarTelefoneE164 } from "@/lib/whatsapp/enviarTemplate";
 
 // Janela de conversação do WhatsApp Business: 24h a partir da última
 // mensagem do paciente, período em que a clínica pode responder livremente
@@ -62,6 +63,27 @@ function extrairTextoMensagem(mensagem: any): string {
   }
 }
 
+// Paciente.telefone está salvo em formatos inconsistentes (com/sem DDI, com/
+// sem máscara — mesmo achado da auditoria em enviarTemplate.ts), enquanto o
+// telefone que a Meta manda (`value.messages[0].from`) é sempre dígitos com
+// DDI. Comparar direto (`WHERE telefone = ...`) quase nunca batia. Normaliza
+// os dois lados com normalizarTelefoneE164() e compara em memória — sem
+// índice único em Paciente.telefone, não dá pra fazer isso via WHERE no
+// banco sem mudar o dado na origem (cadastro), fora de escopo aqui. Volume
+// por clínica é baixo, então buscar todos e comparar em memória é barato.
+async function buscarPacientePorTelefone(clinicaId: string, telefoneMeta: string): Promise<string | null> {
+  const alvo = normalizarTelefoneE164(telefoneMeta);
+  if (!alvo) return null;
+
+  const pacientes = await prisma.paciente.findMany({
+    where: { clinicaId, telefone: { not: null } },
+    select: { id: true, telefone: true },
+  });
+
+  const match = pacientes.find((p) => normalizarTelefoneE164(p.telefone!) === alvo);
+  return match?.id ?? null;
+}
+
 async function processarMensagensEntrada(clinicaId: string, telefone: string, mensagens: any[]) {
   let conversa = await prisma.conversaWhatsapp.findFirst({
     where: { clinicaId, telefone },
@@ -71,12 +93,7 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
   const janelaAbertaAte = new Date(agora.getTime() + JANELA_24H_MS);
 
   if (!conversa) {
-    let pacienteId: string | null = null;
-    const paciente = await prisma.paciente.findFirst({
-      where: { clinicaId, telefone },
-      select: { id: true },
-    });
-    if (paciente) pacienteId = paciente.id;
+    const pacienteId = await buscarPacientePorTelefone(clinicaId, telefone);
 
     conversa = await prisma.conversaWhatsapp.create({
       data: { clinicaId, telefone, pacienteId, janelaAbertaAte, ultimaMensagemEm: agora },
