@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
+import { pode } from "@/lib/permissoes";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { obterClinicaECalendar, sincronizarEventoGoogle, criarEventoGoogleMeet } from "@/lib/google";
@@ -31,6 +32,9 @@ function inicioDaSemana(data: Date): Date {
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  if (!pode(usuario.papel, "operarAgenda")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const { id: pacienteId } = await ctx.params;
   const paciente = await prisma.paciente.findUnique({ where: { id: pacienteId } });
