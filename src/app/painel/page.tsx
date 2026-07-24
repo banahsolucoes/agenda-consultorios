@@ -1702,6 +1702,12 @@ export default function PainelPage() {
               >
                 Tarefas
               </button>
+              <button
+                onClick={() => router.push("/whatsapp")}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+              >
+                WhatsApp
+              </button>
             </>
           ) : (
             <>
@@ -1726,6 +1732,12 @@ export default function PainelPage() {
                 className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
               >
                 Tarefas
+              </button>
+              <button
+                onClick={() => router.push("/whatsapp")}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+              >
+                WhatsApp
               </button>
             </>
           )}

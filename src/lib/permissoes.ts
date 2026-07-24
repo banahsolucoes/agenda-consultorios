@@ -15,7 +15,8 @@ export type Capacidade =
   | "gerirUsuarios"
   | "criarClinica"
   | "verLog"
-  | "gerirBilling";
+  | "gerirBilling"
+  | "atenderWhatsapp";
 
 /**
  * Papel do usuário no sistema.
@@ -45,6 +46,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     criarClinica: true,
     verLog: true,
     gerirBilling: true,
+    atenderWhatsapp: true,
   },
   PROFISSIONAL: {
     gerirPacientes: true,
@@ -59,6 +61,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     criarClinica: false,
     verLog: false,
     gerirBilling: false,
+    atenderWhatsapp: true,
   },
   OPERADOR: {
     gerirPacientes: true,
@@ -73,6 +76,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     criarClinica: false,
     verLog: false,
     gerirBilling: false,
+    atenderWhatsapp: true,
   },
 };
 
