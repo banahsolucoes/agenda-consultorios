@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterClinicaECalendar } from "@/lib/google";
+import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
+import { primeiroUltimoNome } from "@/lib/nomes";
 import { registrarLog } from "@/lib/auditoria";
 import {
   filtrarSessoesElegiveis,
@@ -11,6 +12,15 @@ import {
   statusLoteValido,
 } from "@/lib/loteSessoes";
 import { validarStatusSessao } from "@/lib/validacaoSessao";
+
+// Mesmo critério de src/app/api/sessoes/[id]/route.ts (Bloco 5, 2026-07-25) —
+// o Google Calendar não tem campo nativo de status; refletir no título é o
+// mínimo aceitável. AGENDADA é o estado "normal", sem sufixo.
+const SUFIXO_STATUS: Partial<Record<string, string>> = {
+  REALIZADA: " — Realizada",
+  NAO_REALIZADA: " — Não realizada",
+  REAGENDADA: " — Reagendada",
+};
 
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
@@ -40,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   const sessoes = await prisma.agendamento.findMany({
     where: { id: { in: ids } },
-    include: { paciente: true },
+    include: { paciente: true, tipoSessao: true },
   });
 
   // Toda sessão fora da clínica do usuário logado é tratada como "não
@@ -88,6 +98,34 @@ export async function POST(req: NextRequest) {
       })
     )
   );
+
+  // Reflete a mudança de status no título do evento do Google de cada sessão
+  // com evento vinculado — melhor esforço, mesmo padrão do cancelamento
+  // acima (busca o client uma única vez pro lote todo, falha na integração
+  // nunca desfaz o status já commitado). CANCELADA já deletou o evento
+  // acima, não passa por aqui.
+  if (status !== "CANCELADA") {
+    const comEvento = validas.filter((s) => s.googleEventId);
+    if (comEvento.length > 0) {
+      const google = await obterClinicaECalendar(usuario.clinicaId);
+      if (google) {
+        for (const s of comEvento) {
+          const titulo = `${primeiroUltimoNome(s.paciente.nome)} (${s.numeroSessao}/${s.totalPacote})${s.confirmada ? " ✅" : ""}${SUFIXO_STATUS[status] ?? ""}`;
+          const ok = await sincronizarEventoGoogle(
+            google.calendar,
+            s.googleCalendarId ?? s.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+            s.googleEventId!,
+            { inicio: s.inicio, duracaoMin: s.duracaoMin, titulo },
+            google.clinica.id
+          );
+          await prisma.agendamento.update({
+            where: { id: s.id },
+            data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
+          });
+        }
+      }
+    }
+  }
 
   // Sessões selecionadas podem pertencer a pacotes diferentes do mesmo
   // paciente (ex.: atendimento renovado) — verifica a finalização de cada um.

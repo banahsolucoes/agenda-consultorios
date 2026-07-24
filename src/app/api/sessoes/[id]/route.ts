@@ -14,6 +14,15 @@ import { validarStatusSessao } from "@/lib/validacaoSessao";
 // Sessões nesses status são somente-leitura — nem data/horário nem tipo de
 // atendimento podem mudar.
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
+// O Google Calendar não tem conceito nativo de "status da sessão" — o
+// mínimo aceitável (Bloco 5, 2026-07-25) é refletir no título do evento,
+// mesmo padrão já usado pro ✅ de confirmação. AGENDADA é o estado "normal",
+// sem sufixo — só os desvios ganham marcação visual.
+const SUFIXO_STATUS: Partial<Record<string, string>> = {
+  REALIZADA: " — Realizada",
+  NAO_REALIZADA: " — Não realizada",
+  REAGENDADA: " — Reagendada",
+};
 const DIA_NOME_POR_NUM: Record<number, string> = {
   0: "DOMINGO", 1: "SEGUNDA", 2: "TERCA", 3: "QUARTA", 4: "QUINTA", 5: "SEXTA", 6: "SABADO",
 };
@@ -101,7 +110,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ erro: validacaoStatus.erro }, { status: 400 });
     }
 
-    const atualizada = await prisma.agendamento.update({
+    let atualizada = await prisma.agendamento.update({
       where: { id }, data: { status: body.status },
     });
     await registrarLog(
@@ -110,6 +119,30 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       "STATUS_SESSAO",
       `Marcou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} como ${statusLabel(body.status)}`
     );
+
+    // Reflete a mudança de status no título do evento do Google, se a sessão
+    // tiver evento vinculado — melhor esforço, mesma regra de sempre (falha
+    // aqui nunca desfaz a mudança de status já commitada no banco). O
+    // Calendar não tem campo nativo de status; o título é o mínimo aceitável
+    // pra não deixar o espelho mudo sobre Realizada/Não realizada/Reagendada.
+    if (sessao.googleEventId) {
+      const google = await obterClinicaECalendar(usuario.clinicaId);
+      if (google) {
+        const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${sessao.confirmada ? " ✅" : ""}${SUFIXO_STATUS[body.status] ?? ""}`;
+        const ok = await sincronizarEventoGoogle(
+          google.calendar,
+          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          sessao.googleEventId,
+          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo },
+          google.clinica.id
+        );
+        atualizada = await prisma.agendamento.update({
+          where: { id },
+          data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
+        });
+      }
+    }
+
     const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
     return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
