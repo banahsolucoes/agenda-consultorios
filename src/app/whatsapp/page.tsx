@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TIMEZONE } from "@/lib/timezone";
 
@@ -12,6 +12,21 @@ interface Conversa {
   pacienteNome: string | null;
   ultimaMensagemEm: string;
   ultimaMensagem: { texto: string; direcao: string } | null;
+}
+
+interface PacienteBusca {
+  id: string;
+  nome: string;
+  telefone: string | null;
+}
+
+// Remove acentos e normaliza pra minúsculas — mesmo critério de busca usado
+// na lista de pacientes do painel (src/app/painel/page.tsx).
+function normalizar(texto: string) {
+  return texto
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 }
 
 interface Mensagem {
@@ -69,6 +84,16 @@ export default function WhatsappInboxPage() {
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState("");
 
+  const [enviandoTemplate, setEnviandoTemplate] = useState(false);
+  const [erroTemplate, setErroTemplate] = useState("");
+
+  const [modalNovaConversaAberto, setModalNovaConversaAberto] = useState(false);
+  const [buscaPaciente, setBuscaPaciente] = useState("");
+  const [pacientesBusca, setPacientesBusca] = useState<PacienteBusca[]>([]);
+  const [carregandoPacientes, setCarregandoPacientes] = useState(false);
+  const [criandoConversaId, setCriandoConversaId] = useState<string | null>(null);
+  const [erroNovaConversa, setErroNovaConversa] = useState("");
+
   const chatFimRef = useRef<HTMLDivElement>(null);
 
   async function carregarConversas() {
@@ -110,6 +135,7 @@ export default function WhatsappInboxPage() {
   function selecionarConversa(id: string) {
     setConversaId(id);
     setErroEnvio("");
+    setErroTemplate("");
   }
 
   async function enviar(e: React.FormEvent) {
@@ -136,13 +162,74 @@ export default function WhatsappInboxPage() {
     }
   }
 
+  async function enviarTemplateInicial() {
+    if (!conversaId) return;
+    setEnviandoTemplate(true);
+    setErroTemplate("");
+    try {
+      const res = await fetch(`/api/whatsapp/conversas/${conversaId}/template`, { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroTemplate(data?.erro ?? "Falha ao enviar template.");
+        return;
+      }
+      await Promise.all([carregarMensagens(conversaId), carregarConversas()]);
+    } finally {
+      setEnviandoTemplate(false);
+    }
+  }
+
   async function handleSair() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   }
 
+  async function abrirModalNovaConversa() {
+    setModalNovaConversaAberto(true);
+    setBuscaPaciente("");
+    setErroNovaConversa("");
+    if (pacientesBusca.length === 0) {
+      setCarregandoPacientes(true);
+      try {
+        const res = await fetch("/api/pacientes?filtro=ativos");
+        if (res.ok) setPacientesBusca(await res.json());
+      } finally {
+        setCarregandoPacientes(false);
+      }
+    }
+  }
+
+  async function selecionarPacienteNovaConversa(pacienteId: string) {
+    setCriandoConversaId(pacienteId);
+    setErroNovaConversa("");
+    try {
+      const res = await fetch("/api/whatsapp/conversas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pacienteId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErroNovaConversa(data?.erro ?? "Falha ao iniciar conversa.");
+        return;
+      }
+      setModalNovaConversaAberto(false);
+      await carregarConversas();
+      selecionarConversa(data.id);
+    } finally {
+      setCriandoConversaId(null);
+    }
+  }
+
+  const pacientesFiltrados = useMemo(() => {
+    const termo = normalizar(buscaPaciente.trim());
+    if (!termo) return pacientesBusca;
+    return pacientesBusca.filter((p) => normalizar(p.nome).includes(termo));
+  }, [pacientesBusca, buscaPaciente]);
+
   const conversaAtual = conversas.find((c) => c.id === conversaId);
   const podeEnviar = janelaAberta(conversaAtual);
+  const semMensagens = !carregandoMensagens && mensagens.length === 0;
 
   return (
     <div className="flex h-screen flex-col bg-bg">
@@ -166,8 +253,14 @@ export default function WhatsappInboxPage() {
       <div className="mx-auto flex w-full min-h-0 max-w-[1360px] flex-1 gap-4 overflow-hidden px-6 py-6">
         {/* Lista de conversas */}
         <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
-          <div className="shrink-0 border-b border-border px-4 py-3">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
             <p className="text-sm font-semibold text-fg">Conversas</p>
+            <button
+              onClick={abrirModalNovaConversa}
+              className="rounded-lg border border-gold px-2.5 py-1 text-xs font-medium text-gold hover:bg-gold/10"
+            >
+              + Nova conversa
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {carregandoConversas ? (
@@ -255,10 +348,27 @@ export default function WhatsappInboxPage() {
               </div>
 
               <div className="shrink-0 border-t border-border px-4 py-3">
-                {!podeEnviar && (
-                  <p className="mb-2 rounded-lg bg-orange/10 px-3 py-2 text-xs text-orange">
-                    Janela de 24h fechada — o paciente precisa mandar uma mensagem antes de você poder responder.
-                  </p>
+                {!podeEnviar && semMensagens ? (
+                  <div className="mb-2 rounded-lg bg-orange/10 px-3 py-2 text-xs text-orange">
+                    <p className="mb-2">
+                      Janela de 24h fechada — pra iniciar contato é preciso enviar o template aprovado
+                      "confirmacao_agenda" (usa a próxima sessão futura do paciente).
+                    </p>
+                    {erroTemplate && <p className="mb-2 text-red">{erroTemplate}</p>}
+                    <button
+                      onClick={enviarTemplateInicial}
+                      disabled={enviandoTemplate}
+                      className="rounded-lg bg-whatsapp px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {enviandoTemplate ? "Enviando..." : "Enviar template de confirmação"}
+                    </button>
+                  </div>
+                ) : (
+                  !podeEnviar && (
+                    <p className="mb-2 rounded-lg bg-orange/10 px-3 py-2 text-xs text-orange">
+                      Janela de 24h fechada — o paciente precisa mandar uma mensagem antes de você poder responder.
+                    </p>
+                  )
                 )}
                 {erroEnvio && (
                   <p className="mb-2 rounded-lg bg-red/10 px-3 py-2 text-xs text-red">{erroEnvio}</p>
@@ -285,6 +395,55 @@ export default function WhatsappInboxPage() {
           )}
         </div>
       </div>
+
+      {modalNovaConversaAberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl border border-border bg-surface">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+              <p className="text-sm font-semibold text-fg">Nova conversa</p>
+              <button
+                onClick={() => setModalNovaConversaAberto(false)}
+                className="text-sm text-muted hover:text-fg"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="shrink-0 border-b border-border px-4 py-3">
+              <input
+                type="text"
+                autoFocus
+                value={buscaPaciente}
+                onChange={(e) => setBuscaPaciente(e.target.value)}
+                placeholder="Buscar paciente por nome..."
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg placeholder:text-muted"
+              />
+              {erroNovaConversa && <p className="mt-2 text-xs text-red">{erroNovaConversa}</p>}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {carregandoPacientes ? (
+                <p className="px-4 py-6 text-center text-sm text-muted">Carregando...</p>
+              ) : pacientesFiltrados.length === 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-muted">Nenhum paciente encontrado.</p>
+              ) : (
+                pacientesFiltrados.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => selecionarPacienteNovaConversa(p.id)}
+                    disabled={criandoConversaId === p.id}
+                    className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-fg">{p.nome}</p>
+                      {p.telefone && <p className="text-xs text-muted">{p.telefone}</p>}
+                    </div>
+                    {criandoConversaId === p.id && <span className="text-xs text-muted">...</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
