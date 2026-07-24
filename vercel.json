@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/verificar-google-noturno",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-lembretes",
+      "schedule": "0 12 * * *"
     }
   ]
 }

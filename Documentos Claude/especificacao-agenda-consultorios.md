@@ -286,6 +286,15 @@ Conta Meta Business "atendimentobanah" configurada, número de produção verifi
 - **Fluxo**: `GET /api/whatsapp/webhook` responde à verificação da Meta; `POST /api/whatsapp/webhook` valida a assinatura HMAC do corpo antes de processar, grava mensagens de entrada (`messages`), só loga status de entrega (`statuses`), e sempre responde 200 rápido (erro interno é logado, nunca propagado pra Meta re-tentar).
 - **Limite atual**: como o produto hoje atende só uma clínica de verdade, o webhook associa toda mensagem à primeira `Clinica` do banco — falta o mapeamento `phone_number_id` → `Clinica` para suportar múltiplas clínicas com WhatsApp conectado.
 
+### 11.2 Atendimento WhatsApp — lembrete de confirmação (implementado)
+
+Primeiro envio automático de saída: lembrete do template aprovado `confirmacao_agenda` (nome, data, hora, botões Confirmar/Cancelar/Reagendar), disparado ~48h antes da sessão para agendamentos ainda não confirmados (`Agendamento.confirmada = false`). Detalhe técnico completo em `ARCHITECTURE.md` §10.5.
+
+- Roda 1x/dia (limite do plano Vercel atual) às 09:00 BRT, buscando sessões entre 24h e 72h de antecedência — cobre a marca de 48h mesmo só rodando uma vez ao dia.
+- `Agendamento.lembreteWhatsappEnviadoEm` marca o envio, evitando duplicata.
+- Responder aos botões do template (Confirmar/Cancelar/Reagendar) já chega no webhook de entrada, mas ainda **não confirma a sessão automaticamente** — fica para uma etapa futura ligar a resposta do botão à ação real no `Agendamento`.
+- Telefone do paciente segue sem validação no cadastro; o envio normaliza em memória (assume Brasil quando faltam os 2 dígitos do DDI) e pula, sem travar o lote, quem estiver fora do formato esperado.
+
 ---
 
 ## 12. Módulo Mentoria

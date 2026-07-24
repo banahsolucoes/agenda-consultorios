@@ -262,6 +262,7 @@ model Agendamento {
   motivoCancelamento String?
   confirmada        Boolean        @default(false)
   arquivada         Boolean        @default(false)
+  lembreteWhatsappEnviadoEm DateTime?
   criadoEm          DateTime       @default(now())
 
   pacote            Pacote         @relation(fields: [pacoteId], references: [id])
