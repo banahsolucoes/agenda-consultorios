@@ -295,6 +295,13 @@ Primeiro envio automático de saída: lembrete do template aprovado `confirmacao
 - Responder aos botões do template (Confirmar/Cancelar/Reagendar) já chega no webhook de entrada, mas ainda **não confirma a sessão automaticamente** — fica para uma etapa futura ligar a resposta do botão à ação real no `Agendamento`.
 - Telefone do paciente segue sem validação no cadastro; o envio normaliza em memória (assume Brasil quando faltam os 2 dígitos do DDI) e pula, sem travar o lote, quem estiver fora do formato esperado.
 
+### 11.3 Atendimento WhatsApp — IA de confirmação/reagendamento + mensagem do dia (implementado)
+
+Escopo: só paciente já confirmado/existente — funil de lead novo (venda) fica para depois. Detalhe técnico completo em `ARCHITECTURE.md` §10.6-10.7.
+
+- **IA (Claude Haiku)** interpreta a resposta do paciente a um lembrete: confirma a sessão sozinha quando o paciente confirma; se o paciente pede para reagendar/cancelar, não decide sozinha — só sinaliza que precisa de atendimento humano (a Daiane/Pâmela reagenda manualmente pelo sistema, como já faz hoje); qualquer outra dúvida (endereço, horário etc.) a IA responde no tom da Daiane, sempre baseada em dados reais do agendamento, nunca inventados.
+- **Mensagem automática do dia**: reaproveita o mesmo texto de copiar-colar do link do Meet que já existia (configurável por clínica), agora enviado automaticamente pra quem tem sessão no dia. Limitação real: só funciona pra quem tem conversa "aberta" no WhatsApp (mensagem recente) — sem um template aprovado específico pra isso, não dá pra alcançar quem não escreveu recentemente; ficou registrado como pendência.
+
 ---
 
 ## 12. Módulo Mentoria

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { responderMensagemWhatsapp } from "@/lib/ia/responderWhatsapp";
 
 // Janela de conversação do WhatsApp Business: 24h a partir da última
 // mensagem do paciente, período em que a clínica pode responder livremente
@@ -87,6 +88,15 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
     });
   }
 
+  // Resposta automática por IA só faz sentido pra conversa já ligada a um
+  // paciente cadastrado, e só enquanto nenhum humano assumiu a conversa
+  // (estado "aguardando_humano" — setado pela própria IA ao detectar pedido
+  // de reagendamento — trava qualquer resposta automática até alguém tratar).
+  const podeResponderPorIa = Boolean(conversa.pacienteId) && conversa.estado !== "aguardando_humano";
+  const nomePaciente = podeResponderPorIa
+    ? (await prisma.paciente.findUnique({ where: { id: conversa.pacienteId! }, select: { nome: true } }))?.nome
+    : null;
+
   for (const mensagem of mensagens) {
     const wamid: string | undefined = mensagem.id;
 
@@ -95,15 +105,32 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
       if (jaExiste) continue;
     }
 
+    const texto = extrairTextoMensagem(mensagem);
+
     await prisma.mensagemWhatsapp.create({
       data: {
         conversaId: conversa.id,
         direcao: "entrada",
-        texto: extrairTextoMensagem(mensagem),
+        texto,
         tipo: mensagem.type ?? "desconhecido",
         wamid: wamid ?? null,
       },
     });
+
+    if (podeResponderPorIa && nomePaciente && texto.trim()) {
+      const conversaId = conversa.id;
+      const pacienteId = conversa.pacienteId!;
+      after(() =>
+        responderMensagemWhatsapp({
+          conversaId,
+          pacienteId,
+          telefone,
+          nomePaciente,
+          textoRecebido: texto,
+          janelaAbertaAte,
+        })
+      );
+    }
   }
 }
 
