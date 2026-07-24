@@ -37,12 +37,25 @@ function assinaturaValida(corpoBruto: string, assinaturaHeader: string | null): 
 }
 
 // Resolve a clínica dona do número que recebeu a mensagem. Hoje o produto
-// atende uma única clínica (Pâmela) e não há campo de mapeamento
-// phone_number_id → Clinica no schema; quando existir mais de uma clínica
-// conectada ao WhatsApp, trocar este findFirst por um lookup real usando
-// value.metadata.phone_number_id.
+// atende uma única clínica de verdade em produção (Fono Pâmela Rachid,
+// slug "pamela-rachid") e não há campo de mapeamento phone_number_id →
+// Clinica no schema; quando existir mais de uma clínica conectada ao
+// WhatsApp, trocar isso por um lookup real usando value.metadata.phone_number_id.
+//
+// Bug corrigido em 2026-07-24: a versão anterior usava findFirst() sem
+// orderBy — sem ordem explícita, o Postgres/Prisma não garante qual linha
+// volta primeiro, e na prática estava retornando "Clínica Teste" em vez de
+// "Fono Pâmela Rachid" (confirmado: as duas ConversaWhatsapp criadas até
+// aqui foram gravadas com o clinicaId errado, e por isso nunca apareciam no
+// inbox — GET /api/whatsapp/conversas filtra por clinicaId do usuário
+// logado, que é sempre "Fono Pâmela Rachid"). Filtrar pelo slug real é
+// explícito e determinístico, em vez de depender de ordem incidental de
+// linhas no banco.
 async function resolverClinicaId(): Promise<string | null> {
-  const clinica = await prisma.clinica.findFirst({ select: { id: true } });
+  const clinica = await prisma.clinica.findFirst({
+    where: { slug: "pamela-rachid" },
+    select: { id: true },
+  });
   return clinica?.id ?? null;
 }
 
