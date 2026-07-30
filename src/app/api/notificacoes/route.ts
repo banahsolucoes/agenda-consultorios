@@ -15,7 +15,10 @@ export async function GET() {
   const [reagendadas, tarefas, clinica] = await Promise.all([
     prisma.agendamento.findMany({
       where: { status: "REAGENDADA", paciente: { clinicaId: usuario.clinicaId } },
-      include: { paciente: { select: { id: true, nome: true } } },
+      include: {
+        paciente: { select: { id: true, nome: true } },
+        tipoSessao: { select: { nome: true, ehAtendimentoUnico: true } },
+      },
       orderBy: { inicio: "asc" },
     }),
     prisma.tarefa.findMany({

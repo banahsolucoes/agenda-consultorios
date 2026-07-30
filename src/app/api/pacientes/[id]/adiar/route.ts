@@ -5,7 +5,7 @@ import { pode } from "@/lib/permissoes";
 import { componentesSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { obterClinicaECalendar, sincronizarEventoGoogle, criarEventoGoogleMeet } from "@/lib/google";
-import { primeiroUltimoNome } from "@/lib/nomes";
+import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -104,7 +104,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           google.calendar,
           mov.sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           {
-            titulo: `${primeiroUltimoNome(paciente.nome)} (${mov.sessao.numeroSessao}/${mov.sessao.totalPacote})`,
+            titulo: formatarTituloAgendamento({
+              nomePaciente: paciente.nome,
+              tipoSessaoNome: mov.sessao.tipoSessao?.nome ?? null,
+              ehAtendimentoUnico: mov.sessao.tipoSessao?.ehAtendimentoUnico ?? false,
+              numeroSessao: mov.sessao.numeroSessao,
+              totalPacote: mov.sessao.totalPacote,
+            }),
             inicio: mov.novaData,
             duracaoMin: mov.sessao.duracaoMin,
           },

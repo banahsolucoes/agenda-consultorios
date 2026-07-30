@@ -113,6 +113,7 @@ interface NotificacaoSessao {
   totalPacote: number;
   inicio: string;
   paciente: { id: string; nome: string };
+  tipoSessao: { nome: string; ehAtendimentoUnico: boolean } | null;
 }
 interface Tarefa {
   id: string;
@@ -143,6 +144,7 @@ interface Sessao {
   status: string;
   linkMeet: string | null;
   motivoCancelamento: string | null;
+  tipoSessao: { nome: string; ehAtendimentoUnico: boolean } | null;
 }
 
 interface Clinica {
@@ -1582,8 +1584,11 @@ export default function PainelPage() {
                                   onClick={() => abrirNotificacaoPaciente(n.paciente.id)}
                                   className="w-full rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-bg"
                                 >
-                                  <span className="font-medium">{n.paciente.nome}</span> — sessão{" "}
-                                  {n.numeroSessao}/{n.totalPacote} em {formatarDataHora(n.inicio)}
+                                  <span className="font-medium">{n.paciente.nome}</span> —{" "}
+                                  {n.tipoSessao?.ehAtendimentoUnico && n.tipoSessao.nome
+                                    ? n.tipoSessao.nome
+                                    : `sessão ${n.numeroSessao}/${n.totalPacote}`}{" "}
+                                  em {formatarDataHora(n.inicio)}
                                 </button>
                               </li>
                             ))}
@@ -2281,7 +2286,9 @@ export default function PainelPage() {
                         />
                         <div>
                           <p className="text-sm font-medium text-fg">
-                            Sessão {s.numeroSessao}/{s.totalPacote}
+                            {s.tipoSessao?.ehAtendimentoUnico && s.tipoSessao.nome
+                              ? s.tipoSessao.nome
+                              : `Sessão ${s.numeroSessao}/${s.totalPacote}`}
                           </p>
                           <p className="text-sm text-muted">
                             {formatarDataHora(s.inicio)}
@@ -2498,7 +2505,10 @@ export default function PainelPage() {
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              Editar sessão {sessaoEditando.numeroSessao}
+              Editar{" "}
+              {sessaoEditando.tipoSessao?.ehAtendimentoUnico && sessaoEditando.tipoSessao.nome
+                ? sessaoEditando.tipoSessao.nome
+                : `sessão ${sessaoEditando.numeroSessao}`}
             </h2>
             <form onSubmit={handleSalvarEdicao} className="space-y-4">
               <div>
@@ -2561,7 +2571,10 @@ export default function PainelPage() {
         <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
             <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              Cancelar sessão {sessaoCancelando.numeroSessao}
+              Cancelar{" "}
+              {sessaoCancelando.tipoSessao?.ehAtendimentoUnico && sessaoCancelando.tipoSessao.nome
+                ? sessaoCancelando.tipoSessao.nome
+                : `sessão ${sessaoCancelando.numeroSessao}`}
             </h2>
             <form onSubmit={handleConfirmarCancelamento} className="space-y-4">
               <div>
@@ -2977,7 +2990,10 @@ export default function PainelPage() {
                 >
                   {sessoes.map((s) => (
                     <option key={s.id} value={s.id} disabled={STATUS_TRAVADOS.includes(s.status)}>
-                      Sessão {s.numeroSessao}/{s.totalPacote} — {formatarDataHora(s.inicio)}
+                      {s.tipoSessao?.ehAtendimentoUnico && s.tipoSessao.nome
+                        ? s.tipoSessao.nome
+                        : `Sessão ${s.numeroSessao}/${s.totalPacote}`}{" "}
+                      — {formatarDataHora(s.inicio)}
                       {STATUS_TRAVADOS.includes(s.status) ? ` (${statusLabel(s.status)})` : ""}
                     </option>
                   ))}

@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     },
     include: {
       paciente: { select: { id: true, nome: true } },
-      tipoSessao: { select: { id: true, nome: true, cor: true } },
+      tipoSessao: { select: { id: true, nome: true, cor: true, ehAtendimentoUnico: true } },
     },
     orderBy: { inicio: "asc" },
   });

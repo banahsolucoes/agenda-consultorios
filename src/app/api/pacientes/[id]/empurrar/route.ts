@@ -5,7 +5,7 @@ import { pode } from "@/lib/permissoes";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { obterClinicaECalendar, sincronizarEventoGoogle, criarEventoGoogleMeet } from "@/lib/google";
-import { primeiroUltimoNome } from "@/lib/nomes";
+import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -86,6 +86,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     numeroSessao: number;
     totalPacote: number;
     ehOnline: boolean;
+    ehAtendimentoUnico: boolean;
+    tipoSessaoNome: string | null;
     tipoSessaoGoogleCalendarId: string | null;
   }[] = [];
   for (const s of sessoes) {
@@ -119,6 +121,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       numeroSessao: s.numeroSessao,
       totalPacote: s.totalPacote,
       ehOnline: s.tipoSessao?.ehOnline ?? false,
+      ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
+      tipoSessaoNome: s.tipoSessao?.nome ?? null,
       tipoSessaoGoogleCalendarId: s.tipoSessao?.googleCalendarId ?? null,
     });
   }
@@ -187,7 +191,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           google.calendar,
           mov.tipoSessaoGoogleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
           {
-            titulo: `${primeiroUltimoNome(paciente.nome)} (${mov.numeroSessao}/${mov.totalPacote})`,
+            titulo: formatarTituloAgendamento({
+              nomePaciente: paciente.nome,
+              tipoSessaoNome: mov.tipoSessaoNome,
+              ehAtendimentoUnico: mov.ehAtendimentoUnico,
+              numeroSessao: mov.numeroSessao,
+              totalPacote: mov.totalPacote,
+            }),
             inicio: mov.novaData,
             duracaoMin: mov.duracaoMin,
           },

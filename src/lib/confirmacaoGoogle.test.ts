@@ -1,13 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import { sincronizarEventoGoogle } from "@/lib/google";
-import { primeiroUltimoNome } from "@/lib/nomes";
+import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 
 // Reproduz exatamente a construção de título usada no bloco `confirmada`
 // de PATCH /api/sessoes/[id] — valida que marcar/desmarcar (inclusive
 // repetido) nunca duplica nem deixa de remover o ✅, já que o título é
 // sempre reconstruído do zero, nunca concatenado ao título antigo.
-function tituloConfirmacao(nome: string, numeroSessao: number, totalPacote: number, confirmada: boolean) {
-  return `${primeiroUltimoNome(nome)} (${numeroSessao}/${totalPacote})${confirmada ? " ✅" : ""}`;
+function tituloConfirmacao(
+  nome: string,
+  numeroSessao: number,
+  totalPacote: number,
+  confirmada: boolean,
+  ehAtendimentoUnico = false,
+  tipoSessaoNome: string | null = null
+) {
+  const base = formatarTituloAgendamento({
+    nomePaciente: nome,
+    tipoSessaoNome,
+    ehAtendimentoUnico,
+    numeroSessao,
+    totalPacote,
+  });
+  return `${base}${confirmada ? " ✅" : ""}`;
 }
 
 describe("confirmação de sessão refletida no título do evento Google", () => {
@@ -83,5 +97,20 @@ describe("confirmação de sessão refletida no título do evento Google", () =>
         "clinica-teste"
       )
     ).resolves.toBe(false);
+  });
+
+  it("usa a numeração do pacote para sessão comum", () => {
+    const titulo = tituloConfirmacao("William Silva", 1, 4, false, false, null);
+    expect(titulo).toBe("William Silva (1/4)");
+  });
+
+  it("usa o nome do tipo, sem numeração, para atendimento único (ex.: avaliação)", () => {
+    const titulo = tituloConfirmacao("William Silva", 1, 1, false, true, "Avaliação online");
+    expect(titulo).toBe("William Silva - Avaliação online");
+  });
+
+  it("cai no formato numerado se o tipo de atendimento único não tiver nome resolvido", () => {
+    const titulo = tituloConfirmacao("William Silva", 1, 1, false, true, null);
+    expect(titulo).toBe("William Silva (1/1)");
   });
 });

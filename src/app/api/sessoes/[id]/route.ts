@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle } from "@/lib/google";
-import { primeiroUltimoNome } from "@/lib/nomes";
+import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
 import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
@@ -128,7 +128,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (sessao.googleEventId) {
       const google = await obterClinicaECalendar(usuario.clinicaId);
       if (google) {
-        const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${sessao.confirmada ? " ✅" : ""}${SUFIXO_STATUS[body.status] ?? ""}`;
+        const titulo = `${formatarTituloAgendamento({
+          nomePaciente: sessao.paciente.nome,
+          tipoSessaoNome: sessao.tipoSessao?.nome ?? null,
+          ehAtendimentoUnico: sessao.tipoSessao?.ehAtendimentoUnico ?? false,
+          numeroSessao: sessao.numeroSessao,
+          totalPacote: sessao.totalPacote,
+        })}${sessao.confirmada ? " ✅" : ""}${SUFIXO_STATUS[body.status] ?? ""}`;
         const ok = await sincronizarEventoGoogle(
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
@@ -453,10 +459,18 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const precisaGoogle = (!eraOnline && ficaOnline && !sessao.linkMeet) || Boolean(sessao.googleEventId);
     const google = precisaGoogle ? await obterClinicaECalendar(sessao.paciente.clinicaId) : null;
 
-    // Título independe do tipo — a troca nunca deve alterar o nome/numeração
-    // já usados na criação, só recompomos aqui pra garantir consistência
-    // caso o evento precise ser (re)criado ou tenha o fim atualizado abaixo.
-    const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${sessao.confirmada ? " ✅" : ""}`;
+    // Nome/numeração do paciente não mudam com a troca de tipo — mas o rótulo
+    // de atendimento único (ex.: avaliação) depende do tipo em si, então usa
+    // o novoTipo (destino da troca), não o tipo antigo da sessão: se a troca
+    // entra ou sai de um tipo de atendimento único, o título precisa refletir
+    // isso já nesta chamada, sem esperar uma próxima sincronização.
+    const titulo = `${formatarTituloAgendamento({
+      nomePaciente: sessao.paciente.nome,
+      tipoSessaoNome: novoTipo.nome,
+      ehAtendimentoUnico: novoTipo.ehAtendimentoUnico,
+      numeroSessao: sessao.numeroSessao,
+      totalPacote: sessao.totalPacote,
+    })}${sessao.confirmada ? " ✅" : ""}`;
 
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
       if (google) {
@@ -512,7 +526,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (sessao.googleEventId) {
       const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
       if (google) {
-        const titulo = `${primeiroUltimoNome(sessao.paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})${body.confirmada ? " ✅" : ""}`;
+        const titulo = `${formatarTituloAgendamento({
+          nomePaciente: sessao.paciente.nome,
+          tipoSessaoNome: sessao.tipoSessao?.nome ?? null,
+          ehAtendimentoUnico: sessao.tipoSessao?.ehAtendimentoUnico ?? false,
+          numeroSessao: sessao.numeroSessao,
+          totalPacote: sessao.totalPacote,
+        })}${body.confirmada ? " ✅" : ""}`;
         await sincronizarEventoGoogle(
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",

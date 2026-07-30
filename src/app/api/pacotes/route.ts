@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
-import { primeiroUltimoNome } from "@/lib/nomes";
 import { criarDataSP } from "@/lib/timezone";
+import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 import { registrarLog } from "@/lib/auditoria";
 import { tipoPacoteLabel } from "@/lib/labels";
 import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
@@ -145,7 +145,13 @@ export async function POST(req: NextRequest) {
         calendar,
         tipoSessaoGoogleCalendarId ?? clinica.googleCalendarId ?? "primary",
         {
-          titulo: `${primeiroUltimoNome(paciente.nome)} (${sessao.numeroSessao}/${sessao.totalPacote})`,
+          titulo: formatarTituloAgendamento({
+            nomePaciente: paciente.nome,
+            tipoSessaoNome: tipoSessaoNome,
+            ehAtendimentoUnico: tipoSessaoEhAtendimentoUnico,
+            numeroSessao: sessao.numeroSessao,
+            totalPacote: sessao.totalPacote,
+          }),
           inicio: sessao.inicio,
           duracaoMin: sessao.duracaoMin,
         },

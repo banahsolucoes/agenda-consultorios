@@ -1,13 +1,48 @@
+import { primeiroUltimoNome } from "@/lib/nomes";
+
 // Texto da primeira linha do bloco de sessão na agenda visual: primeiro nome
-// do paciente + numeração do pacote, com um ✅ ao final quando a sessão foi
-// marcada como confirmada. A confirmação é independente do status da sessão.
+// do paciente + numeração do pacote (ou o nome do tipo, se for atendimento
+// único — ex.: avaliação, que não faz sentido numerar), com um ✅ ao final
+// quando a sessão foi marcada como confirmada. A confirmação é independente
+// do status da sessão.
 export function textoLinhaBlocoAgenda(
   nomePaciente: string,
   numeroSessao: number,
   totalPacote: number,
-  confirmada: boolean
+  confirmada: boolean,
+  ehAtendimentoUnico: boolean = false,
+  tipoSessaoNome: string | null = null
 ): string {
   const primeiroNome = nomePaciente.split(" ")[0];
-  const base = `${primeiroNome} ${numeroSessao}/${totalPacote}`;
+  const base =
+    ehAtendimentoUnico && tipoSessaoNome
+      ? `${primeiroNome} - ${tipoSessaoNome}`
+      : `${primeiroNome} ${numeroSessao}/${totalPacote}`;
   return confirmada ? `${base} ✅` : base;
+}
+
+// Ponto único de formatação do título de agendamento usado no evento do
+// Google Calendar/Meet (e nos demais rótulos "{paciente} (N/T)" espalhados
+// pelas rotas de sessão): quando o tipo de sessão é de atendimento único
+// (ex.: avaliação), o rótulo vira "{paciente} - {nome do tipo}" em vez da
+// numeração do pacote, já que só acontece uma vez. Se o tipo não tiver nome
+// resolvido, cai no formato numerado — nunca gera título terminando em traço.
+export function formatarTituloAgendamento({
+  nomePaciente,
+  tipoSessaoNome,
+  ehAtendimentoUnico,
+  numeroSessao,
+  totalPacote,
+}: {
+  nomePaciente: string;
+  tipoSessaoNome: string | null | undefined;
+  ehAtendimentoUnico: boolean;
+  numeroSessao: number;
+  totalPacote: number;
+}): string {
+  const nome = primeiroUltimoNome(nomePaciente);
+  if (ehAtendimentoUnico && tipoSessaoNome) {
+    return `${nome} - ${tipoSessaoNome}`;
+  }
+  return `${nome} (${numeroSessao}/${totalPacote})`;
 }

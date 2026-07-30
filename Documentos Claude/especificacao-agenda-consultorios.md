@@ -111,6 +111,8 @@ Nomes de domínio em português (decisão do projeto); termos de framework em in
 | googleCalendarId | text | qual calendário |
 | linkMeet | text | |
 
+**Rótulo exibido/título do evento (2026-07-30):** não é um campo persistido — é calculado por `formatarTituloAgendamento()` (`src/lib/blocoAgenda.ts`), ponto único de formatação. Regra: se `tipoSessao.ehAtendimentoUnico === true` (tipo de atendimento único, configurável por clínica — ex.: "Avaliação online"/"Avaliação presencial") e o tipo tem `nome` resolvido, o rótulo é `{paciente} - {nome do tipo}`, sem numeração. Caso contrário (sessão normal, ou tipo de atendimento único sem nome resolvido), mantém `{paciente} (numeroSessao/totalPacote)`. Não existe enum fixo de "avaliação" no schema — o critério é o booleano `TipoSessao.ehAtendimentoUnico`, não o texto do nome.
+
 ### LogAuditoria
 | Campo | Tipo | Notas |
 |---|---|---|

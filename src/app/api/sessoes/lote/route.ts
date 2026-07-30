@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
-import { primeiroUltimoNome } from "@/lib/nomes";
+import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 import { registrarLog } from "@/lib/auditoria";
 import {
   filtrarSessoesElegiveis,
@@ -110,7 +110,13 @@ export async function POST(req: NextRequest) {
       const google = await obterClinicaECalendar(usuario.clinicaId);
       if (google) {
         for (const s of comEvento) {
-          const titulo = `${primeiroUltimoNome(s.paciente.nome)} (${s.numeroSessao}/${s.totalPacote})${s.confirmada ? " ✅" : ""}${SUFIXO_STATUS[status] ?? ""}`;
+          const titulo = `${formatarTituloAgendamento({
+            nomePaciente: s.paciente.nome,
+            tipoSessaoNome: s.tipoSessao?.nome ?? null,
+            ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
+            numeroSessao: s.numeroSessao,
+            totalPacote: s.totalPacote,
+          })}${s.confirmada ? " ✅" : ""}${SUFIXO_STATUS[status] ?? ""}`;
           const ok = await sincronizarEventoGoogle(
             google.calendar,
             s.googleCalendarId ?? s.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",

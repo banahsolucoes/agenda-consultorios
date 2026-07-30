@@ -54,7 +54,7 @@ interface SessaoAgenda {
   status: string;
   arquivada: boolean;
   tipoSessaoId: string | null;
-  tipoSessao: { id: string; nome: string; cor: string | null } | null;
+  tipoSessao: { id: string; nome: string; cor: string | null; ehAtendimentoUnico: boolean } | null;
   linkMeet: string | null;
   motivoCancelamento: string | null;
   confirmada: boolean;
@@ -1019,7 +1019,14 @@ function BlocoSessao({
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <p className="truncate text-[11px] font-medium leading-none">
-          {textoLinhaBlocoAgenda(sessao.paciente.nome, sessao.numeroSessao, sessao.totalPacote, sessao.confirmada)}
+          {textoLinhaBlocoAgenda(
+            sessao.paciente.nome,
+            sessao.numeroSessao,
+            sessao.totalPacote,
+            sessao.confirmada,
+            sessao.tipoSessao?.ehAtendimentoUnico ?? false,
+            sessao.tipoSessao?.nome ?? null
+          )}
         </p>
         {copiado ? (
           <p className="truncate text-[11px] font-medium leading-none">Copiado!</p>

@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     // Sessão arquivada some do cadastro do paciente — continua no banco
     // para histórico/auditoria, só não é mais exibida.
     where: { pacienteId, arquivada: false },
+    include: { tipoSessao: { select: { nome: true, ehAtendimentoUnico: true } } },
     orderBy: { numeroSessao: "asc" },
   });
   return NextResponse.json(sessoes);
