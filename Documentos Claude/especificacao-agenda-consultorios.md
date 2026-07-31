@@ -304,6 +304,27 @@ Escopo: só paciente já confirmado/existente — funil de lead novo (venda) fic
 - **IA (Claude Haiku)** interpreta a resposta do paciente a um lembrete: confirma a sessão sozinha quando o paciente confirma; se o paciente pede para reagendar/cancelar, não decide sozinha — só sinaliza que precisa de atendimento humano (a Daiane/Pâmela reagenda manualmente pelo sistema, como já faz hoje); qualquer outra dúvida (endereço, horário etc.) a IA responde no tom da Daiane, sempre baseada em dados reais do agendamento, nunca inventados.
 - **Mensagem automática do dia**: reaproveita o mesmo texto de copiar-colar do link do Meet que já existia (configurável por clínica), agora enviado automaticamente pra quem tem sessão no dia. Limitação real: só funciona pra quem tem conversa "aberta" no WhatsApp (mensagem recente) — sem um template aprovado específico pra isso, não dá pra alcançar quem não escreveu recentemente; ficou registrado como pendência.
 
+### 11.4 wa-bridge — canal não-oficial (serviço isolado)
+
+**⚠️ Canal fora dos Termos de Uso do WhatsApp — destinado a número secundário e descartável,
+nunca ao número principal da clínica nem ao mesmo número da Cloud API oficial do §11.1-11.3.**
+Serviço à parte (`/wa-bridge`, fora do app Next.js, deploy próprio) que se conecta ao WhatsApp
+como um cliente WhatsApp Web comum via [Baileys](https://github.com/WhiskeySockets/Baileys) —
+biblioteca não-oficial, sem aprovação da Meta. Detalhe técnico completo em `ARCHITECTURE.md`
+§12; instruções de operação (subir o serviço, ler o QR na primeira conexão, rotacionar sessão)
+em `wa-bridge/README.md`.
+
+- **Por quê**: canal alternativo/experimental para casos que a Cloud API oficial não cobre,
+  aceitando conscientemente o risco de banimento do número secundário em troca de não depender
+  de template aprovado pela Meta.
+- **Fila de envio**: estritamente serial, delay aleatório de 25-60s entre mensagens, cap de 15
+  envios/dia, só processa dentro do expediente (08:00-19:00, seg-sex, `America/Sao_Paulo`) —
+  desenhado para reduzir o risco de o número ser sinalizado como spam.
+- **Persistência da sessão**: tabela própria no Supabase (`wa_bridge_session`, SQL documentado
+  no README — **não é uma migration do Prisma**, o schema do app não é tocado por esse serviço).
+- **Reconexão**: automática, exceto quando a sessão é deslogada no aparelho — nesse caso o
+  serviço para e avisa o app via webhook (`session.disconnected`) para reconexão manual.
+
 ---
 
 ## 12. Módulo Mentoria

@@ -372,3 +372,70 @@ Diagnóstico sempre antes de otimizar — nunca alterar query/schema "no escuro"
 ### 10.7 Convenções herdadas do Consultório
 
 Mesmas regras da seção 2 se aplicam integralmente: `clinicaId` sempre de `getUsuarioLogado()`, nunca do corpo da requisição; migrations só via `DIRECT_URL` (porta 5432); `directUrl` nunca em `prisma.config.ts`; edição incremental, nunca recriação de arquivo. Operações do módulo são não-destrutivas por padrão (distrato/exclusão preservam histórico salvo os casos explícitos de 10.3); toda mutação relevante grava `LogAuditoria` via `registrarLog()`.
+
+## 12. wa-bridge (canal não-oficial)
+
+**⚠️ Este módulo opera fora dos Termos de Uso do WhatsApp.** Diferente do §10 (Atendimento
+WhatsApp, que usa a Cloud API oficial da Meta com número comercial verificado), o `wa-bridge`
+se conecta ao WhatsApp **como um cliente WhatsApp Web comum**, via
+[Baileys](https://github.com/WhiskeySockets/Baileys) — biblioteca não-oficial que reimplementa
+o protocolo do WhatsApp Web. A Meta proíbe automação por esse caminho e pode banir o número a
+qualquer momento, sem aviso. **Destinado exclusivamente a um número secundário e descartável**
+— nunca ao número principal da clínica ou de um profissional, e nunca ao mesmo número usado
+pela Cloud API oficial do §10. É um serviço isolado, não faz parte do app Next.js e não deve
+ser confundido com o canal oficial.
+
+### 12.1 Por que existe
+
+Serve como canal alternativo/experimental de envio (ex.: mensagens que a Cloud API oficial não
+cobre, ou testes antes de formalizar um fluxo via template aprovado) — decisão consciente de
+aceitar o risco de banimento do número secundário em troca de não depender de template
+aprovado pela Meta para esse uso específico.
+
+### 12.2 Localização e stack
+
+`/wa-bridge` (raiz do repo, `package.json` próprio, TypeScript compilado via `tsc`, não faz
+parte do build/deploy do Next.js). Node.js 20, `@whiskeysockets/baileys`, `express`,
+`@supabase/supabase-js` (só para persistir o estado de sessão do Baileys — tabela própria,
+não gerenciada pelo Prisma), `pino`, `qrcode`. Deploy via `Dockerfile` (multi-stage,
+`node:20-alpine`) em infraestrutura separada da Vercel (processo de longa duração com socket
+persistente — incompatível com functions serverless). Detalhes operacionais completos (setup,
+leitura do QR na primeira conexão, rotação de sessão, SQL da tabela) em `wa-bridge/README.md`.
+
+### 12.3 Auth state
+
+`useSupabaseAuthState(sessionId)` (`wa-bridge/src/lib/supabaseAuthState.ts`) reimplementa a
+assinatura de `useMultiFileAuthState` do próprio Baileys, mas grava cada chave de credencial
+(creds, chaves de sessão do protocolo Signal, app-state sync keys) como uma linha na tabela
+Supabase `wa_bridge_session` (`id`, `session_id`, `key`, `value jsonb`, `updated_at`, índice
+único em `(session_id, key)`) em vez de arquivos locais — permite rodar o serviço em qualquer
+host sem disco persistente e reconectar sem re-escanear o QR entre deploys.
+
+### 12.4 Endpoints
+
+- `GET /qr` — protegido por header `x-bridge-secret`; retorna PNG do QR atual, `204` se já
+  conectado, `202` se o QR ainda não foi gerado.
+- `GET /status` — mesmo header; `{ connected, phone, lastSeen }`.
+- `POST /enqueue` — autenticado por HMAC-SHA256 (`x-signature` sobre `${x-timestamp}.${body}`,
+  segredo `BRIDGE_SHARED_SECRET`) com anti-replay (`x-timestamp` rejeitado se >5min no passado).
+  Payload `{ jobId, to, variants[], meta }` — sorteia uma variante no momento do envio.
+  Processamento **estritamente serial**, delay aleatório de 25-60s entre mensagens, cap de 15
+  envios/dia (contador em memória, reset à meia-noite `America/Sao_Paulo`), só processa dentro
+  da janela 08:00-19:00 seg-sex (`America/Sao_Paulo`) — fora disso o job fica na fila. Idempotente
+  por `jobId` (reenvio do mesmo `jobId` retorna 200 sem reprocessar).
+- Webhooks assinados (mesmo esquema HMAC, sem timestamp) para `APP_WEBHOOK_URL`, com retry em
+  backoff exponencial (3 tentativas): `message.sent`, `message.failed`, `message.received`,
+  `session.disconnected`.
+
+### 12.5 Reconexão e logout
+
+Reconecta automaticamente em qualquer `connection.close`, **exceto** quando o motivo é
+`DisconnectReason.loggedOut` (sessão deslogada no aparelho) — nesse caso para de tentar
+reconectar, limpa o QR em memória e dispara `session.disconnected` para o app decidir o que
+fazer (ex.: alertar a Daiane para reconectar manualmente via `GET /qr`).
+
+### 12.6 Env vars
+
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BRIDGE_SHARED_SECRET`, `BRIDGE_ADMIN_SECRET`,
+`APP_WEBHOOK_URL`, `BRIDGE_SESSION_ID`, `PORT` — só em `wa-bridge/.env` (fora do controle de
+versão) e nas env vars do host de deploy; `.env.example` documenta as chaves sem valores.
