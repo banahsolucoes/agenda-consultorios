@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { enviarMensagemLivre } from "@/lib/whatsapp/enviarMensagem";
+import { getProvider } from "@/lib/whatsapp/provider";
 
 // POST /api/whatsapp/conversas/[id]/enviar — envio manual (inbox) de uma
 // mensagem de texto livre. Só funciona dentro da janela de 24h da Meta
@@ -32,9 +32,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
-  const resultado = await enviarMensagemLivre(conversa.telefone, texto);
-  if (!resultado.sucesso) {
-    return NextResponse.json({ erro: resultado.erro ?? "falha ao enviar mensagem" }, { status: 502 });
+  const resultado = await getProvider().enviarMensagemLivre(conversa.telefone, texto);
+  if (!resultado.ok) {
+    return NextResponse.json({ erro: resultado.erro }, { status: 502 });
   }
 
   const agora = new Date();
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       texto,
       tipo: "livre",
       respondidaPorIa: false,
-      wamid: resultado.wamid ?? null,
+      wamid: resultado.externalId || null,
     },
   });
 

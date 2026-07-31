@@ -1,4 +1,4 @@
-import { normalizarTelefoneE164 } from "@/lib/whatsapp/enviarTemplate";
+import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
 
 const META_API_VERSION = "v25.0";
 

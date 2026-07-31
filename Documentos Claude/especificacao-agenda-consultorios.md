@@ -304,6 +304,8 @@ Escopo: só paciente já confirmado/existente — funil de lead novo (venda) fic
 - **IA (Claude Haiku)** interpreta a resposta do paciente a um lembrete: confirma a sessão sozinha quando o paciente confirma; se o paciente pede para reagendar/cancelar, não decide sozinha — só sinaliza que precisa de atendimento humano (a Daiane/Pâmela reagenda manualmente pelo sistema, como já faz hoje); qualquer outra dúvida (endereço, horário etc.) a IA responde no tom da Daiane, sempre baseada em dados reais do agendamento, nunca inventados.
 - **Mensagem automática do dia**: reaproveita o mesmo texto de copiar-colar do link do Meet que já existia (configurável por clínica), agora enviado automaticamente pra quem tem sessão no dia. Limitação real: só funciona pra quem tem conversa "aberta" no WhatsApp (mensagem recente) — sem um template aprovado específico pra isso, não dá pra alcançar quem não escreveu recentemente; ficou registrado como pendência.
 
+**Refactor 2026-07-31 (sem mudança de comportamento)**: os pontos de envio (cron 48h, cron do dia, inbox, IA/handoff) passaram a chamar uma interface `WhatsAppProvider` via `getProvider()` (`src/lib/whatsapp/provider/`) em vez das funções concretas diretamente — preparação para permitir mais de uma implementação de canal no futuro (ver §11.4). Nesta fase `getProvider()` sempre retorna a implementação Cloud API; nenhum comportamento observável mudou. Detalhe técnico em `ARCHITECTURE.md` §10.11.
+
 ### 11.4 wa-bridge — canal não-oficial (serviço isolado)
 
 **⚠️ Canal fora dos Termos de Uso do WhatsApp — destinado a número secundário e descartável,

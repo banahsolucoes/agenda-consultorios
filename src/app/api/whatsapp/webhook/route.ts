@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { responderMensagemWhatsapp } from "@/lib/ia/responderWhatsapp";
-import { normalizarTelefoneE164 } from "@/lib/whatsapp/enviarTemplate";
+import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
 
 // Janela de conversação do WhatsApp Business: 24h a partir da última
 // mensagem do paciente, período em que a clínica pode responder livremente

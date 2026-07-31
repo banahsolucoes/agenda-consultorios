@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 import { formatarDataCurtaSP, formatarHoraSP } from "@/lib/timezone";
-import { enviarMensagemLivre } from "@/lib/whatsapp/enviarMensagem";
+import { getProvider } from "@/lib/whatsapp/provider";
 
 const MODELO = "claude-haiku-4-5";
 const MAX_TENTATIVAS_TOOL_USE = 3;
@@ -160,8 +160,8 @@ export async function responderMensagemWhatsapp(params: ResponderMensagemWhatsap
     return;
   }
 
-  const resultado = await enviarMensagemLivre(telefone, decisao.resposta);
-  if (!resultado.sucesso) {
+  const resultado = await getProvider().enviarMensagemLivre(telefone, decisao.resposta);
+  if (!resultado.ok) {
     console.error(`[whatsapp ia] falha ao enviar resposta (conversa ${conversaId}):`, resultado.erro);
     return;
   }
@@ -173,7 +173,7 @@ export async function responderMensagemWhatsapp(params: ResponderMensagemWhatsap
       texto: decisao.resposta,
       tipo: "livre",
       respondidaPorIa: true,
-      wamid: resultado.wamid ?? null,
+      wamid: resultado.externalId || null,
     },
   });
 }
@@ -201,8 +201,8 @@ async function notificarHandoffHumano(params: {
     `Telefone: ${params.telefone}\n` +
     `Mensagem: "${params.textoRecebido}"`;
 
-  const resultado = await enviarMensagemLivre(numeroHumano, texto);
-  if (!resultado.sucesso) {
+  const resultado = await getProvider().enviarMensagemLivre(numeroHumano, texto);
+  if (!resultado.ok) {
     console.error("[whatsapp ia] falha ao notificar handoff humano:", resultado.erro);
   }
 }

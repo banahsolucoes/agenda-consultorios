@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { normalizarTelefoneE164 } from "@/lib/whatsapp/enviarTemplate";
+import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
 
 // GET /api/whatsapp/conversas — lista as conversas da clínica logada, mais
 // recentes primeiro, com nome do paciente (quando vinculado) e a última

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { enviarConfirmacaoAgenda, normalizarTelefoneE164 } from "@/lib/whatsapp/enviarTemplate";
-import { enviarMensagemLivre } from "@/lib/whatsapp/enviarMensagem";
+import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
+import { getProvider } from "@/lib/whatsapp/provider";
 import { componentesSP, criarDataSP, formatarDataCurtaSP, formatarHoraSP } from "@/lib/timezone";
 import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 
@@ -50,7 +50,7 @@ async function enviarLembretes48h(agora: Date) {
     }
 
     try {
-      const resultado = await enviarConfirmacaoAgenda({
+      const resultado = await getProvider().enviarTemplate({
         clinicaId: agendamento.paciente.clinicaId,
         pacienteId: agendamento.pacienteId,
         telefone,
@@ -59,14 +59,14 @@ async function enviarLembretes48h(agora: Date) {
         hora: formatarHoraSP(agendamento.inicio),
       });
 
-      if (resultado.sucesso) {
+      if (resultado.ok) {
         await prisma.agendamento.update({
           where: { id: agendamento.id },
           data: { lembreteWhatsappEnviadoEm: agora },
         });
         enviados++;
       } else {
-        falhas.push({ agendamentoId: agendamento.id, pacienteId: agendamento.pacienteId, erro: resultado.erro ?? "falha desconhecida" });
+        falhas.push({ agendamentoId: agendamento.id, pacienteId: agendamento.pacienteId, erro: resultado.erro });
       }
     } catch (erro) {
       console.error(`[cron-whatsapp-lembretes] erro inesperado no agendamento ${agendamento.id}:`, erro);
@@ -161,12 +161,12 @@ async function enviarMensagensDoDia(agora: Date) {
       assistente: clinica.nomeAssistente,
     });
 
-    const resultado = await enviarMensagemLivre(telefoneBruto, texto);
-    if (!resultado.sucesso) {
+    const resultado = await getProvider().enviarMensagemLivre(telefoneBruto, texto);
+    if (!resultado.ok) {
       falhas.push({
         agendamentoId: agendamento.id,
         pacienteId: agendamento.pacienteId,
-        erro: resultado.erro ?? "falha desconhecida",
+        erro: resultado.erro,
       });
       continue;
     }
@@ -181,7 +181,7 @@ async function enviarMensagensDoDia(agora: Date) {
         direcao: "saida",
         texto,
         tipo: TIPO_MENSAGEM_DIA,
-        wamid: resultado.wamid ?? null,
+        wamid: resultado.externalId || null,
       },
     });
     enviados++;

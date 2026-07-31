@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { enviarConfirmacaoAgenda } from "@/lib/whatsapp/enviarTemplate";
+import { getProvider } from "@/lib/whatsapp/provider";
 import { formatarDataCurtaSP, formatarHoraSP } from "@/lib/timezone";
 
 // POST /api/whatsapp/conversas/[id]/template — inicia contato quando a
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
-  const resultado = await enviarConfirmacaoAgenda({
+  const resultado = await getProvider().enviarTemplate({
     clinicaId: usuario.clinicaId,
     pacienteId: conversa.pacienteId,
     telefone: conversa.telefone,
@@ -60,8 +60,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     hora: formatarHoraSP(proximoAgendamento.inicio),
   });
 
-  if (!resultado.sucesso) {
-    return NextResponse.json({ erro: resultado.erro ?? "falha ao enviar template" }, { status: 502 });
+  if (!resultado.ok) {
+    return NextResponse.json({ erro: resultado.erro }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });
