@@ -26,6 +26,43 @@ function normalizarCabecalho(s) {
     .trim();
 }
 
+// Mesmo padrão de scripts/reprocessar-anamnese.ts: TODA saída derivada de
+// campo de paciente deve passar por aqui antes de ir pro console — nenhum
+// caminho deste script pode imprimir nome/CPF/telefone/e-mail crus. Hoje o
+// script só imprime contagens e os literais [REDIGIDO — MATCH]/[REDIGIDO —
+// SEM MATCH] (nunca o nome em si), mas a função fica disponível como padrão
+// obrigatório pra qualquer extensão futura que precise ecoar um campo.
+const CAMPOS_PII_ROTULOS = new Set(
+  [
+    "nome completo",
+    "seu cpf",
+    "seu rg",
+    "telefone (whatsapp)",
+    "telefone",
+    "e-mail",
+    "endereço completo",
+    "cep",
+    "seu instagram",
+    "data de nascimento",
+  ]
+);
+const REGEX_CPF_OU_TELEFONE = /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{10,11}\b/g;
+const REGEX_EMAIL = /[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}/g;
+
+function redigir(texto) {
+  const porRotulo = (texto || "")
+    .split("\n")
+    .map((linha) => {
+      const idx = linha.indexOf(": ");
+      if (idx === -1) return linha;
+      const rotulo = linha.slice(0, idx).trim().toLowerCase();
+      if (CAMPOS_PII_ROTULOS.has(rotulo)) return `${linha.slice(0, idx)}: [REDIGIDO]`;
+      return linha;
+    })
+    .join("\n");
+  return porRotulo.replace(REGEX_CPF_OU_TELEFONE, "[REDIGIDO]").replace(REGEX_EMAIL, "[REDIGIDO]");
+}
+
 const client = new pg.Client({ connectionString: process.env.DIRECT_URL });
 await client.connect();
 

@@ -23,15 +23,24 @@ const MARCA_OBSERVACOES = "--- OBSERVAÇÕES ---";
 const CAMPOS_PII_ROTULOS = new Set(
   [
     "Nome Completo",
-    "E-mail",
-    "Endereço Completo",
-    "Seu RG",
     "Seu CPF",
+    "Seu RG",
     "Telefone (WhatsApp)",
     "Telefone",
+    "E-mail",
+    "Endereço Completo",
+    "CEP",
     "Seu Instagram",
+    "Data de Nascimento",
   ].map((s) => s.toLowerCase())
 );
+
+// Segurança adicional além do match por rótulo: qualquer sequência que
+// pareça CPF (11 dígitos, com ou sem pontuação), telefone (10-11 dígitos)
+// ou e-mail, em QUALQUER posição do texto — inclusive dentro de respostas
+// livres onde o paciente pode ter digitado o próprio contato.
+const REGEX_CPF_OU_TELEFONE = /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{10,11}\b/g;
+const REGEX_EMAIL = /[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}/g;
 
 function parseArgs(): { clinica: string; fase: "vazios" | "preenchidos"; executar: boolean } {
   const args = process.argv.slice(2);
@@ -52,10 +61,14 @@ function parseArgs(): { clinica: string; fase: "vazios" | "preenchidos"; executa
   return { clinica, fase, executar };
 }
 
-// Só usada no relatório do dry-run — troca as linhas cadastrais sensíveis
-// por [REDIGIDO], preserva o resto pra mostrar a estrutura.
+// TODA saída de amostra/diff do script passa obrigatoriamente por aqui —
+// nenhum caminho pode imprimir texto de anamnese/campo de paciente sem
+// redigir antes. Duas camadas: (1) linhas cujo rótulo é PII conhecida viram
+// "[REDIGIDO]" por inteiro; (2) por segurança adicional, qualquer trecho do
+// texto (mesmo fora de um rótulo mapeado) que pareça CPF/telefone/e-mail
+// também é substituído.
 function redigir(texto: string): string {
-  return texto
+  const porRotulo = texto
     .split("\n")
     .map((linha) => {
       const idx = linha.indexOf(": ");
@@ -65,6 +78,8 @@ function redigir(texto: string): string {
       return linha;
     })
     .join("\n");
+
+  return porRotulo.replace(REGEX_CPF_OU_TELEFONE, "[REDIGIDO]").replace(REGEX_EMAIL, "[REDIGIDO]");
 }
 
 interface PacienteRow {
@@ -123,6 +138,7 @@ async function main() {
   const foraDeFase: string[] = [];
   const semSeparador: string[] = [];
   const planilhaSemConteudo: string[] = [];
+  const semMudanca: string[] = [];
   const elegiveis: { id: string; novoTexto: string }[] = [];
 
   for (const p of pacientes) {
@@ -175,8 +191,21 @@ async function main() {
       continue;
     }
 
-    const preservado = anamneseAtual!.slice(idxAntigo);
+    // Nada a reescrever: se não há observação nenhuma abaixo do separador
+    // E o trecho acima já é byte-idêntico ao que montarAnamnese produziria
+    // agora, gravar de novo seria um no-op — pula, sem contar como
+    // elegível. Isso torna reexecutar a fase inofensivo (evita o
+    // reprocessamento em cascata quando "vazios" acabou de preencher o
+    // mesmo registro na mesma sessão).
+    const conteudoAtual = anamneseAtual!.slice(0, idxAntigo);
     const conteudoNovo = registro.anamnese.slice(0, idxNovo);
+    const abaixoAtual = anamneseAtual!.slice(idxAntigo + MARCA_OBSERVACOES.length).trim();
+    if (abaixoAtual.length === 0 && conteudoAtual === conteudoNovo) {
+      semMudanca.push(p.id);
+      continue;
+    }
+
+    const preservado = anamneseAtual!.slice(idxAntigo);
     const novoTexto = conteudoNovo + preservado;
 
     // Garantia obrigatória: o que está abaixo do separador nunca pode mudar.
@@ -200,6 +229,7 @@ async function main() {
   if (fase === "preenchidos") {
     console.log(`sem marca "${MARCA_OBSERVACOES}" (formato antigo, nunca tocado):`, semSeparador.length);
     semSeparador.forEach((id) => console.log(`  - ${id}`));
+    console.log("sem mudança a aplicar (já reprocessado, nada a reescrever):", semMudanca.length);
   }
   console.log("linha da planilha sem conteúdo aproveitável:", planilhaSemConteudo.length);
   console.log("ELEGÍVEIS para escrita:", elegiveis.length);
