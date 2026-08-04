@@ -499,3 +499,99 @@ commitado na `main`. `vercel --prod` empacota o diretório de trabalho local, n�
 commitado — um schema alterado sem commit sobe junto no deploy, gerando um Prisma Client em
 produção divergente do banco real. Trabalho de schema em andamento (sem migration aplicada)
 sempre vai para um branch dedicado, nunca fica solto na `main`.
+
+## 13. Módulo Formulário de anamnese
+
+**Fase 1 — modelo de dados + seed (EM CONSTRUÇÃO, 2026-08-04)**: substitui o fluxo atual
+(forms.app → Google Sheets → `POST /api/importacao/executar`) por um formulário próprio,
+editável pela clínica. Esta fase entrega **só** modelo de dados e seed — nenhuma rota pública,
+nenhuma UI, nada servido; não impacta o plano da Vercel.
+
+### 13.1 Modelo de dados (`prisma/schema.prisma`)
+
+| Model | Papel | Campos-chave |
+|---|---|---|
+| `FormularioAnamnese` | Um formulário por clínica+slug (`@@unique([clinicaId, slug])`) | `titulo`, `descricao?`, `textoConsentimento` (`@db.Text`), `ativo` |
+| `PerguntaFormulario` | Uma linha por pergunta, ordenável | `ordem`, `rotulo`, `descricao?` (texto de ajuda editável), `tipo` (`TipoPergunta`), `obrigatoria`, `opcoes String[]`, `campoPaciente?`, `ativa` |
+| `EnvioFormulario` | Um envio (submissão) do formulário | `pacienteId?` (opcional — ver preservação abaixo), `status` (`StatusEnvio`), `consentimentoAceito`, `textoConsentimentoSnapshot` (`@db.Text`), `consentimentoEm`, `ipOrigem?`, `userAgent?`, `observacaoProcessamento?` |
+| `RespostaFormulario` | Uma resposta por pergunta dentro de um envio | `rotuloSnapshot` (`@db.Text`), `valor` (`@db.Text`), `envioId` (`onDelete: Cascade`), `perguntaId` |
+
+Enums novos: `TipoPergunta` (`TEXTO_CURTO`/`TEXTO_LONGO`/`SIM_NAO`/`MULTIPLA_ESCOLHA`/`DATA`/`EMAIL`/`TELEFONE`/`CPF`/`CEP`), `StatusEnvio` (`PENDENTE`/`PROCESSADO`/`IGNORADO`/`ERRO`).
+
+**Decisões travadas** (não alterar sem revisitar este parágrafo):
+- **Pergunta é linha, não coluna** — editar o formulário (rótulo, tipo, opções, ordem) na futura tela de configuração (F3) nunca gera migration nem `ALTER TABLE`. É um `UPDATE`/`INSERT`/reordenação de `PerguntaFormulario`.
+- **`rotuloSnapshot` e `textoConsentimentoSnapshot` são obrigatórios (`NOT NULL`)** — registro clínico e consentimento não podem mudar retroativamente quando a clínica editar o formulário depois. Mesmo espírito do `googleSyncStatus`/backup de anamnese: o que já foi respondido/aceito fica congelado no momento do envio.
+- **Pergunta nunca é deletada** — só desativada via `ativa = false`. A FK `RespostaFormulario.perguntaId` existe justamente para impedir `DELETE` de uma pergunta já respondida (não há `onDelete: Cascade` nessa relação, ao contrário de `envioId`).
+- **`EnvioFormulario` é preservado sempre**, mesmo que o paciente não seja criado (`pacienteId` nullable) — nenhum dado enviado por um paciente pode ser descartado, mesmo em caso de erro de processamento (CPF inválido, etc.); o registro fica com `status: ERRO`/`IGNORADO` e `observacaoProcessamento` explicando o motivo, nunca é apagado.
+- **Perguntas com `campoPaciente` preenchido são estruturais** — as 13 colunas cadastrais (nome, cpf, telefone, etc., mesmo mapa de `src/lib/importacao.ts`). A futura tela de edição (F3) não pode permitir remover essas perguntas nem trocar seu `tipo`, porque isso quebraria a gravação do cadastro do paciente.
+
+### 13.2 Seed (`scripts/seed-formulario-pamela.ts`)
+
+Cria/atualiza (upsert, idempotente) o `FormularioAnamnese` da clínica `pamela-rachid` (slug
+`anamnese`) e as 50 `PerguntaFormulario` na ordem exata do cabeçalho real da planilha
+(`Clinica.sheetsPlanilhaId`, lido via Google Sheets API — nunca digitado de memória). 13
+perguntas cadastrais recebem `campoPaciente` (mesmo `MAPA` de `src/lib/importacao.ts`, mas
+reimplementado localmente no script — não exportado de lá); 31 perguntas clínicas curtas viram
+`SIM_NAO`; 6 perguntas de relato (a maioria terminada em `":"`, mais a pergunta sobre bebida
+alcoólica — não termina em `":"` mas a resposta real observada é texto livre, decisão explícita
+do operador) viram `TEXTO_LONGO`; 4 colunas de metadado do forms.app (`Submitter`, `Submission
+Date`, `Submission ID`, `Idade`) são ignoradas. `obrigatoria = true` só em Nome Completo, CPF e
+Telefone (WhatsApp).
+
+### 13.3 Migration
+
+`20260804175251_form_anamnese` — só `CREATE TYPE`/`CREATE TABLE`/`CREATE INDEX`/`ADD CONSTRAINT`
+(nenhum `DROP`/`RENAME`/`ALTER TYPE` em objeto existente). Aplicada via `prisma db execute`
+(`DIRECT_URL`, porta 5432) + `prisma migrate resolve --applied` — `prisma migrate dev` falhou
+por drift de histórico pré-existente em duas migrations antigas (não relacionado a esta
+mudança), mesmo padrão de fallback já documentado na seção 2.
+
+### 13.4 Roadmap (3 fases)
+
+- **F1 — modelo de dados + seed** (esta entrega): schema, migration, seed da Pâmela. Nenhuma
+  rota pública, nenhuma UI.
+- **F2 — rota pública de envio**: validação de payload, rate limit por IP, honeypot anti-bot,
+  limite de tamanho de payload, resposta genérica que **nunca revela se um CPF já existe** no
+  banco (evita enumeração), `clinicaId` derivado exclusivamente do slug da URL (nunca do body —
+  mesma regra de isolamento multi-tenant da seção 2), consentimento bloqueante (não dá para
+  enviar sem aceitar). Rota pública fica no domínio já em uso pelo sistema — sem DNS novo.
+  **Bloqueada por**: upgrade do plano Vercel (ver 13.5).
+- **F3 — tela de edição de perguntas**: criar/editar/reordenar/desativar `PerguntaFormulario`
+  nas configurações da clínica, respeitando a trava de `campoPaciente` estrutural (13.1).
+
+### 13.5 Pendência bloqueante — plano Vercel
+
+O plano **Hobby** (atual) proíbe uso comercial nos Termos de Serviço da Vercel — precisa virar
+**Pro** antes de publicar a rota pública do F2 (endpoint acessível por qualquer visitante,
+diferente do resto do app, que já é uso comercial mas atrás de login). **Não bloqueia F1 nem
+F3** (schema/seed e a tela de edição ficam atrás de autenticação, mesmo padrão do resto do
+painel).
+
+### 13.6 Decisão arquitetural — motivação
+
+O formulário próprio **substituirá** forms.app → Google Sheets → importação manual (fluxo atual
+descrito em `src/lib/importacao.ts` e na seção 4, `/api/importacao/*`). A importação por
+planilha **permanece ativa até o F2 entrar em produção** — sem regressão no fluxo atual
+enquanto o novo não está pronto. Motivação principal: **validação na origem**. No backfill de
+anamnese da Pâmela (ver 13.7), **29% dos CPFs preenchidos manualmente no último lote eram
+matematicamente inválidos** (7 de 24) — um formulário próprio pode validar o dígito verificador
+no momento do envio, algo impossível de garantir numa planilha preenchida por fora do sistema.
+
+### 13.7 Estado do backfill de anamnese (pamela-rachid, 2026-08-04)
+
+61 pacientes no total, **18 com anamnese preenchida** (11 antes do backfill + 7 gravados no
+lote seguro do Bloco E3 — CPF válido **e** nome idêntico após normalização). Pendente, **43
+pacientes**:
+- **22 sem CPF** — nunca entram automaticamente, precisam de CPF antes de qualquer match.
+- **4 com CPF sem linha correspondente na planilha** — planilha e cadastro divergem, revisão
+  manual.
+- **17 aguardando conferência manual da Daiane**, listados em
+  `scripts/_conferencia-cpf-pamela.csv` (gerado, não commitado — contém PII, ver `.gitignore`):
+  7 com CPF matematicamente inválido, 10 com divergência de nome entre sistema e planilha
+  (incluindo 2 — os antigos índices #9/#10 do Bloco E — com forte suspeita de CPF pertencer a
+  um familiar, iniciais do nome completamente diferentes apesar do mesmo CPF).
+
+**Regra aplicada, travada em código** (`scripts/reprocessar-anamnese.ts --somente-validados`):
+só entram automaticamente em prontuário registros com CPF matematicamente válido **e** nome
+idêntico (normalizado) entre sistema e planilha; qualquer outro caso exige aprovação humana
+explícita antes de gravar.

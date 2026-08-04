@@ -9,184 +9,186 @@ datasource db {
 
 // ─── Tenant ───────────────────────────────
 model Clinica {
-  sheetsPlanilhaId  String?
-  sheetsAba         String?  @default("Página1")
-  id                        String            @id @default(uuid())
-  nome                      String
-  slug                      String            @unique
-  logo                      String?
-  fundoUrl                  String?
-  fundoOpacidade            Int               @default(100)
-  fundoAjuste               String            @default("cover")
+  sheetsPlanilhaId         String?
+  sheetsAba                String?  @default("Página1")
+  id                       String   @id @default(uuid())
+  nome                     String
+  slug                     String   @unique
+  logo                     String?
+  fundoUrl                 String?
+  fundoOpacidade           Int      @default(100)
+  fundoAjuste              String   @default("cover")
   // Texto exibido ao lado da logo no canto superior esquerdo do painel.
   // Quando vazio, o painel usa o campo "nome" da própria clínica.
-  nomeExibicao              String?
-  corPrimaria               String?
-  corSecundaria             String?
-  duracaoPadraoMin          Int               @default(45)
-  nomeAssistente            String            @default("Assistente")
-  horarioLimiteConfirmacao  String            @default("17:00")
-  permitirResizeSessao   Boolean           @default(false)
-  criadoEm                  DateTime          @default(now())
+  nomeExibicao             String?
+  corPrimaria              String?
+  corSecundaria            String?
+  duracaoPadraoMin         Int      @default(45)
+  nomeAssistente           String   @default("Assistente")
+  horarioLimiteConfirmacao String   @default("17:00")
+  permitirResizeSessao     Boolean  @default(false)
+  criadoEm                 DateTime @default(now())
 
   // Dados cadastrais/fiscais da clínica (todos opcionais — clínicas antigas
   // não têm). cnpj e cep são gravados só com dígitos (normalizados no PATCH).
-  razaoSocial               String?
-  cnpj                      String?
-  enderecoLogradouro        String?
-  enderecoNumero            String?
-  enderecoComplemento       String?
-  enderecoBairro            String?
-  enderecoCidade            String?
-  enderecoUF                String?
-  cep                       String?
-  emailContato              String?
-  telefoneContato           String?
+  razaoSocial         String?
+  cnpj                String?
+  enderecoLogradouro  String?
+  enderecoNumero      String?
+  enderecoComplemento String?
+  enderecoBairro      String?
+  enderecoCidade      String?
+  enderecoUF          String?
+  cep                 String?
+  emailContato        String?
+  telefoneContato     String?
 
   // Integração Google Calendar/Meet (OAuth por clínica, Tarefa 13)
-  googleRefreshToken        String?
-  googleAccessToken         String?
-  googleTokenExpiry         DateTime?
-  googleConectado           Boolean           @default(false)
-  googleCalendarId          String?           @default("primary")
+  googleRefreshToken  String?
+  googleAccessToken   String?
+  googleTokenExpiry   DateTime?
+  googleConectado     Boolean   @default(false)
+  googleCalendarId    String?   @default("primary")
   // Saúde real da conexão (2026-07-24) — diferente de googleConectado, que só
   // reflete a ação manual de conectar/desconectar. Vira false quando qualquer
   // chamada à API detecta invalid_grant (token revogado/expirado de verdade);
   // volta a true quando a clínica reconecta com sucesso. Alimenta o banner de
   // "conexão perdida" e a checagem noturna.
-  googleTokenValido         Boolean           @default(true)
-  googleUltimaFalhaEm       DateTime?
+  googleTokenValido   Boolean   @default(true)
+  googleUltimaFalhaEm DateTime?
   // Escopos concedidos pela clínica na última autorização OAuth (string
   // separada por espaço, formato do próprio Google) — usado só para saber
   // se a conexão já cobre Drive/Gmail, sem precisar chamar a API pra checar.
-  googleEscopos             String?
+  googleEscopos       String?
 
   // Pasta-mãe do Google Drive onde as pastas de cada paciente são criadas
   // automaticamente no cadastro (Tarefa Drive Parte 3).
-  pastaRaizDriveId          String?
+  pastaRaizDriveId String?
 
   // Template do e-mail de boas-vindas (Drive Parte 2) — {nome} vira o
   // primeiro nome do paciente, {link_pasta} vira o botão com o link da pasta.
-  emailBoasVindasAssunto    String            @default("Acesso a Gravações com a Fono Pâmela Rachid")
-  emailBoasVindasCorpo      String            @default("Olá {nome}, tudo bem?\n\nSuas sessões ficam gravadas e disponíveis através do acesso por esse e-mail. É só clicar e acionar seu conteúdo.\n\n{link_pasta}\n\nVale muito a pena ir praticando durante a semana, nos intervalos do dia mesmo… no banho, arrumando a casa, caminhando. Esses pequenos momentos fazem diferença de verdade no seu resultado.\n\nQualquer dúvida, me chama 😊\n\nAtenciosamente\nFono Pâmela Rachid")
+  emailBoasVindasAssunto String @default("Acesso a Gravações com a Fono Pâmela Rachid")
+  emailBoasVindasCorpo   String @default("Olá {nome}, tudo bem?\n\nSuas sessões ficam gravadas e disponíveis através do acesso por esse e-mail. É só clicar e acionar seu conteúdo.\n\n{link_pasta}\n\nVale muito a pena ir praticando durante a semana, nos intervalos do dia mesmo… no banho, arrumando a casa, caminhando. Esses pequenos momentos fazem diferença de verdade no seu resultado.\n\nQualquer dúvida, me chama 😊\n\nAtenciosamente\nFono Pâmela Rachid")
 
   // Templates das mensagens de copiar-colar (popup da agenda + painel do
   // paciente). Variáveis: {saudacao} {paciente} {data} {hora}
   // {horarioLimite} {linkMeet} {assistente} — ver src/lib/templatesMensagem.ts.
-  templateConfirmacao       String            @default("{saudacao} {paciente}, tudo bem?! \n🌸 Passando para confirmar sua sessão no dia {data} às {hora}hr. 🗓\n👉 Podemos confirmar? ✅\n⸻\n⚠️ Importante\nCaso não haja confirmação até hoje, às {horarioLimite}hr, o horário será automaticamente cancelado.\nUm abraço\n\n{assistente} 🥰")
-  templateMeet              String            @default("{saudacao} {paciente}, tudo bem? ☀️\n\nSegue o link da sua sessão de hoje às {hora}h.\n🔗 {linkMeet} 🔗\n\nQualquer coisa, estou por aqui.\n\n{assistente} 🥰")
+  templateConfirmacao String @default("{saudacao} {paciente}, tudo bem?! \n🌸 Passando para confirmar sua sessão no dia {data} às {hora}hr. 🗓\n👉 Podemos confirmar? ✅\n⸻\n⚠️ Importante\nCaso não haja confirmação até hoje, às {horarioLimite}hr, o horário será automaticamente cancelado.\nUm abraço\n\n{assistente} 🥰")
+  templateMeet        String @default("{saudacao} {paciente}, tudo bem? ☀️\n\nSegue o link da sua sessão de hoje às {hora}h.\n🔗 {linkMeet} 🔗\n\nQualquer coisa, estou por aqui.\n\n{assistente} 🥰")
 
-  usuarios                  Usuario[]
-  pacientes                 Paciente[]
-  logs                      LogAuditoria[]
-  horariosTrabalho          HorarioTrabalho[]
-  tiposSessao               TipoSessao[]
-  anexos                    Anexo[]
-  tarefas                   Tarefa[]
-  conversasWhatsapp         ConversaWhatsapp[]
+  usuarios            Usuario[]
+  pacientes           Paciente[]
+  logs                LogAuditoria[]
+  horariosTrabalho    HorarioTrabalho[]
+  tiposSessao         TipoSessao[]
+  anexos              Anexo[]
+  tarefas             Tarefa[]
+  conversasWhatsapp   ConversaWhatsapp[]
+  formulariosAnamnese FormularioAnamnese[]
+  enviosFormulario    EnvioFormulario[]
 
-  mentoriaAtivada    Boolean            @default(false)
-  mentoriaAlunos     MentoriaAluno[]
-  mentoriaContratos  MentoriaContrato[]
-  mentoriaParcelas   MentoriaParcela[]
-  comissionados      Comissionado[]
-  mentoriaComissoes  MentoriaComissao[]
+  mentoriaAtivada   Boolean            @default(false)
+  mentoriaAlunos    MentoriaAluno[]
+  mentoriaContratos MentoriaContrato[]
+  mentoriaParcelas  MentoriaParcela[]
+  comissionados     Comissionado[]
+  mentoriaComissoes MentoriaComissao[]
 
   // Assinatura recorrente (Mercado Pago) — estado sempre derivado do
   // webhook + consulta à API do MP, nunca do redirect do usuário.
-  statusAssinatura        StatusAssinatura @default(TRIAL)
-  mpPreapprovalId         String?
-  mpPayerEmail            String?
-  trialFim                DateTime?
-  assinaturaAtualizadaEm  DateTime?
+  statusAssinatura       StatusAssinatura @default(TRIAL)
+  mpPreapprovalId        String?
+  mpPayerEmail           String?
+  trialFim               DateTime?
+  assinaturaAtualizadaEm DateTime?
 }
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
 model TipoSessao {
-  id                 String        @id @default(uuid())
+  id                 String   @id @default(uuid())
   clinicaId          String
   nome               String
   cor                String?
-  duracaoPadraoMin   Int           @default(45)
-  ehOnline           Boolean       @default(false)
-  ehAtendimentoUnico Boolean       @default(false)
+  duracaoPadraoMin   Int      @default(45)
+  ehOnline           Boolean  @default(false)
+  ehAtendimentoUnico Boolean  @default(false)
   valor              Decimal?
   // Calendário do Google pra onde o evento desse tipo de sessão vai (2026-07-23).
   // Sem isso, todo evento caía no googleCalendarId único da Clinica
   // (default "primary") independente do tipo — bug histórico: sessão
   // presencial e online se misturavam no mesmo calendário.
   googleCalendarId   String?
-  criadoEm           DateTime      @default(now())
+  criadoEm           DateTime @default(now())
 
-  clinica           Clinica       @relation(fields: [clinicaId], references: [id])
-  pacientes         Paciente[]
-  agendamentos      Agendamento[]
+  clinica      Clinica       @relation(fields: [clinicaId], references: [id])
+  pacientes    Paciente[]
+  agendamentos Agendamento[]
 
   @@index([clinicaId])
 }
 
 model HorarioTrabalho {
-  id          String     @id @default(uuid())
-  clinicaId   String
-  diaSemana   DiaSemana
-  horaInicio  String     // "HH:MM"
-  horaFim     String     // "HH:MM"
-  criadoEm    DateTime   @default(now())
+  id         String    @id @default(uuid())
+  clinicaId  String
+  diaSemana  DiaSemana
+  horaInicio String // "HH:MM"
+  horaFim    String // "HH:MM"
+  criadoEm   DateTime  @default(now())
 
-  clinica     Clinica    @relation(fields: [clinicaId], references: [id])
+  clinica Clinica @relation(fields: [clinicaId], references: [id])
 
   @@index([clinicaId])
 }
 
 model Usuario {
-  id         String   @id @default(uuid())
-  clinicaId  String
-  nome       String
-  email      String   @unique
-  papel      Papel    @default(OPERADOR)
-  criadoEm   DateTime @default(now())
+  id        String   @id @default(uuid())
+  clinicaId String
+  nome      String
+  email     String   @unique
+  papel     Papel    @default(OPERADOR)
+  criadoEm  DateTime @default(now())
 
-  clinica    Clinica  @relation(fields: [clinicaId], references: [id])
-  logs       LogAuditoria[]
+  clinica Clinica        @relation(fields: [clinicaId], references: [id])
+  logs    LogAuditoria[]
 }
 
 model Paciente {
-  id              String          @id @default(uuid())
-  clinicaId       String
-  nome            String
-  telefone        String?
-  email           String?
-  cpf             String?
-  rg              String?
-  logradouro      String?
-  numero          String?
-  complemento     String?
-  bairro          String?
-  cidade          String?
-  estado          String?
-  cep             String?
-  quemIndicou     String?
-  dataNascimento  String?
-  estadoCivil     String?
-  nacionalidade   String?
-  profissao       String?
-  instagram       String?
-  pastaDriveUrl   String?
-  origemCadastro  OrigemCadastro  @default(MANUAL)
-  diaPreferido    DiaSemana?
+  id                String         @id @default(uuid())
+  clinicaId         String
+  nome              String
+  telefone          String?
+  email             String?
+  cpf               String?
+  rg                String?
+  logradouro        String?
+  numero            String?
+  complemento       String?
+  bairro            String?
+  cidade            String?
+  estado            String?
+  cep               String?
+  quemIndicou       String?
+  dataNascimento    String?
+  estadoCivil       String?
+  nacionalidade     String?
+  profissao         String?
+  instagram         String?
+  pastaDriveUrl     String?
+  origemCadastro    OrigemCadastro @default(MANUAL)
+  diaPreferido      DiaSemana?
   // Nullable no banco real (drift histórico, corrigido em 2026-07-25 — nunca
   // teve NOT NULL de verdade, o schema é que estava errado). Continua "HH:MM"
   // quando preenchido.
-  horarioFixo     String?
-  tipoSessaoId    String?
+  horarioFixo       String?
+  tipoSessaoId      String?
   // Legado temporário: cópia em texto do valor do antigo enum TipoSessao (ex.: "ONLINE"),
   // gravada pela migration antes de dropar a coluna/enum originais. Serve só para o script
   // de seed ler e popular tipoSessaoId; remover esta coluna depois que o seed rodar.
-  tipoSessaoLegado String?
-  statusGeral     StatusCliente   @default(ATIVO)
-  finalizadoEm    DateTime?
-  criadoEm        DateTime        @default(now())
-  anamnese        String?         @db.Text
+  tipoSessaoLegado  String?
+  statusGeral       StatusCliente  @default(ATIVO)
+  finalizadoEm      DateTime?
+  criadoEm          DateTime       @default(now())
+  anamnese          String?        @db.Text
   // Legado do import via forms.app — coluna existe no banco desde antes deste
   // schema ser a fonte de verdade, nunca foi usada por nenhuma rota atual.
   // Adicionada aqui em 2026-07-25 só pra eliminar o drift de migration
@@ -194,18 +196,19 @@ model Paciente {
   // nada novo.
   dataCadastroForms DateTime?
 
-  clinica         Clinica         @relation(fields: [clinicaId], references: [id])
-  tipoSessao      TipoSessao?     @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
-  pacotes         Pacote[]
-  agendamentos    Agendamento[]
-  consentimentos  Consentimento[]
-  anexos          Anexo[]
-  tarefas         Tarefa[]
+  clinica           Clinica            @relation(fields: [clinicaId], references: [id])
+  tipoSessao        TipoSessao?        @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
+  pacotes           Pacote[]
+  agendamentos      Agendamento[]
+  consentimentos    Consentimento[]
+  anexos            Anexo[]
+  tarefas           Tarefa[]
   conversasWhatsapp ConversaWhatsapp[]
+  enviosFormulario  EnvioFormulario[]
 
+  @@unique([clinicaId, cpf])
   @@index([clinicaId])
   @@index([tipoSessaoId])
-  @@unique([clinicaId, cpf])
 }
 
 model Anexo {
@@ -220,63 +223,63 @@ model Anexo {
   path        String
   criadoEm    DateTime @default(now())
 
-  clinica     Clinica  @relation(fields: [clinicaId], references: [id])
-  paciente    Paciente @relation(fields: [pacienteId], references: [id])
+  clinica  Clinica  @relation(fields: [clinicaId], references: [id])
+  paciente Paciente @relation(fields: [pacienteId], references: [id])
 
   @@index([pacienteId])
   @@index([clinicaId])
 }
 
 model Consentimento {
-  id           String    @id @default(uuid())
-  pacienteId   String
-  versaoTermo  String
-  finalidade   String
-  aceitoEm     DateTime  @default(now())
+  id          String   @id @default(uuid())
+  pacienteId  String
+  versaoTermo String
+  finalidade  String
+  aceitoEm    DateTime @default(now())
 
-  paciente     Paciente  @relation(fields: [pacienteId], references: [id])
+  paciente Paciente @relation(fields: [pacienteId], references: [id])
 
   @@index([pacienteId])
 }
 
 model Pacote {
-  id            String        @id @default(uuid())
-  pacienteId    String
-  tipo          TipoPacote
-  totalSessoes  Int
-  dataInicial   DateTime
-  status        StatusPacote  @default(ATIVO)
-  criadoEm      DateTime      @default(now())
+  id           String       @id @default(uuid())
+  pacienteId   String
+  tipo         TipoPacote
+  totalSessoes Int
+  dataInicial  DateTime
+  status       StatusPacote @default(ATIVO)
+  criadoEm     DateTime     @default(now())
 
-  paciente      Paciente      @relation(fields: [pacienteId], references: [id])
-  agendamentos  Agendamento[]
+  paciente     Paciente      @relation(fields: [pacienteId], references: [id])
+  agendamentos Agendamento[]
 
   @@index([pacienteId])
 }
 
 model Agendamento {
-  id                String         @id @default(uuid())
-  pacoteId          String
-  pacienteId        String
-  numeroSessao      Int
-  totalPacote       Int
-  inicio            DateTime
-  duracaoMin        Int            @default(45)
-  status            StatusSessao   @default(AGENDADA)
-  googleEventId     String?
-  googleCalendarId  String?
-  linkMeet          String?
-  googleSyncStatus  StatusSincronizacaoGoogle @default(NAO_APLICAVEL)
-  tipoSessaoId      String?
-  motivoCancelamento String?
-  confirmada        Boolean        @default(false)
-  arquivada         Boolean        @default(false)
+  id                        String                    @id @default(uuid())
+  pacoteId                  String
+  pacienteId                String
+  numeroSessao              Int
+  totalPacote               Int
+  inicio                    DateTime
+  duracaoMin                Int                       @default(45)
+  status                    StatusSessao              @default(AGENDADA)
+  googleEventId             String?
+  googleCalendarId          String?
+  linkMeet                  String?
+  googleSyncStatus          StatusSincronizacaoGoogle @default(NAO_APLICAVEL)
+  tipoSessaoId              String?
+  motivoCancelamento        String?
+  confirmada                Boolean                   @default(false)
+  arquivada                 Boolean                   @default(false)
   lembreteWhatsappEnviadoEm DateTime?
-  criadoEm          DateTime       @default(now())
+  criadoEm                  DateTime                  @default(now())
 
-  pacote            Pacote         @relation(fields: [pacoteId], references: [id])
-  paciente          Paciente       @relation(fields: [pacienteId], references: [id])
-  tipoSessao        TipoSessao?    @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
+  pacote     Pacote      @relation(fields: [pacoteId], references: [id])
+  paciente   Paciente    @relation(fields: [pacienteId], references: [id])
+  tipoSessao TipoSessao? @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
 
   @@index([pacienteId])
   @@index([inicio])
@@ -318,9 +321,9 @@ model ConversaWhatsapp {
   ultimaMensagemEm DateTime  @default(now())
   criadoEm         DateTime  @default(now())
 
-  clinica          Clinica            @relation(fields: [clinicaId], references: [id])
-  paciente         Paciente?          @relation(fields: [pacienteId], references: [id])
-  mensagens        MensagemWhatsapp[]
+  clinica   Clinica            @relation(fields: [clinicaId], references: [id])
+  paciente  Paciente?          @relation(fields: [pacienteId], references: [id])
+  mensagens MensagemWhatsapp[]
 
   @@index([clinicaId])
   @@index([pacienteId])
@@ -328,32 +331,132 @@ model ConversaWhatsapp {
 }
 
 model MensagemWhatsapp {
-  id              String   @id @default(cuid())
+  id              String           @id @default(cuid())
   conversaId      String
   conversa        ConversaWhatsapp @relation(fields: [conversaId], references: [id])
-  direcao         String   // entrada | saida
+  direcao         String // entrada | saida
   texto           String
-  tipo            String   // template | livre | botao
-  respondidaPorIa Boolean  @default(false)
-  wamid           String?  // id da mensagem na Meta, evita duplicata em retry de webhook
-  criadoEm        DateTime @default(now())
+  tipo            String // template | livre | botao
+  respondidaPorIa Boolean          @default(false)
+  wamid           String? // id da mensagem na Meta, evita duplicata em retry de webhook
+  criadoEm        DateTime         @default(now())
 
-  @@index([conversaId])
   @@unique([wamid])
+  @@index([conversaId])
 }
 
 model LogAuditoria {
-  id         String    @id @default(uuid())
-  clinicaId  String
-  usuarioId  String?
-  acao       String
-  detalhe    String?
-  criadoEm   DateTime  @default(now())
+  id        String   @id @default(uuid())
+  clinicaId String
+  usuarioId String?
+  acao      String
+  detalhe   String?
+  criadoEm  DateTime @default(now())
 
-  clinica    Clinica   @relation(fields: [clinicaId], references: [id])
-  usuario    Usuario?  @relation(fields: [usuarioId], references: [id])
+  clinica Clinica  @relation(fields: [clinicaId], references: [id])
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
 
   @@index([clinicaId])
+}
+
+// ─── Formulário de anamnese (F1 — modelo de dados + seed, ver ARCHITECTURE.md) ───
+// Substitui o fluxo forms.app → Google Sheets → importação por um
+// formulário próprio, editável pela clínica (edição em F3). Pergunta nunca
+// é deletada (só desativada via `ativa=false`) porque `RespostaFormulario`
+// referencia `perguntaId` — apagar quebraria o histórico de quem respondeu
+// o quê. Editar pergunta (rótulo, tipo, opções) não gera migration nem
+// ALTER TABLE: é uma linha de `PerguntaFormulario`, não uma coluna.
+model FormularioAnamnese {
+  id                 String   @id @default(uuid())
+  clinicaId          String
+  slug               String
+  titulo             String
+  descricao          String?
+  // Snapshot obrigatório em cada EnvioFormulario (textoConsentimentoSnapshot)
+  // — o texto aqui pode mudar, mas o que o paciente aceitou não muda
+  // retroativamente.
+  textoConsentimento String   @db.Text
+  ativo              Boolean  @default(true)
+  criadoEm           DateTime @default(now())
+  atualizadoEm       DateTime @updatedAt
+
+  clinica   Clinica              @relation(fields: [clinicaId], references: [id])
+  perguntas PerguntaFormulario[]
+  envios    EnvioFormulario[]
+
+  @@unique([clinicaId, slug])
+  @@index([clinicaId])
+}
+
+model PerguntaFormulario {
+  id            String       @id @default(uuid())
+  formularioId  String
+  ordem         Int
+  rotulo        String       @db.Text
+  // Texto de ajuda editável pela clínica, exibido junto da pergunta.
+  descricao     String?      @db.Text
+  tipo          TipoPergunta
+  obrigatoria   Boolean      @default(false)
+  opcoes        String[]
+  // Preenchido quando a pergunta grava direto num campo do Paciente (ex.:
+  // "nome", "cpf") em vez de só compor o texto da anamnese. Estrutural:
+  // a tela de edição (F3) não pode permitir remover nem trocar o tipo de
+  // uma pergunta com campoPaciente preenchido — isso quebraria o cadastro.
+  campoPaciente String?
+  ativa         Boolean      @default(true)
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+
+  formulario FormularioAnamnese   @relation(fields: [formularioId], references: [id])
+  respostas  RespostaFormulario[]
+
+  @@index([formularioId])
+  @@index([formularioId, ordem])
+}
+
+model EnvioFormulario {
+  id                         String      @id @default(uuid())
+  clinicaId                  String
+  formularioId               String
+  // Opcional: o envio é preservado mesmo que o paciente não chegue a ser
+  // criado (ex.: erro de processamento, CPF inválido) — nenhum dado
+  // enviado por um paciente pode ser descartado.
+  pacienteId                 String?
+  status                     StatusEnvio @default(PENDENTE)
+  consentimentoAceito        Boolean
+  // Snapshot obrigatório: o texto de consentimento pode mudar depois, mas
+  // o que foi aceito no momento do envio não muda retroativamente.
+  textoConsentimentoSnapshot String      @db.Text
+  consentimentoEm            DateTime
+  ipOrigem                   String?
+  userAgent                  String?
+  observacaoProcessamento    String?     @db.Text
+  criadoEm                   DateTime    @default(now())
+
+  clinica    Clinica              @relation(fields: [clinicaId], references: [id])
+  formulario FormularioAnamnese   @relation(fields: [formularioId], references: [id])
+  paciente   Paciente?            @relation(fields: [pacienteId], references: [id])
+  respostas  RespostaFormulario[]
+
+  @@index([clinicaId])
+  @@index([formularioId])
+  @@index([pacienteId])
+}
+
+model RespostaFormulario {
+  id             String @id @default(uuid())
+  envioId        String
+  perguntaId     String
+  // Snapshot obrigatório: se a clínica editar o rótulo da pergunta depois,
+  // o registro clínico já respondido não pode mudar retroativamente.
+  rotuloSnapshot String @db.Text
+  valor          String @db.Text
+
+  envio    EnvioFormulario    @relation(fields: [envioId], references: [id], onDelete: Cascade)
+  pergunta PerguntaFormulario @relation(fields: [perguntaId], references: [id])
+
+  @@index([envioId])
+  @@index([perguntaId])
 }
 
 // ─── Enums ────────────────────────────────
@@ -439,6 +542,25 @@ enum TarefaStatus {
   ARQUIVADA
 }
 
+enum TipoPergunta {
+  TEXTO_CURTO
+  TEXTO_LONGO
+  SIM_NAO
+  MULTIPLA_ESCOLHA
+  DATA
+  EMAIL
+  TELEFONE
+  CPF
+  CEP
+}
+
+enum StatusEnvio {
+  PENDENTE
+  PROCESSADO
+  IGNORADO
+  ERRO
+}
+
 enum FormaPagamento {
   PIX
   CARTAO
@@ -478,14 +600,14 @@ enum StatusAssinatura {
 }
 
 model MentoriaAluno {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   clinicaId    String
-  clinica      Clinica  @relation(fields: [clinicaId], references: [id])
+  clinica      Clinica @relation(fields: [clinicaId], references: [id])
   nomeCompleto String
   cpf          String?
   email        String?
   telefone     String?
-  observacoes  String?  @db.Text
+  observacoes  String? @db.Text
 
   // Dados pessoais/cadastrais adicionais
   rg               String?
@@ -506,52 +628,55 @@ model MentoriaAluno {
   submissionId      String?
 
   contratos    MentoriaContrato[]
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+  criadoEm     DateTime           @default(now())
+  atualizadoEm DateTime           @updatedAt
+
   @@unique([clinicaId, cpf])
   @@unique([clinicaId, submissionId])
   @@index([clinicaId])
 }
 
 model MentoriaContrato {
-  id                 String   @id @default(cuid())
+  id                 String             @id @default(cuid())
   clinicaId          String
-  clinica            Clinica  @relation(fields: [clinicaId], references: [id])
+  clinica            Clinica            @relation(fields: [clinicaId], references: [id])
   alunoId            String
-  aluno              MentoriaAluno @relation(fields: [alunoId], references: [id])
+  aluno              MentoriaAluno      @relation(fields: [alunoId], references: [id])
   pacote             String
-  valorTotal         Decimal  @db.Decimal(10,2)
-  taxaImpostoPct     Decimal  @default(0.06) @db.Decimal(5,4)
+  valorTotal         Decimal            @db.Decimal(10, 2)
+  taxaImpostoPct     Decimal            @default(0.06) @db.Decimal(5, 4)
   assinaturaContrato DateTime
   duracaoMeses       Int
   totalParcelas      Int
-  status             StatusContrato @default(ATIVO)
+  status             StatusContrato     @default(ATIVO)
   canceladoEm        DateTime?
   motivoCancelamento String?
   parcelas           MentoriaParcela[]
   comissoes          MentoriaComissao[]
-  criadoEm           DateTime @default(now())
-  atualizadoEm       DateTime @updatedAt
+  criadoEm           DateTime           @default(now())
+  atualizadoEm       DateTime           @updatedAt
+
   @@index([clinicaId])
   @@index([alunoId])
 }
 
 model MentoriaParcela {
-  id             String   @id @default(cuid())
+  id             String           @id @default(cuid())
   clinicaId      String
-  clinica        Clinica  @relation(fields: [clinicaId], references: [id])
+  clinica        Clinica          @relation(fields: [clinicaId], references: [id])
   contratoId     String
   contrato       MentoriaContrato @relation(fields: [contratoId], references: [id])
   numero         Int
-  valorBruto     Decimal  @db.Decimal(10,2)
-  valorLiquido   Decimal? @db.Decimal(10,2)
+  valorBruto     Decimal          @db.Decimal(10, 2)
+  valorLiquido   Decimal?         @db.Decimal(10, 2)
   vencimento     DateTime
   dataPagamento  DateTime?
   formaPagamento FormaPagamento?
   estornoEm      DateTime?
-  valorEstornado Decimal? @db.Decimal(10,2)
-  criadoEm       DateTime @default(now())
-  atualizadoEm   DateTime @updatedAt
+  valorEstornado Decimal?         @db.Decimal(10, 2)
+  criadoEm       DateTime         @default(now())
+  atualizadoEm   DateTime         @updatedAt
+
   @@index([clinicaId])
   @@index([contratoId])
   @@index([clinicaId, vencimento])
@@ -559,38 +684,40 @@ model MentoriaParcela {
 }
 
 model Comissionado {
-  id           String   @id @default(cuid())
-  clinicaId    String
-  clinica      Clinica  @relation(fields: [clinicaId], references: [id])
-  nome         String
-  email        String?
-  telefone     String?
-  papelPadrao  PapelComissao?
-  ativo        Boolean  @default(true)
-  percentualComissao Decimal? @db.Decimal(5,4)
+  id                 String                   @id @default(cuid())
+  clinicaId          String
+  clinica            Clinica                  @relation(fields: [clinicaId], references: [id])
+  nome               String
+  email              String?
+  telefone           String?
+  papelPadrao        PapelComissao?
+  ativo              Boolean                  @default(true)
+  percentualComissao Decimal?                 @db.Decimal(5, 4)
   formaRecebimento   FormaRecebimentoComissao @default(POR_PARCELA)
-  comissoes    MentoriaComissao[]
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+  comissoes          MentoriaComissao[]
+  criadoEm           DateTime                 @default(now())
+  atualizadoEm       DateTime                 @updatedAt
+
   @@index([clinicaId])
 }
 
 model MentoriaComissao {
-  id             String   @id @default(cuid())
-  clinicaId      String
-  clinica        Clinica  @relation(fields: [clinicaId], references: [id])
-  contratoId     String
-  contrato       MentoriaContrato @relation(fields: [contratoId], references: [id])
-  comissionadoId String
-  comissionado   Comissionado @relation(fields: [comissionadoId], references: [id])
-  papel          PapelComissao
-  percentual     Decimal  @db.Decimal(5,4)
+  id               String                   @id @default(cuid())
+  clinicaId        String
+  clinica          Clinica                  @relation(fields: [clinicaId], references: [id])
+  contratoId       String
+  contrato         MentoriaContrato         @relation(fields: [contratoId], references: [id])
+  comissionadoId   String
+  comissionado     Comissionado             @relation(fields: [comissionadoId], references: [id])
+  papel            PapelComissao
+  percentual       Decimal                  @db.Decimal(5, 4)
   formaRecebimento FormaRecebimentoComissao @default(POR_PARCELA)
-  status         StatusComissao @default(PENDENTE)
-  dataPagamento  DateTime?
-  estornoEm      DateTime?
-  criadoEm       DateTime @default(now())
-  atualizadoEm   DateTime @updatedAt
+  status           StatusComissao           @default(PENDENTE)
+  dataPagamento    DateTime?
+  estornoEm        DateTime?
+  criadoEm         DateTime                 @default(now())
+  atualizadoEm     DateTime                 @updatedAt
+
   @@index([clinicaId])
   @@index([contratoId])
   @@index([comissionadoId])

@@ -282,8 +282,7 @@ Registrado para não se perder. Nada disso entra no MVP — mas o modelo de dado
 |---|---|---|
 | **Envio automático de mensagens** | Disparar confirmação/link do Meet sozinho (não copiar-colar) | WhatsApp API oficial (pago) ou e-mail; fluxo de conversação — **recepção já iniciada, ver §11.1** |
 | **Integração forms.app** | Puxar cadastro do paciente do formulário externo | Webhook/API do forms.app (a validar; plano B: importação CSV) |
-| **Formulário de cadastro próprio** | Substituir forms.app por formulário do sistema | — |
-| **Módulo de anamnese** | Cliente que agenda avaliação recebe link de anamnese; preenche; dados ficam vinculados ao paciente; a profissional vê na tela ao clicar no nome | Formulário próprio + tela de visualização |
+| **Formulário de anamnese próprio** | Substitui forms.app → Sheets → importação manual por um formulário do sistema, com validação na origem (ex.: dígito verificador de CPF) | **Fase 1 (modelo de dados + seed) EM CONSTRUÇÃO — ver §13** |
 | **App/visão mobile dedicada** | Operação pelo celular | — |
 | **White-label** | Cada clínica escolhe cores, logo, fundo, tema — o sistema veste a marca do cliente | Campos de tema na Clínica (já previstos abaixo) + camada de theming no front |
 | **Relatórios e financeiro** | Faturamento por pacote, taxa de comparecimento, etc. | — |
@@ -439,3 +438,75 @@ Status **derivado** (nunca uma coluna): ESTORNADA / PAGA / CANCELADA / ABERTA, n
 - Ajustes finos no cadastro de comissionados seguem em andamento.
 
 **Auditoria de performance — 2026-07-17 (encerrada).** Relatório completo em `Documentos Claude/auditoria-mentoria-2026-07-17.md`. Corrigido: waterfall de `layout.tsx` (endpoint `/api/mentoria/acesso` com select mínimo, substitui 2 fetches sequenciais por 1); padrão `useState(null)` sem fail-safe em `dashboard/page.tsx` (unificado com skeleton único e timeout de 4s, mesmo padrão do painel do Consultório); agregações financeiras convertidas de `findMany`+`reduce` para `prisma.aggregate` em `resumo`/`mensal`/`geral`; over-fetch de PII removido de `GET /api/mentoria/alunos` e `GET /api/mentoria/contratos/[id]` (`include` trocado por `select`, campos mortos removidos). Avaliado e adiado por escolha: índices e paginação — volume atual (dezenas de alunos, centenas de parcelas) não justifica; retomar se o volume crescer ou houver lentidão real reportada. Cálculo linha-a-linha de impostos/comissão pendente mantido como está — funciona bem no volume atual, exigiria `$queryRaw` pra virar aggregate.
+
+---
+
+## 13. Módulo Formulário de anamnese
+
+### 13.1 Visão geral
+
+Substitui o fluxo atual (forms.app → Google Sheets → importação manual pelo painel) por um
+formulário de anamnese próprio, editável pela clínica, com validação na origem. Motivação
+principal: o backfill retroativo de anamnese da Pâmela encontrou **29% dos CPFs preenchidos
+manualmente no último lote matematicamente inválidos** (7 de 24) — uma planilha externa não
+tem como impedir isso; um formulário do sistema pode validar o dígito verificador no momento
+do envio.
+
+A importação por planilha **continua ativa** até a rota pública (Fase 2) entrar em produção —
+nenhuma regressão no fluxo hoje em uso enquanto o novo caminho não está pronto.
+
+**Fase 1 (esta entrega, EM CONSTRUÇÃO) é só modelo de dados + seed** — sem rota pública, sem
+UI, nada servido; não afeta o plano da Vercel. Detalhe técnico completo (schema, migration,
+seed) em `ARCHITECTURE.md` §13.
+
+### 13.2 Decisões de modelo (por que o formulário é editável sem migration)
+
+- **Pergunta é uma linha de tabela, não uma coluna** — a clínica pode reordenar, editar rótulo,
+  trocar tipo ou desativar uma pergunta (Fase 3) sem nenhum `ALTER TABLE`. Isso é o que torna o
+  formulário "próprio da clínica" sem custo de deploy a cada mudança.
+- **Nada que já foi respondido muda retroativamente.** Cada envio grava uma cópia congelada do
+  rótulo de cada pergunta (`rotuloSnapshot`) e do texto de consentimento aceito
+  (`textoConsentimentoSnapshot`) — editar o formulário depois não altera o que já virou
+  prontuário ou termo aceito.
+- **Pergunta nunca é apagada**, só desativada — preserva a integridade de respostas já
+  vinculadas a ela.
+- **Todo envio é preservado**, mesmo quando o paciente não chega a ser criado (erro de
+  processamento, CPF inválido etc.) — nenhum dado que um paciente enviou pode ser descartado.
+- **Perguntas cadastrais (nome, CPF, telefone etc.) são protegidas**: a tela de edição (Fase 3)
+  nunca vai poder removê-las nem trocar seu tipo, porque elas alimentam direto o cadastro do
+  paciente.
+
+### 13.3 Roadmap em 3 fases
+
+1. **F1 — Modelo de dados + seed** (esta entrega): schema (`FormularioAnamnese`,
+   `PerguntaFormulario`, `EnvioFormulario`, `RespostaFormulario`) + seed das 50 perguntas reais
+   da Pâmela, lidas direto da planilha configurada.
+2. **F2 — Rota pública de envio**: validação de payload, rate limit por IP, honeypot
+   anti-bot, limite de tamanho de payload, resposta genérica que nunca revela se um CPF já
+   existe no banco, `clinicaId` derivado exclusivamente do slug da URL, consentimento
+   bloqueante. Fica no domínio já em uso pelo sistema — sem DNS novo. **Bloqueada até o plano
+   da Vercel virar Pro** (Hobby proíbe uso comercial em rota pública, ver §13.4).
+3. **F3 — Tela de edição**: criar, editar, reordenar e desativar perguntas nas configurações
+   da clínica, respeitando a trava de perguntas cadastrais estruturais (§13.2).
+
+### 13.4 Pendência bloqueante — plano Vercel
+
+O plano atual (Hobby) proíbe uso comercial nos termos de serviço da Vercel. A rota pública da
+Fase 2 é acessível por qualquer visitante (diferente do resto do sistema, que já é uso
+comercial mas atrás de login) — precisa do upgrade para o plano **Pro** antes de publicar. Não
+bloqueia F1 (já em produção nesta entrega) nem F3 (tela atrás de login, mesmo padrão do resto
+do painel).
+
+### 13.5 Dívida técnica relacionada
+
+A tela de cadastro de paciente hoje não valida dígito verificador de CPF. Como o CPF é a chave
+de dedupe da importação (`Paciente_clinicaId_cpf_key`), um CPF inválido digitado à mão quebra o
+dedupe silenciosamente — o sistema não detecta, só descobre depois (foi assim que os 29%
+inválidos do backfill apareceram). Resolvida na origem quando a Fase 2 entrar em produção
+(validação no envio do formulário); o cadastro manual continua sem essa validação até então.
+
+### 13.6 Estado do backfill de anamnese (pamela-rachid, 2026-08-04)
+
+61 pacientes, 18 com anamnese preenchida. Pendente: 17 aguardando conferência manual da Daiane
+(7 CPF inválido, 10 divergência de nome — 2 com forte suspeita de CPF de familiar), 22 sem CPF,
+4 com CPF ausente da planilha. Detalhe completo em `ARCHITECTURE.md` §13.7.
