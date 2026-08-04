@@ -47,3 +47,7 @@ next-env.d.ts
 # backups de reprocessamento de dado clínico — nunca commitar
 scripts/_backup-anamnese-*.json
 scripts/_conferencia-*.csv
+
+# backup/inventário de diagnóstico de migrations — nunca commitar
+scripts/_backup-prisma-migrations-*.json
+scripts/_inventario-pre-baseline-*.json

@@ -21,7 +21,7 @@ Confirmadas no código (não são preferência — quebrar isso é bug):
 - **`directUrl` nunca aparece em `prisma.config.ts`** — confirmado; o arquivo só declara `url`.
 - **Google Calendar é espelho, o banco é fonte da verdade.** Todo write no Google (`src/lib/google.ts`) é "melhor esforço": chamado depois do `prisma.update`/`create` já commitado, envolto em `.catch()` ou `if (google) {...}`, e uma falha na integração nunca desfaz a mudança local. Isso é comentado explicitamente em quase toda rota que mexe em `Agendamento` (`sessoes/[id]`, `sessoes/lote`, `pacientes/[id]/adiar`, `pacientes/[id]/empurrar`, `pacotes`). Importante: mudança de **status** de sessão (Realizada/Não realizada/Agendada) hoje **não** sincroniza nada no Google — só cancelamento (deleta evento), mover/duração/tipo/confirmar (`sincronizarEventoGoogle`).
 - **Fuso único: `America/Sao_Paulo`.** Nunca usar `Date.getHours()`/`getDay()` etc. direto — sempre passar por `componentesSP()`/`criarDataSP()` de `src/lib/timezone.ts`, porque o runtime roda em UTC na Vercel.
-- **Migrations aplicadas fora do fluxo padrão quando há drift**: se `prisma migrate dev` falhar por drift (já aconteceu com uma coluna legada de `Paciente` — resolvido em 2026-07-24, ver §9), o padrão usado neste projeto é gerar o SQL via `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, aplicar só a parte relevante via `prisma db execute --file`, e sincronizar com `prisma migrate resolve --applied`. Nunca `migrate reset` sem aprovação explícita (apaga dados).
+- **Migrations seguem `prisma migrate dev` normalmente — não há mais fallback aceito.** Até 2026-08-04 este projeto usava um padrão de contorno (`migrate diff` → `db execute` → `migrate resolve --applied`) sempre que `migrate dev` falhava por drift — 13 das 39 migrations do histórico antigo foram registradas assim, **sem de fato rodar o DDL correspondente** no banco de produção (a raiz: um deploy interrompido por queda de internet em 2026-07-11 dessincronizou o histórico, e o contorno virou hábito em vez de exceção). Isso foi resolvido com uma baseline única em 2026-08-04 (ver §13.3). **Regra a partir de agora**: se `prisma migrate dev` falhar, **parar e diagnosticar a causa raiz** (checksum divergente, drift real de schema, etc.) — nunca contornar com `migrate resolve --applied`. Esse comando só é aceitável num evento de baseline explícito e autorizado, não como rotina.
 - **`prisma/schema.prisma` nunca fica modificado e não commitado na `main`.** `vercel --prod` empacota o diretório de trabalho local, não só o que está commitado — um schema alterado sem commit sobe junto no deploy, gerando um Prisma Client em produção divergente do banco real (a Vercel roda `prisma generate` contra o arquivo que subiu, não contra o HEAD do git). Trabalho de schema em andamento sem migration aplicada sempre vai para um branch dedicado (ex.: `feat/wa-bridge`, ver §12.7), nunca fica solto na `main`.
 
 ## 3. Modelos de dados (`prisma/schema.prisma`)
@@ -544,7 +544,11 @@ Telefone (WhatsApp).
 (nenhum `DROP`/`RENAME`/`ALTER TYPE` em objeto existente). Aplicada via `prisma db execute`
 (`DIRECT_URL`, porta 5432) + `prisma migrate resolve --applied` — `prisma migrate dev` falhou
 por drift de histórico pré-existente em duas migrations antigas (não relacionado a esta
-mudança), mesmo padrão de fallback já documentado na seção 2.
+mudança). **Nota (2026-08-04)**: essa falha foi justamente o gatilho que levou ao diagnóstico e
+à baseline de migrations da seção 14 — esta migration está hoje arquivada em
+`prisma/migrations-arquivo-pre-baseline/`, seu conteúdo já faz parte da baseline única
+(`20260804194727_baseline`). O padrão de fallback usado aqui **não é mais o procedimento
+aceito** (ver regra revisada na seção 2).
 
 ### 13.4 Roadmap (3 fases)
 
@@ -595,3 +599,50 @@ pacientes**:
 só entram automaticamente em prontuário registros com CPF matematicamente válido **e** nome
 idêntico (normalizado) entre sistema e planilha; qualquer outro caso exige aprovação humana
 explícita antes de gravar.
+
+## 14. Baseline de migrations (2026-08-04)
+
+**Motivo**: um deploy interrompido por queda de internet em 2026-07-11 dessincronizou o
+histórico de migrations do banco de produção. O sintoma reaparecia toda vez que `prisma migrate
+dev` era rodado — falha por checksum divergente em `20260707172344_permitir_resize_sessao` e
+`20260711011958_paciente_campos_complementares` ("was modified after it was applied"),
+resolvida sempre pelo contorno `migrate diff → db execute → migrate resolve --applied` (ver
+regra revisada na seção 2). Diagnóstico completo confirmou: **13 das 39 migrations do histórico
+antigo foram registradas como aplicadas sem de fato executar o DDL correspondente** via
+`migrate dev`/`migrate deploy` — só via `resolve --applied`, incluindo uma que primeiro falhou
+de verdade (`column "rg" of relation "Paciente" already exists`, código Postgres `42701`) e
+depois foi marcada como aplicada manualmente. Apesar disso, uma verificação crítica
+(`migrate diff --from-schema=prisma/schema.prisma --to-config-datasource --script`) confirmou
+que **o schema e o banco estavam idênticos** no momento do baseline — o problema era só de
+proveniência do histórico, não drift de estrutura real.
+
+**O que foi feito**:
+1. Backup de segurança de `_prisma_migrations` (40 linhas) e `pg_dump` completo do banco
+   (estrutura + dados) para fora do repositório, antes de qualquer alteração.
+2. Inventário pré-baseline: 23 tabelas, 20 enums, 67 índices, 35 FKs, e contagem de linhas de
+   todas as tabelas de negócio.
+3. As 39 pastas de migration antigas foram movidas (`git mv`) para
+   **`prisma/migrations-arquivo-pre-baseline/`** — histórico morto, mantido só para auditoria,
+   nunca mais lido pelo Prisma (`prisma/migrations/` é o único diretório ativo).
+4. Migration `20260804194727_baseline` gerada do zero
+   (`migrate diff --from-empty --to-config-datasource --script`, 744 linhas — mesmos números do
+   inventário: 22 `CREATE TABLE`, 20 `CREATE TYPE`, 44 `CREATE INDEX`) — representa o estado
+   atual completo do banco, não roda contra ele.
+5. Única escrita real no banco: `DELETE FROM "_prisma_migrations"` (40 → 0 linhas), seguido de
+   `prisma migrate resolve --applied 20260804194727_baseline` para registrar a baseline como já
+   aplicada (sem executar o SQL — ele já reflete o banco como está).
+6. Verificação pós-baseline: `migrate status` → "Database schema is up to date!" com 1
+   migration; `_prisma_migrations` com exatamente 1 linha, sem `rolled_back_at`; diff
+   schema↔banco vazio; `prisma generate` sem erro; reconferência completa do inventário e das
+   contagens de linha de todas as tabelas de negócio (`Paciente` 62, `Agendamento` 634, `Clinica`
+   2, `Usuario` 3, `FormularioAnamnese` 1, `PerguntaFormulario` 50, módulo Mentoria completo) —
+   **tudo idêntico ao pré-baseline**, nenhum dado perdido.
+7. Teste funcional do ciclo: `prisma migrate dev --create-only --name teste_baseline` criou uma
+   migration vazia normalmente, **sem reclamar de checksum e sem pedir reset** — confirma que o
+   ciclo normal de `migrate dev` está saudável de novo. A migration de teste foi apagada, nunca
+   foi commitada.
+
+**Regra permanente daqui pra frente**: só existe **uma** migration ativa em `prisma/migrations/`
+até a próxima rodar (`20260804194727_baseline`). Qualquer mudança de schema segue
+`prisma migrate dev` normal — se falhar, é sinal de drift real (não do artefato histórico que
+motivou este baseline) e deve ser diagnosticado antes de qualquer `resolve --applied`.

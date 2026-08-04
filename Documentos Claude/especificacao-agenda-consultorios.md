@@ -510,3 +510,17 @@ inválidos do backfill apareceram). Resolvida na origem quando a Fase 2 entrar e
 61 pacientes, 18 com anamnese preenchida. Pendente: 17 aguardando conferência manual da Daiane
 (7 CPF inválido, 10 divergência de nome — 2 com forte suspeita de CPF de familiar), 22 sem CPF,
 4 com CPF ausente da planilha. Detalhe completo em `ARCHITECTURE.md` §13.7.
+
+---
+
+## 14. Baseline de migrations (2026-08-04)
+
+Nota operacional, não de produto: o histórico de migrations do Prisma foi consolidado numa
+baseline única em 2026-08-04, depois de um diagnóstico confirmar que 13 das 39 migrations
+antigas haviam sido registradas como aplicadas sem de fato rodar o DDL correspondente (raiz: um
+deploy interrompido por queda de internet em 2026-07-11). O schema e o banco estavam idênticos
+no momento da baseline — não houve perda ou divergência de dado real, só limpeza de
+proveniência do histórico. As 39 migrations antigas ficam arquivadas (não deletadas) em
+`prisma/migrations-arquivo-pre-baseline/`, só para auditoria. Daqui pra frente, qualquer
+mudança de schema segue `prisma migrate dev` normalmente; uma falha exige diagnóstico da causa
+raiz, não mais o contorno usado até aqui. Detalhe técnico completo em `ARCHITECTURE.md` §14.
