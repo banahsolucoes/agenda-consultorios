@@ -8,11 +8,33 @@ import { soDigitos } from "@/lib/importacao";
 
 // GET /api/pacientes — lista pacientes da clínica do usuário logado
 // ?filtro=ativos (default) | finalizados | cancelados | todos
+// ?busca=<texto> — busca por nome (contains) ou CPF (dígitos), ignora o
+// filtro de status (usado pela busca manual de paciente na fila de
+// anamnese, F2.5 — quer encontrar o paciente independente do status).
 export async function GET(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
+  const busca = searchParams.get("busca")?.trim();
+
+  if (busca) {
+    const buscaDigitos = soDigitos(busca);
+    const pacientes = await prisma.paciente.findMany({
+      where: {
+        clinicaId: usuario.clinicaId,
+        OR: [
+          { nome: { contains: busca, mode: "insensitive" } },
+          ...(buscaDigitos ? [{ cpf: { contains: buscaDigitos } }] : []),
+        ],
+      },
+      orderBy: { nome: "asc" },
+      take: 20,
+      select: { id: true, nome: true, telefone: true, cpf: true, statusGeral: true },
+    });
+    return NextResponse.json(pacientes);
+  }
+
   const filtro = searchParams.get("filtro") ?? "ativos";
   const statusGeral =
     filtro === "ativos"

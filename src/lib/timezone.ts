@@ -82,6 +82,10 @@ export function formatarDataCurtaSP(date: Date): string {
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
 }
 
+export function formatarDataCompletaSP(date: Date): string {
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TIMEZONE });
+}
+
 export function formatarDataHoraSP(date: Date): string {
   return date.toLocaleString("pt-BR", {
     weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TIMEZONE,

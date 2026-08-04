@@ -131,6 +131,7 @@ interface Notificacoes {
   reagendadas: NotificacaoSessao[];
   tarefas: Tarefa[];
   integracaoGoogleFalhou: boolean;
+  formulariosPendentes: number;
 }
 
 interface Sessao {
@@ -429,6 +430,7 @@ export default function PainelPage() {
     reagendadas: [],
     tarefas: [],
     integracaoGoogleFalhou: false,
+    formulariosPendentes: 0,
   });
   const [sinoAberto, setSinoAberto] = useState(false);
   const [avisoNotificacao, setAvisoNotificacao] = useState("");
@@ -1699,6 +1701,17 @@ export default function PainelPage() {
               >
                 WhatsApp
               </button>
+              <button
+                onClick={() => router.push("/painel/anamneses")}
+                className="relative rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Anamneses
+                {notificacoes.formulariosPendentes > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-semibold text-white">
+                    {notificacoes.formulariosPendentes}
+                  </span>
+                )}
+              </button>
             </>
           ) : (
             <>
@@ -1729,6 +1742,17 @@ export default function PainelPage() {
                 className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
               >
                 WhatsApp
+              </button>
+              <button
+                onClick={() => router.push("/painel/anamneses")}
+                className="relative rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg"
+              >
+                Anamneses
+                {notificacoes.formulariosPendentes > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-semibold text-white">
+                    {notificacoes.formulariosPendentes}
+                  </span>
+                )}
               </button>
             </>
           )}

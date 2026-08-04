@@ -558,11 +558,10 @@ aceito** (ver regra revisada na seção 2).
   ainda bloqueado**, ver 13.5): `GET /f/[clinicaSlug]/[formularioSlug]` (Server Component,
   wizard em 5 etapas) + `POST /api/f/[clinicaSlug]/[formularioSlug]` (grava o envio). Rota
   pública fica no domínio já em uso pelo sistema — sem DNS novo.
-- **F2.5 — triagem de envios pendentes** (não iniciada): tela nas configurações/painel para
-  revisar cada `EnvioFormulario` com `status: PENDENTE`, decidir criar/atualizar `Paciente`
-  (ou marcar `IGNORADO`/`ERRO` com `observacaoProcessamento`), e aplicar a regra de anexação de
-  reenvio (13.9). Até essa tela existir, envios **só acumulam**, nunca viram paciente/anamnese
-  sozinhos — nenhum processamento automático, por decisão explícita (ver 13.8).
+- **F2.5 — triagem de envios pendentes** (entregue 2026-08-04, ver 13.10): `/painel/anamneses`
+  — a Daiane revisa cada `EnvioFormulario` PENDENTE e decide: criar paciente novo, vincular a um
+  já existente (anexando a anamnese, nunca substituindo), ou ignorar com motivo obrigatório.
+  Atrás de login (`podeProcessarAnamneses`) — não depende do upgrade de plano da Vercel.
 - **F3 — tela de edição de perguntas**: criar/editar/reordenar/desativar `PerguntaFormulario`
   nas configurações da clínica, respeitando a trava de `campoPaciente` estrutural (13.1).
 
@@ -674,12 +673,78 @@ explícita antes de gravar.
 
 ### 13.9 Decisão — reenvio de anamnese por paciente existente
 
-Quando a tela de triagem (F2.5) processar um `EnvioFormulario` cujo CPF já corresponde a um
-`Paciente` com anamnese preenchida, o novo conteúdo será **anexado como um bloco datado no
-topo** do campo `Paciente.anamnese`, preservando o texto anterior abaixo — **nunca
-sobrescrito**. Motivação: uma reavaliação só tem valor clínico se comparável com o estado
-anterior (evolução do quadro); substituir apagaria essa comparação. Ainda não implementado —
-registrado aqui para a F2.5 não reabrir essa decisão.
+Quando a fila de triagem (F2.5) processa um `EnvioFormulario` cujo paciente escolhido já tem
+anamnese preenchida, o novo conteúdo é **anexado como um bloco datado no topo** do campo
+`Paciente.anamnese`, preservando o texto anterior abaixo — **nunca sobrescrito**. Motivação:
+uma reavaliação só tem valor clínico se comparável com o estado anterior (evolução do quadro);
+substituir apagaria essa comparação. Implementado em 2026-08-04, ver 13.10.
+
+### 13.10 F2.5 — Fila de envios pendentes (entregue 2026-08-04)
+
+**Permissão**: `podeProcessarAnamneses(papel)` em `src/lib/permissoes.ts` — `ADMIN` e
+`OPERADOR`, checado em toda rota de `/api/anamneses/*`. **Exceção literal fora da hierarquia
+normal de capacidades**: `PROFISSIONAL` fica de fora, por pedido explícito da task que criou
+este módulo — quebra o padrão usual em que `PROFISSIONAL` é superset de `OPERADOR`. Não
+modelado como `Capacidade` porque não segue essa hierarquia; se isso for revisitado, é uma
+decisão de produto, não um bug.
+
+**Telas**:
+- `/painel/anamneses` — lista `EnvioFormulario` da clínica por status (`PENDENTE` default,
+  filtro `IGNORADO`). Cada linha mostra o nome informado e um indicador de match: **CPF
+  informado no envio comparado por dígitos contra `Paciente.cpf` da clínica** (nunca por
+  formatação) — "paciente existente: {nome}" ou "novo". Link "Anamneses" na navegação do
+  painel ganha um badge com a contagem de pendentes (`GET /api/notificacoes` estendido
+  aditivamente com `formulariosPendentes`, mesmo padrão do `integracaoGoogleFalhou`).
+- `/painel/anamneses/[id]` — detalhe: todas as respostas na ordem das perguntas usando
+  `rotuloSnapshot` (nunca o rótulo atual — pode ter mudado desde o envio), consentimento
+  (data + texto `textoConsentimentoSnapshot` recolhível), e as 3 ações.
+
+**3 ações, cada uma sua rota, todas exigindo `status: PENDENTE`** (guarda atômica via
+`updateMany({ where: { id, status: "PENDENTE" } })` dentro da transação — se `count !== 1`,
+aborta com `409`; cobre tanto reprocessar um envio já `PROCESSADO`/`IGNORADO` quanto duas abas
+processando o mesmo envio ao mesmo tempo):
+
+- **`POST /api/anamneses/[id]/criar-paciente`** — cria `Paciente` a partir dos campos que a
+  Daiane confirmou/editou na tela (nunca os valores brutos do envio direto — o body já reflete
+  a edição). CPF validado no servidor via `cpfMatematicamenteValido` (`src/lib/cpf.ts`); CPF
+  vazio é permitido (fica `null`, sem bloquear), CPF preenchido e inválido bloqueia (`400`).
+  Anamnese montada com `montarAnamneseDeRespostas()` (nova função em `src/lib/importacao.ts`,
+  ao lado de `montarAnamnese()` — mesmo formato linha "rótulo: valor" + o mesmo
+  `SEPARADOR_OBSERVACOES`, para nunca duplicar o formato). Sem `diaPreferido`/`horarioFixo`/
+  `tipoSessaoId` — isso é intake, agendamento é um fluxo separado, posterior.
+- **`POST /api/anamneses/[id]/vincular`** — vincula a um `Paciente` já existente, escolhido
+  pela Daiane (sugestão por match de CPF **nunca é automática** — sempre exige clique explícito
+  "Usar este paciente"; também dá pra buscar manualmente por nome/CPF via
+  `GET /api/pacientes?busca=`, extensão aditiva da rota já existente). A anamnese nova é
+  montada com o mesmo `montarAnamneseDeRespostas()`, prefixada por um cabeçalho datado
+  (`=== ANAMNESE DD/MM/AAAA ===`, via `formatarDataCompletaSP()`, nova função em
+  `src/lib/timezone.ts`) e concatenada **na frente** do texto anterior — nunca substituído.
+  **Garantia verificada em código antes de gravar**: `novoTexto.slice(novoTexto.length -
+  anamneseAnterior.length) === anamneseAnterior`; se divergir, aborta com `500` sem escrever
+  nada (mesmo padrão de `scripts/reprocessar-anamnese.ts`). Dentro da transação, reconfirma que
+  a anamnese do paciente não mudou entre a leitura inicial e a escrita (edição concorrente pelo
+  modal do painel, por exemplo) — se mudou, aborta com `409` em vez de arriscar perder uma
+  edição alheia. `complementarCadastro: true` (opcional, marcado pela Daiane) preenche só os
+  campos cadastrais do paciente que estão vazios — nunca sobrescreve valor existente.
+- **`POST /api/anamneses/[id]/ignorar`** — `motivo` obrigatório (`observacaoProcessamento`),
+  muda status para `IGNORADO`. Nunca deleta `EnvioFormulario` nem `RespostaFormulario` — fica
+  consultável no filtro "Ignorados" da lista.
+
+**Nota**: paciente criado/vinculado sem CPF fica **fora da dedupe automática** — tanto da
+importação por planilha (`Paciente_clinicaId_cpf_key`) quanto do match de CPF desta própria
+fila. Um reenvio futuro da mesma pessoa sem CPF vira um "novo" na lista, não um match
+sugerido; só um humano percebe pelo nome. É a mesma limitação já documentada para a importação
+por planilha (§13.7), agora também válida para o formulário próprio.
+
+**Testado localmente** (usuário `OPERADOR` temporário criado via Supabase Admin API, apagado
+depois — nunca as credenciais reais da Daiane): 3 envios reais via `POST /api/f/pamela-rachid/
+anamnese`. (a) Criar paciente com CPF válido — `201`, `anamnese` no formato esperado, envio
+`PROCESSADO`. (b) Criar paciente com CPF esvaziado pela Daiane — `201`, `cpf: null`, sem
+bloqueio. (c) Vincular a um paciente de teste com anamnese + observações reais preexistentes —
+confirmado por comparação de string que a cauda do texto novo é **byte a byte idêntica** ao
+texto anterior (272 caracteres originais, presentes intactos ao final dos 2068 caracteres do
+texto final). Reprocessamento de envio já `PROCESSADO`/`IGNORADO` confirmado rejeitado (`409`)
+nas 3 rotas. Todos os dados de teste (pacientes, envios, usuário) removidos do banco depois.
 
 ## 14. Baseline de migrations (2026-08-04)
 
@@ -817,22 +882,7 @@ de mesmo nome que o branch introduziria), em §12.7.
 **Bloqueio**: nenhum técnico — decisão de produto de se/quando vale o risco de banimento do
 número secundário.
 
-### 15.7 F2.5 — Fila de envios pendentes
-
-**Contexto**: o formulário público (F2, §13.8) grava todo envio como `EnvioFormulario` com
-`status: PENDENTE` — nenhum `Paciente` é criado ou atualizado automaticamente.
-
-**O que precisa ser feito**: tela para a Daiane revisar cada envio pendente e decidir: criar
-paciente novo, vincular a um paciente já existente, ou marcar `IGNORADO`/`ERRO` com
-`observacaoProcessamento`. Regra já decidida (§13.9): quando o envio pertence a um paciente que
-já tem anamnese, o conteúdo novo é **anexado como bloco datado no topo**, preservando o texto
-anterior abaixo — nunca substituído (uma reavaliação só tem valor clínico se comparável com o
-estado anterior).
-
-**Bloqueio**: nenhum técnico — pode ser construída independente do upgrade de plano da Vercel,
-já que fica atrás de login (diferente do F2 em si).
-
-### 15.8 F3 — Editor de perguntas
+### 15.7 F3 — Editor de perguntas
 
 **Contexto**: hoje as 50 perguntas da Pâmela só existem via seed (`scripts/seed-formulario-pamela.ts`).
 Não há tela para a clínica editar o próprio formulário.

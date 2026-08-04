@@ -489,11 +489,12 @@ seed) em `ARCHITECTURE.md` §13.
    a rota nem consulta `Paciente`). `clinicaId` só vem do slug da URL. Fica no domínio já em uso
    pelo sistema — sem DNS novo. **Deploy em produção bloqueado até o plano da Vercel virar Pro**
    (ver §13.4) — o código está pronto e testado localmente, mas não publicado.
-3. **F2.5 — Triagem de envios pendentes** (não iniciada): todo envio some como
-   `EnvioFormulario.status = PENDENTE` — nada vira `Paciente` nem anamnese automaticamente. Uma
-   tela de revisão humana decide o que fazer com cada envio, incluindo a regra de reenvio
-   (§13.6): anamnese nova de um CPF já cadastrado é **anexada** por cima da anterior, nunca a
-   substitui.
+3. **F2.5 — Triagem de envios pendentes** (entregue 2026-08-04): `/painel/anamneses`, acessível
+   a ADMIN e OPERADOR (a Daiane processa a fila). Todo envio vira `EnvioFormulario.status =
+   PENDENTE` — a Daiane decide, por envio: criar paciente novo, vincular a um já existente
+   (aplicando a regra de reenvio do §13.6: anamnese nova **anexada** por cima da anterior, nunca
+   substituída) ou ignorar com motivo obrigatório. Paciente sem CPF fica fora da dedupe
+   automática — um reenvio futuro da mesma pessoa aparece como "novo", não como match sugerido.
 4. **F3 — Tela de edição**: criar, editar, reordenar e desativar perguntas nas configurações
    da clínica, respeitando a trava de perguntas cadastrais estruturais (§13.2).
 
@@ -515,11 +516,12 @@ inválidos do backfill apareceram). Resolvida na origem quando a Fase 2 entrar e
 
 ### 13.6 Decisão — reenvio de anamnese por paciente existente
 
-Quando a triagem (F2.5) encontrar um envio cujo CPF já pertence a um paciente com anamnese
-preenchida, o conteúdo novo é **anexado como bloco datado no topo**, preservando o texto
-anterior abaixo — nunca sobrescrito. Uma reavaliação só tem valor clínico se for possível
-comparar com o estado anterior (evolução do quadro); substituir apagaria essa comparação.
-Decisão registrada agora para não ser reaberta quando a F2.5 for implementada.
+Quando a Daiane vincula um envio a um paciente que já tem anamnese preenchida (triagem, F2.5),
+o conteúdo novo é **anexado como bloco datado no topo** (`=== ANAMNESE DD/MM/AAAA ===`),
+preservando o texto anterior abaixo — nunca sobrescrito, verificado byte a byte em código antes
+de gravar. Uma reavaliação só tem valor clínico se for possível comparar com o estado anterior
+(evolução do quadro); substituir apagaria essa comparação. Implementado em 2026-08-04, detalhe
+técnico completo em `ARCHITECTURE.md` §13.10.
 
 ### 13.7 Estado do backfill de anamnese (pamela-rachid, 2026-08-04)
 
@@ -545,6 +547,6 @@ raiz, não mais o contorno usado até aqui. Detalhe técnico completo em `ARCHIT
 
 Lista de trabalho adiado por decisão (Mercado Pago, upgrade de plano Vercel, wa-bridge,
 localização do `proxy.ts`) ou ainda não iniciado (validação de CPF no cadastro manual, backup
-recorrente, F2.5 — fila de envios pendentes, F3 — editor de perguntas), com contexto, o que
-falta e o bloqueio de cada item. Mantida atualizada — item adiado entra, item concluído sai.
-Detalhe completo em `ARCHITECTURE.md` §15.
+recorrente, F3 — editor de perguntas), com contexto, o que falta e o bloqueio de cada item.
+Mantida atualizada — item adiado entra, item concluído sai (F2.5 — fila de envios pendentes
+saiu em 2026-08-04, entregue). Detalhe completo em `ARCHITECTURE.md` §15.

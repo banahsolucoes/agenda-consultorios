@@ -86,6 +86,19 @@ export function montarAnamnese(
   return linhasAnamnese.length > 0 ? linhasAnamnese.join("\n") + SEPARADOR_OBSERVACOES : "";
 }
 
+// Mesmo formato de montarAnamnese(), a partir de RespostaFormulario (F2.5 —
+// fila de envios do formulário próprio) em vez de uma linha de planilha:
+// uma linha "rótulo: valor" por resposta, na ordem recebida (quem chama já
+// busca ordenado por PerguntaFormulario.ordem), terminando no mesmo
+// SEPARADOR_OBSERVACOES. Usa rotuloSnapshot (nunca o rótulo atual da
+// pergunta) — é o texto que a pessoa efetivamente viu ao responder.
+export function montarAnamneseDeRespostas(respostas: { rotuloSnapshot: string; valor: string }[]): string {
+  const linhas = respostas
+    .filter((r) => r.valor.trim().length > 0)
+    .map((r) => `${r.rotuloSnapshot}: ${r.valor}`);
+  return linhas.length > 0 ? linhas.join("\n") + SEPARADOR_OBSERVACOES : "";
+}
+
 export interface RegistroPlanilha extends Record<string, string> {
   status: "novo" | "existente";
 }
