@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { podeProcessarAnamneses } from "@/lib/permissoes";
 import { registrarLog } from "@/lib/auditoria";
 
 // POST /api/anamneses/[id]/ignorar — Ação C da fila (F2.5): marca um
@@ -11,9 +10,6 @@ import { registrarLog } from "@/lib/auditoria";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
-  if (!podeProcessarAnamneses(usuario.papel)) {
-    return NextResponse.json({ erro: "permissão insuficiente" }, { status: 403 });
-  }
 
   const { id } = await params;
   const body = await req.json().catch(() => null);

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { podeProcessarAnamneses } from "@/lib/permissoes";
 import { soDigitosCpf } from "@/lib/cpf";
 
 // GET /api/anamneses/[id] — detalhe completo de um envio: todas as
@@ -11,9 +10,6 @@ import { soDigitosCpf } from "@/lib/cpf";
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
-  if (!podeProcessarAnamneses(usuario.papel)) {
-    return NextResponse.json({ erro: "permissão insuficiente" }, { status: 403 });
-  }
 
   const { id } = await params;
 

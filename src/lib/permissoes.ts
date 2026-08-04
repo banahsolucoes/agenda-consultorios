@@ -113,13 +113,3 @@ export function exigirPermissao(papel: Papel, capacidade: Capacidade): void {
     );
   }
 }
-
-// Fila de envios do formulário de anamnese (F2.5) — exceção literal fora da
-// hierarquia normal de capacidades: acessível a ADMIN e OPERADOR (a Daiane,
-// OPERADOR, processa a fila no dia a dia), mas PROFISSIONAL fica de fora por
-// pedido explícito, quebrando o padrão usual em que PROFISSIONAL é
-// superset de OPERADOR. Não modelado como Capacidade porque não segue essa
-// hierarquia.
-export function podeProcessarAnamneses(papel: Papel): boolean {
-  return papel === "ADMIN" || papel === "OPERADOR";
-}

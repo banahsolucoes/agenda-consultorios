@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { podeProcessarAnamneses } from "@/lib/permissoes";
 import { cpfMatematicamenteValido, soDigitosCpf } from "@/lib/cpf";
 import { montarAnamneseDeRespostas } from "@/lib/importacao";
 import { registrarLog } from "@/lib/auditoria";
@@ -37,9 +36,6 @@ class ConflitoProcessamento extends Error {}
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
-  if (!podeProcessarAnamneses(usuario.papel)) {
-    return NextResponse.json({ erro: "permissão insuficiente" }, { status: 403 });
-  }
 
   const { id } = await params;
   const body = await req.json().catch(() => null);

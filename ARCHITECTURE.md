@@ -561,7 +561,8 @@ aceito** (ver regra revisada na seção 2).
 - **F2.5 — triagem de envios pendentes** (entregue 2026-08-04, ver 13.10): `/painel/anamneses`
   — a Daiane revisa cada `EnvioFormulario` PENDENTE e decide: criar paciente novo, vincular a um
   já existente (anexando a anamnese, nunca substituindo), ou ignorar com motivo obrigatório.
-  Atrás de login (`podeProcessarAnamneses`) — não depende do upgrade de plano da Vercel.
+  Atrás de login, mesmo gate das telas de paciente (seção 7) — não depende do upgrade de plano
+  da Vercel.
 - **F3 — tela de edição de perguntas**: criar/editar/reordenar/desativar `PerguntaFormulario`
   nas configurações da clínica, respeitando a trava de `campoPaciente` estrutural (13.1).
 
@@ -681,12 +682,13 @@ substituir apagaria essa comparação. Implementado em 2026-08-04, ver 13.10.
 
 ### 13.10 F2.5 — Fila de envios pendentes (entregue 2026-08-04)
 
-**Permissão**: `podeProcessarAnamneses(papel)` em `src/lib/permissoes.ts` — `ADMIN` e
-`OPERADOR`, checado em toda rota de `/api/anamneses/*`. **Exceção literal fora da hierarquia
-normal de capacidades**: `PROFISSIONAL` fica de fora, por pedido explícito da task que criou
-este módulo — quebra o padrão usual em que `PROFISSIONAL` é superset de `OPERADOR`. Não
-modelado como `Capacidade` porque não segue essa hierarquia; se isso for revisitado, é uma
-decisão de produto, não um bug.
+**Permissão** (corrigido 2026-08-04): nenhum gate de capacidade — só exige login
+(`getUsuarioLogado()`), mesmo padrão já usado nas telas de paciente (`GET /api/pacientes`,
+`GET /api/pacientes/[id]`, etc., ver seção 7: "rotas sem gate de capacidade" — decisão de
+produto já registrada de que **OPERADOR mantém acesso idêntico a PROFISSIONAL/ADMIN sobre dado
+clínico**). `ADMIN`, `PROFISSIONAL` e `OPERADOR` acessam igualmente `/painel/anamneses`,
+`/painel/anamneses/[id]` e as 3 rotas de ação — consistente com o resto do CRUD de paciente, do
+qual este módulo é uma extensão (cria/atualiza `Paciente`).
 
 **Telas**:
 - `/painel/anamneses` — lista `EnvioFormulario` da clínica por status (`PENDENTE` default,

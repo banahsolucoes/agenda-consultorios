@@ -490,7 +490,8 @@ seed) em `ARCHITECTURE.md` §13.
    pelo sistema — sem DNS novo. **Deploy em produção bloqueado até o plano da Vercel virar Pro**
    (ver §13.4) — o código está pronto e testado localmente, mas não publicado.
 3. **F2.5 — Triagem de envios pendentes** (entregue 2026-08-04): `/painel/anamneses`, acessível
-   a ADMIN e OPERADOR (a Daiane processa a fila). Todo envio vira `EnvioFormulario.status =
+   a ADMIN, PROFISSIONAL e OPERADOR (mesmo padrão das telas de paciente — a Daiane, OPERADOR,
+   processa a fila). Todo envio vira `EnvioFormulario.status =
    PENDENTE` — a Daiane decide, por envio: criar paciente novo, vincular a um já existente
    (aplicando a regra de reenvio do §13.6: anamnese nova **anexada** por cima da anterior, nunca
    substituída) ou ignorar com motivo obrigatório. Paciente sem CPF fica fora da dedupe

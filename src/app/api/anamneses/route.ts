@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { podeProcessarAnamneses } from "@/lib/permissoes";
 import { soDigitosCpf } from "@/lib/cpf";
 
 const STATUS_VALIDOS = ["PENDENTE", "IGNORADO", "PROCESSADO"] as const;
@@ -14,9 +13,6 @@ const STATUS_VALIDOS = ["PENDENTE", "IGNORADO", "PROCESSADO"] as const;
 export async function GET(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
-  if (!podeProcessarAnamneses(usuario.papel)) {
-    return NextResponse.json({ erro: "permissão insuficiente" }, { status: 403 });
-  }
 
   const { searchParams } = new URL(req.url);
   const statusParam = searchParams.get("status") ?? "PENDENTE";
