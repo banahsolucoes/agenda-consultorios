@@ -43,3 +43,6 @@ next-env.d.ts
 
 /src/generated/prisma
 .env
+
+# backups de reprocessamento de dado clínico — nunca commitar
+scripts/_backup-anamnese-*.json

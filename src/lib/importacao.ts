@@ -57,6 +57,35 @@ export function soDigitos(s: string): string {
   return (s || "").replace(/\D/g, "");
 }
 
+// Monta o texto da anamnese a partir de uma linha da planilha — toda coluna
+// vira uma linha "Pergunta: Resposta" no texto, na ordem em que aparece,
+// inclusive as cadastrais (que também vão pros campos próprios do Paciente,
+// fora desta função). Só ficam de fora: dataCadastroForms, aceite/
+// consentimento e metadados de submissão do forms.app (Submitter/Submission
+// Date/Submission ID/Idade). Único ponto de formatação do texto — usado por
+// lerEDeduplicarPlanilha e pelo script de reprocessamento retroativo.
+export function montarAnamnese(
+  cabecalhoOriginal: string[],
+  cabecalhoNormalizado: string[],
+  linha: string[]
+): string {
+  const linhasAnamnese: string[] = [];
+  cabecalhoNormalizado.forEach((col, i) => {
+    const valor = (linha[i] || "").trim();
+    const campo = MAPA[col];
+    // dataCadastroForms é metadado do forms.app, não pergunta de anamnese
+    // nem dado que a clínica queira ver no texto — fora do texto, mesma
+    // exceção de sempre.
+    if (campo === "dataCadastroForms") return;
+    if (REGEX_COLUNA_ACEITE.test(col)) return;
+    if (COLUNAS_METADADOS_FORMS.has(col) || REGEX_COLUNA_SUBMISSION.test(col)) return;
+    const rotulo = (cabecalhoOriginal[i] || "").trim().replace(/:$/, "");
+    if (!rotulo) return;
+    linhasAnamnese.push(`${rotulo}: ${valor}`);
+  });
+  return linhasAnamnese.length > 0 ? linhasAnamnese.join("\n") + SEPARADOR_OBSERVACOES : "";
+}
+
 export interface RegistroPlanilha extends Record<string, string> {
   status: "novo" | "existente";
 }
@@ -125,30 +154,11 @@ export async function lerEDeduplicarPlanilha(clinicaId: string): Promise<Resulta
   const registros = linhas
     .map((linha) => {
       const dados: Record<string, string> = {};
-      // Toda coluna da planilha vira uma linha "Pergunta: Resposta" no texto
-      // da anamnese, na ordem em que aparece — inclusive as cadastrais
-      // (também vão pros campos próprios do Paciente). Só ficam de fora:
-      // dataCadastroForms, aceite/consentimento e metadados de submissão do
-      // forms.app (Submitter/Submission Date/Submission ID/Idade).
-      const linhasAnamnese: string[] = [];
       cabecalho.forEach((col, i) => {
-        const valor = (linha[i] || "").trim();
         const campo = MAPA[col];
-        if (campo) {
-          dados[campo] = valor;
-          // dataCadastroForms é metadado do forms.app, não pergunta de
-          // anamnese nem dado que a clínica queira ver no texto — fora do
-          // texto, mesma exceção de sempre.
-          if (campo === "dataCadastroForms") return;
-        }
-        if (REGEX_COLUNA_ACEITE.test(col)) return;
-        if (COLUNAS_METADADOS_FORMS.has(col) || REGEX_COLUNA_SUBMISSION.test(col)) return;
-        const rotulo = (cabecalhoOriginal[i] || "").trim().replace(/:$/, "");
-        if (!rotulo) return;
-        linhasAnamnese.push(`${rotulo}: ${valor}`);
+        if (campo) dados[campo] = (linha[i] || "").trim();
       });
-      dados.anamnese =
-        linhasAnamnese.length > 0 ? linhasAnamnese.join("\n") + SEPARADOR_OBSERVACOES : "";
+      dados.anamnese = montarAnamnese(cabecalhoOriginal, cabecalho, linha);
       return dados;
     })
     .filter((d) => (d.nome && d.nome.length > 0) || (d.cpf && d.cpf.length > 0)) // ignora linhas vazias
