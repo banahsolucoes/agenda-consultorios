@@ -540,3 +540,11 @@ proveniência do histórico. As 39 migrations antigas ficam arquivadas (não del
 `prisma/migrations-arquivo-pre-baseline/`, só para auditoria. Daqui pra frente, qualquer
 mudança de schema segue `prisma migrate dev` normalmente; uma falha exige diagnóstico da causa
 raiz, não mais o contorno usado até aqui. Detalhe técnico completo em `ARCHITECTURE.md` §14.
+
+## 15. Backlog
+
+Lista de trabalho adiado por decisão (Mercado Pago, upgrade de plano Vercel, wa-bridge,
+localização do `proxy.ts`) ou ainda não iniciado (validação de CPF no cadastro manual, backup
+recorrente, F2.5 — fila de envios pendentes, F3 — editor de perguntas), com contexto, o que
+falta e o bloqueio de cada item. Mantida atualizada — item adiado entra, item concluído sai.
+Detalhe completo em `ARCHITECTURE.md` §15.

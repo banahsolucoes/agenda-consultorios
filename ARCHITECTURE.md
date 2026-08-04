@@ -727,3 +727,122 @@ proveniência do histórico, não drift de estrutura real.
 até a próxima rodar (`20260804194727_baseline`). Qualquer mudança de schema segue
 `prisma migrate dev` normal — se falhar, é sinal de drift real (não do artefato histórico que
 motivou este baseline) e deve ser diagnosticado antes de qualquer `resolve --applied`.
+
+## 15. BACKLOG
+
+Trabalho identificado, adiado por decisão (não por bloqueio técnico não investigado) ou ainda
+não iniciado. **Mantido atualizado**: todo item adiado por decisão entra aqui; todo item
+concluído sai daqui (e vira uma entrada normal nas seções acima, como o resto do histórico do
+projeto).
+
+### 15.1 Checkout / assinatura recorrente (Mercado Pago)
+
+**Contexto**: trabalho iniciado e pausado por decisão de timing, não por problema técnico.
+Scaffolding já existe: `POST /api/assinatura/criar` (autenticado, `clinicaId` de
+`getUsuarioLogado()`), `POST /api/assinatura/webhook` (validação de assinatura MP via
+`validarAssinaturaWebhookMP`, estado sempre derivado de consulta própria à API do MP — ver
+auditoria de rotas), `scripts/create-mp-plan.mjs`. Campos já no schema (`Clinica.statusAssinatura`,
+`mpPreapprovalId`, `mpPayerEmail`, `trialFim`, `assinaturaAtualizadaEm`).
+
+**O que falta**: nada tecnicamente quebrado — é inerte porque não há UI/fluxo de produto que
+chame `/api/assinatura/criar` ainda, e a Vercel está em Hobby (ver 15.5).
+
+**Bloqueio**: depende de Vercel Pro (15.5) e da decisão comercial de quando abrir o produto para
+outras clínicas além da Pâmela.
+
+### 15.2 Mover `proxy.ts` para `src/proxy.ts`
+
+**Contexto**: o gate de autenticação central e o rate limiting centralizado nunca executaram em
+nenhuma rota — `proxy.ts` está na raiz do repo, mas o App Router vive em `src/app`, e o Next 16
+exige que o arquivo fique no mesmo nível (`src/proxy.ts`). Confirmado empiricamente (ver
+auditoria de rotas). **Não há falha de segurança**: as 59 rotas autenticadas se protegem sozinhas
+via `getUsuarioLogado()` e derivam `clinicaId` server-side; as 7 rotas públicas
+(`/api/auth/login`, `/api/auth/logout`, `/api/assinatura/webhook`, os 2 crons,
+`/api/whatsapp/webhook`, `/api/f/*`) têm proteção própria (assinatura de webhook, `CRON_SECRET`,
+ou o design do F2).
+
+**Pré-requisito obrigatório antes de mover**: adicionar à lista de exceção de `rotaProtegida`
+em `src/lib/supabase/middleware.ts` as rotas `/api/whatsapp/webhook`, `/api/cron/*` e
+`/api/assinatura/webhook` (hoje só `/api/auth` e `/api/f/` estão isentas). **Sem isso, mover o
+arquivo derruba essas 4 rotas com 401 permanente** — sistemas externos (Meta, Vercel Cron,
+Mercado Pago) nunca enviam cookie de sessão Supabase. O webhook do WhatsApp, os dois crons e o
+webhook do Mercado Pago parariam de funcionar **silenciosamente** (sem erro visível até alguém
+notar que parou de sincronizar/cobrar).
+
+**Efeito colateral esperado mesmo com a correção acima**: rate limit centralizado (120 req/min
+por IP em geral, 20 req/min em `/api/auth/*`) passaria a valer pela primeira vez em todas as
+rotas do painel. Avaliar risco de `429` em IP compartilhado (NAT de clínica/escritório) e em
+polling da agenda (`AgendaCalendario`) / sino de notificações antes de ativar.
+
+### 15.3 Validação de CPF no cadastro manual
+
+**Contexto**: a tela de cadastro de paciente (`painel/page.tsx`) não valida dígito verificador
+de CPF. 29% dos CPFs preenchidos à mão num lote recente de backfill eram matematicamente
+inválidos (ver §13.7), e CPF é a chave de dedupe da importação
+(`Paciente_clinicaId_cpf_key`) — CPF errado quebra o dedupe silenciosamente.
+
+**O que precisa ser feito**: chamar `cpfMatematicamenteValido()` (já existe em `src/lib/cpf.ts`,
+extraído durante o F2) na validação do formulário de cadastro/edição de paciente. É reaproveitar
+um helper já pronto, não escrever validação nova.
+
+**Bloqueio**: nenhum.
+
+### 15.4 Backup recorrente do banco
+
+**Contexto**: o plano Free do Supabase não inclui backup automático. Existe um `pg_dump` manual
+feito em 2026-08-04 (completo + schema-only), guardado fora do repositório (`C:\backup_fono\`,
+fora do controle de versão por conter dado clínico).
+
+**Decisão atual**: aceitar o risco enquanto houver só uma clínica real em produção.
+
+**Reavaliar quando**: (a) contratar Supabase Pro (inclui backup automático + point-in-time
+recovery), ou (b) uma segunda clínica entrar em produção — nesse ponto o risco deixa de ser
+"perder o histórico da Pâmela" e passa a ser "perder o negócio de duas clínicas pagantes".
+
+### 15.5 Vercel Hobby → Pro
+
+**Contexto**: o plano Hobby proíbe uso comercial nos Termos de Serviço da Vercel.
+
+**Bloqueia**: publicar em produção a rota pública do formulário de anamnese (F2, ver §13.5) e o
+checkout de assinatura recorrente (15.1). Não bloqueia nada que já está atrás de login.
+
+### 15.6 wa-bridge (WhatsApp multi-canal)
+
+**Contexto**: modelagem de canal alternativo de WhatsApp (não-oficial, via Baileys) pausada no
+branch `feat/wa-bridge`, commit `5bae2cb` — só o diff de schema, nenhuma migration aplicada,
+nenhum código de app escrito contra ele. Detalhe completo, incluindo a armadilha de nomenclatura
+do `externalId` (colisão entre um campo TypeScript em memória já em produção e uma coluna nova
+de mesmo nome que o branch introduziria), em §12.7.
+
+**Bloqueio**: nenhum técnico — decisão de produto de se/quando vale o risco de banimento do
+número secundário.
+
+### 15.7 F2.5 — Fila de envios pendentes
+
+**Contexto**: o formulário público (F2, §13.8) grava todo envio como `EnvioFormulario` com
+`status: PENDENTE` — nenhum `Paciente` é criado ou atualizado automaticamente.
+
+**O que precisa ser feito**: tela para a Daiane revisar cada envio pendente e decidir: criar
+paciente novo, vincular a um paciente já existente, ou marcar `IGNORADO`/`ERRO` com
+`observacaoProcessamento`. Regra já decidida (§13.9): quando o envio pertence a um paciente que
+já tem anamnese, o conteúdo novo é **anexado como bloco datado no topo**, preservando o texto
+anterior abaixo — nunca substituído (uma reavaliação só tem valor clínico se comparável com o
+estado anterior).
+
+**Bloqueio**: nenhum técnico — pode ser construída independente do upgrade de plano da Vercel,
+já que fica atrás de login (diferente do F2 em si).
+
+### 15.8 F3 — Editor de perguntas
+
+**Contexto**: hoje as 50 perguntas da Pâmela só existem via seed (`scripts/seed-formulario-pamela.ts`).
+Não há tela para a clínica editar o próprio formulário.
+
+**O que precisa ser feito**: tela nas configurações da clínica para criar, editar, reordenar
+(drag-and-drop — o projeto já usa `dnd-kit` na Agenda, reaproveitar) e desativar
+`PerguntaFormulario`. Regras já travadas no modelo (§13.1): perguntas com `campoPaciente`
+preenchido são estruturais — não podem ser removidas nem ter o `tipo` alterado. Editar o
+`rotulo` é seguro (`rotuloSnapshot` em `RespostaFormulario` preserva o histórico já respondido
+intacto), mas a tela deve avisar visivelmente quando a pergunta já tiver respostas vinculadas,
+para a clínica entender que editar não reabre o passado.
+
+**Bloqueio**: nenhum técnico — não depende do upgrade de plano da Vercel (fica atrás de login).
