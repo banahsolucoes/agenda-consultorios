@@ -337,6 +337,8 @@ em `wa-bridge/README.md`.
 - **Reconexão**: automática, exceto quando a sessão é deslogada no aparelho — nesse caso o
   serviço para e avisa o app via webhook (`session.disconnected`) para reconexão manual.
 
+**Modelagem multi-canal — PAUSADA (2026-08-04)**: existe um trabalho modelado (não implementado, não migrado) pra suportar múltiplos canais de WhatsApp por clínica — Cloud API oficial e `wa-bridge` selecionáveis por clínica, com uma tabela `CanalWhatsApp` nova. Isolado em branch (`feat/wa-bridge`, commit `5bae2cb`) e removido da `main` — a `main` não tem nenhum código nem coluna de banco dessa feature hoje. Detalhe técnico completo (conteúdo da modelagem, armadilha de nomenclatura pra quem retomar) em `ARCHITECTURE.md` §12.7.
+
 ---
 
 ## 12. Módulo Mentoria
