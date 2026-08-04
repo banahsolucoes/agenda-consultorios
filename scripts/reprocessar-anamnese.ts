@@ -42,7 +42,12 @@ const CAMPOS_PII_ROTULOS = new Set(
 const REGEX_CPF_OU_TELEFONE = /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{10,11}\b/g;
 const REGEX_EMAIL = /[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}/g;
 
-function parseArgs(): { clinica: string; fase: "vazios" | "preenchidos"; executar: boolean } {
+function parseArgs(): {
+  clinica: string;
+  fase: "vazios" | "preenchidos";
+  executar: boolean;
+  somenteValidados: boolean;
+} {
   const args = process.argv.slice(2);
   const get = (nome: string): string | undefined => {
     const prefixo = `--${nome}=`;
@@ -53,12 +58,49 @@ function parseArgs(): { clinica: string; fase: "vazios" | "preenchidos"; executa
   const clinica = get("clinica");
   const fase = get("fase");
   const executar = args.includes("--executar");
+  const somenteValidados = args.includes("--somente-validados");
 
   if (!clinica) throw new Error("--clinica=<slug> é obrigatório");
   if (fase !== "vazios" && fase !== "preenchidos") {
     throw new Error('--fase=vazios|preenchidos é obrigatório');
   }
-  return { clinica, fase, executar };
+  if (somenteValidados && fase !== "vazios") {
+    throw new Error("--somente-validados só é suportado na fase=vazios");
+  }
+  return { clinica, fase, executar, somenteValidados };
+}
+
+// Validação de CPF por dígito verificador (algoritmo padrão) — mesma lógica
+// do script auxiliar do Bloco E2 (scripts/_verificacao-objetiva-vazios-pamela-rachid.ts).
+function cpfMatematicamenteValido(cpfDigitos: string): boolean {
+  if (!/^\d{11}$/.test(cpfDigitos)) return false;
+  if (/^(\d)\1{10}$/.test(cpfDigitos)) return false;
+
+  const digitos = cpfDigitos.split("").map(Number);
+  const calcularDv = (base: number[]): number => {
+    let soma = 0;
+    let peso = base.length + 1;
+    for (const d of base) {
+      soma += d * peso;
+      peso--;
+    }
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+
+  if (calcularDv(digitos.slice(0, 9)) !== digitos[9]) return false;
+  if (calcularDv(digitos.slice(0, 10)) !== digitos[10]) return false;
+  return true;
+}
+
+// Normalização de nome — mesma lógica do script auxiliar do Bloco E2.
+function normalizarNome(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // TODA saída de amostra/diff do script passa obrigatoriamente por aqui —
@@ -84,12 +126,13 @@ function redigir(texto: string): string {
 
 interface PacienteRow {
   id: string;
+  nome: string;
   cpf: string | null;
   anamnese: string | null;
 }
 
 async function main() {
-  const { clinica: slug, fase, executar } = parseArgs();
+  const { clinica: slug, fase, executar, somenteValidados } = parseArgs();
 
   const clinica = await prisma.clinica.findUnique({ where: { slug } });
   if (!clinica) {
@@ -101,6 +144,7 @@ async function main() {
   console.log(`Clínica: ${clinica.nome} (${clinica.id})`);
   console.log(`Fase: ${fase}`);
   console.log(`Modo: ${executar ? "EXECUÇÃO (grava no banco)" : "DRY-RUN (nenhuma escrita)"}`);
+  if (somenteValidados) console.log("Filtro: --somente-validados (CPF válido + nome idêntico normalizado)");
   console.log("");
 
   let registros: RegistroPlanilha[];
@@ -128,7 +172,7 @@ async function main() {
   await client.connect();
 
   const { rows: pacientes } = await client.query<PacienteRow>(
-    `SELECT id, cpf, anamnese FROM "Paciente" WHERE "clinicaId" = $1`,
+    `SELECT id, nome, cpf, anamnese FROM "Paciente" WHERE "clinicaId" = $1`,
     [clinica.id]
   );
 
@@ -139,6 +183,7 @@ async function main() {
   const semSeparador: string[] = [];
   const planilhaSemConteudo: string[] = [];
   const semMudanca: string[] = [];
+  const reprovadosValidacao: string[] = [];
   const elegiveis: { id: string; novoTexto: string }[] = [];
 
   for (const p of pacientes) {
@@ -170,6 +215,14 @@ async function main() {
       if (!registro.anamnese) {
         planilhaSemConteudo.push(p.id);
         continue;
+      }
+      if (somenteValidados) {
+        const cpfOk = cpfMatematicamenteValido(cpfDigitos);
+        const nomeOk = normalizarNome(p.nome || "") === normalizarNome(registro.nome || "");
+        if (!cpfOk || !nomeOk) {
+          reprovadosValidacao.push(p.id);
+          continue;
+        }
       }
       elegiveis.push({ id: p.id, novoTexto: registro.anamnese });
       continue;
@@ -232,6 +285,9 @@ async function main() {
     console.log("sem mudança a aplicar (já reprocessado, nada a reescrever):", semMudanca.length);
   }
   console.log("linha da planilha sem conteúdo aproveitável:", planilhaSemConteudo.length);
+  if (somenteValidados) {
+    console.log("reprovados por --somente-validados (CPF inválido ou nome divergente):", reprovadosValidacao.length);
+  }
   console.log("ELEGÍVEIS para escrita:", elegiveis.length);
 
   console.log("\n----- AMOSTRA (até 2 registros elegíveis, PII redigida) -----");

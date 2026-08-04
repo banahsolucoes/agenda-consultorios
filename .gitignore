@@ -46,3 +46,4 @@ next-env.d.ts
 
 # backups de reprocessamento de dado clínico — nunca commitar
 scripts/_backup-anamnese-*.json
+scripts/_conferencia-*.csv
