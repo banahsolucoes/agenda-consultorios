@@ -45,6 +45,12 @@ const MAPA: Record<string, string> = {
 // acontece lá, aqui só não queremos o texto dela poluindo a anamnese.
 const REGEX_COLUNA_ACEITE = /aceit|consint|consent|concord|autoriz/;
 
+// Metadados de submissão do forms.app (não são cadastro nem pergunta de
+// anamnese) — nunca devem virar linha no texto. Comparado contra o
+// cabeçalho já normalizado por normalizarCabecalho().
+const COLUNAS_METADADOS_FORMS = new Set(["submitter", "submission date", "submission id", "idade"]);
+const REGEX_COLUNA_SUBMISSION = /^submission/;
+
 const SEPARADOR_OBSERVACOES = "\n\n--- OBSERVAÇÕES ---\n";
 
 export function soDigitos(s: string): string {
@@ -119,19 +125,25 @@ export async function lerEDeduplicarPlanilha(clinicaId: string): Promise<Resulta
   const registros = linhas
     .map((linha) => {
       const dados: Record<string, string> = {};
-      // Colunas não mapeadas (nem cadastrais nem meta) = perguntas da
-      // anamnese, uma linha "Pergunta: Resposta" por coluna, na ordem em
-      // que aparecem na planilha.
+      // Toda coluna da planilha vira uma linha "Pergunta: Resposta" no texto
+      // da anamnese, na ordem em que aparece — inclusive as cadastrais
+      // (também vão pros campos próprios do Paciente). Só ficam de fora:
+      // dataCadastroForms, aceite/consentimento e metadados de submissão do
+      // forms.app (Submitter/Submission Date/Submission ID/Idade).
       const linhasAnamnese: string[] = [];
       cabecalho.forEach((col, i) => {
         const valor = (linha[i] || "").trim();
         const campo = MAPA[col];
         if (campo) {
           dados[campo] = valor;
-          return;
+          // dataCadastroForms é metadado do forms.app, não pergunta de
+          // anamnese nem dado que a clínica queira ver no texto — fora do
+          // texto, mesma exceção de sempre.
+          if (campo === "dataCadastroForms") return;
         }
         if (REGEX_COLUNA_ACEITE.test(col)) return;
-        const rotulo = (cabecalhoOriginal[i] || "").trim();
+        if (COLUNAS_METADADOS_FORMS.has(col) || REGEX_COLUNA_SUBMISSION.test(col)) return;
+        const rotulo = (cabecalhoOriginal[i] || "").trim().replace(/:$/, "");
         if (!rotulo) return;
         linhasAnamnese.push(`${rotulo}: ${valor}`);
       });
