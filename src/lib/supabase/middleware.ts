@@ -12,6 +12,10 @@ function obterIp(request: NextRequest): string {
 export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const ehRotaAuth = path.startsWith("/api/auth");
+  // Formulário público de anamnese (F2) — sem login por definição, o link é
+  // enviado direto ao paciente. clinicaId vem só do slug da URL, nunca de
+  // sessão/cookie.
+  const ehRotaFormularioPublico = path.startsWith("/api/f/");
   const ip = obterIp(request);
 
   // /api/auth (login/signup) é o alvo mais óbvio de força bruta, por isso
@@ -57,8 +61,8 @@ export async function updateSession(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  // rotas de API protegidas exigem login (exceto /api/auth)
-  const rotaProtegida = path.startsWith("/api/") && !ehRotaAuth;
+  // rotas de API protegidas exigem login (exceto /api/auth e /api/f/*)
+  const rotaProtegida = path.startsWith("/api/") && !ehRotaAuth && !ehRotaFormularioPublico;
 
   if (rotaProtegida && !user) {
     return NextResponse.json({ erro: "não autenticado" }, { status: 401 });

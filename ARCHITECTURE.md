@@ -550,16 +550,19 @@ mudança). **Nota (2026-08-04)**: essa falha foi justamente o gatilho que levou 
 (`20260804194727_baseline`). O padrão de fallback usado aqui **não é mais o procedimento
 aceito** (ver regra revisada na seção 2).
 
-### 13.4 Roadmap (3 fases)
+### 13.4 Roadmap
 
-- **F1 — modelo de dados + seed** (esta entrega): schema, migration, seed da Pâmela. Nenhuma
-  rota pública, nenhuma UI.
-- **F2 — rota pública de envio**: validação de payload, rate limit por IP, honeypot anti-bot,
-  limite de tamanho de payload, resposta genérica que **nunca revela se um CPF já existe** no
-  banco (evita enumeração), `clinicaId` derivado exclusivamente do slug da URL (nunca do body —
-  mesma regra de isolamento multi-tenant da seção 2), consentimento bloqueante (não dá para
-  enviar sem aceitar). Rota pública fica no domínio já em uso pelo sistema — sem DNS novo.
-  **Bloqueada por**: upgrade do plano Vercel (ver 13.5).
+- **F1 — modelo de dados + seed** (entregue 2026-08-04): schema, migration, seed da Pâmela.
+  Nenhuma rota pública, nenhuma UI.
+- **F2 — rota pública de envio** (código entregue 2026-08-04, ver 13.8 — **deploy em produção
+  ainda bloqueado**, ver 13.5): `GET /f/[clinicaSlug]/[formularioSlug]` (Server Component,
+  wizard em 5 etapas) + `POST /api/f/[clinicaSlug]/[formularioSlug]` (grava o envio). Rota
+  pública fica no domínio já em uso pelo sistema — sem DNS novo.
+- **F2.5 — triagem de envios pendentes** (não iniciada): tela nas configurações/painel para
+  revisar cada `EnvioFormulario` com `status: PENDENTE`, decidir criar/atualizar `Paciente`
+  (ou marcar `IGNORADO`/`ERRO` com `observacaoProcessamento`), e aplicar a regra de anexação de
+  reenvio (13.9). Até essa tela existir, envios **só acumulam**, nunca viram paciente/anamnese
+  sozinhos — nenhum processamento automático, por decisão explícita (ver 13.8).
 - **F3 — tela de edição de perguntas**: criar/editar/reordenar/desativar `PerguntaFormulario`
   nas configurações da clínica, respeitando a trava de `campoPaciente` estrutural (13.1).
 
@@ -599,6 +602,84 @@ pacientes**:
 só entram automaticamente em prontuário registros com CPF matematicamente válido **e** nome
 idêntico (normalizado) entre sistema e planilha; qualquer outro caso exige aprovação humana
 explícita antes de gravar.
+
+### 13.8 Rota pública (F2, código entregue 2026-08-04)
+
+- **`GET /f/[clinicaSlug]/[formularioSlug]`** (`src/app/f/[clinicaSlug]/[formularioSlug]/`) —
+  Server Component, sem autenticação. Busca a clínica pelo slug e o formulário pelo par
+  `(clinicaId, slug)`; só perguntas com `ativa: true`, ordenadas por `ordem`. Formulário
+  inexistente, clínica inexistente ou `ativo: false` caem **todos no mesmo `notFound()`**
+  (`not-found.tsx` dedicado, mensagem genérica "Link inválido") — a página nunca distingue os
+  três casos, para não revelar se uma clínica existe.
+- **`POST /api/f/[clinicaSlug]/[formularioSlug]`** (`src/app/api/f/[clinicaSlug]/[formularioSlug]/route.ts`)
+  — grava o envio. `clinicaId`/`formularioId` são resolvidos **só a partir dos slugs da URL**;
+  qualquer `clinicaId`/`formularioId`/`pacienteId` no corpo da requisição é ignorado (nem lido).
+  Proteções, nesta ordem:
+  1. Rate limit por IP via `checkRateLimiteLocal` (`src/lib/rateLimit.ts`, já existente) — 5
+     envios/hora, chave `formulario-publico:<ip>`. Excedido → `429` com mensagem genérica.
+  2. Limite de payload — corpo lido como texto antes do `JSON.parse`, rejeitado (`413`) acima de
+     100 KB.
+  3. Honeypot (`website`) — campo oculto (fora da viewport, `tabIndex={-1}`, `aria-hidden`) que
+     só um bot preenche. Preenchido → responde a **mesma resposta genérica de sucesso**, sem
+     gravar nada; não dá nenhum sinal ao bot de que foi pego.
+  4. `consentimentoAceito !== true` → `400` (rejeição explícita, não é o caminho genérico —
+     ver regra de resposta abaixo).
+  5. Cada `perguntaId` recebido é validado contra o formulário resolvido pela URL (perguntas de
+     outro formulário são descartadas silenciosamente); validação de tipo (CPF por dígito
+     verificador via `src/lib/cpf.ts`, telefone, e-mail, data) roda **no servidor**, usando o
+     mesmo helper (`src/lib/formularioPublico.ts`) que o wizard usa no cliente — as duas camadas
+     nunca divergem porque é o mesmo código, não uma reimplementação paralela. Falha → `400`.
+  6. Pergunta `obrigatoria` (nesta seed: Nome, CPF, Telefone) sem resposta → `400`.
+- **Regra de resposta genérica**: uma vez passadas as checagens de forma acima, a resposta de
+  sucesso é **sempre idêntica** (`{ ok: true }`, 200), goste ou não o CPF já exista em
+  `Paciente` — o que é garantido estruturalmente, não só por convenção: **esta rota nunca
+  consulta `Paciente`**, só grava em `EnvioFormulario`/`RespostaFormulario`. O formulário público
+  não pode virar ferramenta de consulta de cadastro. Erros de formato (`400`/`413`) **não**
+  seguem essa regra — dizer "CPF inválido" ou "payload grande demais" não vaza nada sobre o
+  banco, é informação que a própria pessoa já tem sobre o que digitou.
+- **Gravação**: `prisma.envioFormulario.create` com `respostas: { create: [...] }` aninhado —
+  transação implícita única. `status: PENDENTE` sempre; `pacienteId` sempre `null` nesta fase.
+  `rotuloSnapshot` vem do `rotulo` da pergunta **lido fresco do banco no momento do envio**
+  (nunca do que o cliente mandou) — mesma garantia de imutabilidade retroativa do F1.
+  `textoConsentimentoSnapshot` idem: reconsultado do `FormularioAnamnese.textoConsentimento`
+  atual no servidor, não aceito do corpo da requisição.
+- **Rascunho local** (`FormularioWizard.tsx`, Client Component): respostas parciais salvas em
+  `localStorage` sob a chave `anamnese-rascunho-<clinicaSlug>-<formularioSlug>`. Ao abrir, se
+  existir rascunho, oferece "Retomar de onde parei" / "Começar do zero" antes de mostrar
+  qualquer etapa (evita sobrescrever silenciosamente o que a pessoa já tinha digitado). Aviso
+  discreto ("Suas respostas ficam salvas neste dispositivo até o envio") fica visível durante
+  todo o preenchimento. Rascunho é apagado só após confirmação `200` do envio.
+- **Etapas do wizard** (`src/lib/formularioPublico.ts`, `montarEtapas()`): agrupa as perguntas
+  ativas em até 5 etapas — Dados pessoais / Contato e endereço / Saúde geral / Voz e hábitos /
+  Relatos abertos — **derivadas de campos já existentes** (`campoPaciente` para as duas
+  primeiras, `tipo === "TEXTO_LONGO"` para a última, o meio dividido em duas metades por
+  contagem), nunca de posição numérica fixa (`ordem`) hardcoded. Etapas sem nenhuma pergunta são
+  omitidas — generaliza para outro formulário com um conjunto de perguntas diferente.
+  Consentimento é sempre a etapa final, fora dessa contagem de conteúdo.
+- **Auth gate**: `src/lib/supabase/middleware.ts` ganhou uma exceção explícita
+  (`ehRotaFormularioPublico = path.startsWith("/api/f/")`) para `/api/f/*` não exigir sessão —
+  **nota importante, achada durante este bloco**: o gate central de autenticação de
+  `/api/*` (via `proxy.ts`) hoje **não está sendo executado em nenhuma rota**, porque `proxy.ts`
+  está na raiz do repo em vez de `src/proxy.ts` (o App Router deste projeto vive em `src/app`, e
+  a documentação do Next 16 exige que `proxy.ts` fique "no mesmo nível" — `src/proxy.ts`).
+  Confirmado empiricamente em dev (log adicionado e removido só para o teste): nenhuma rota
+  passa pelo `updateSession()`. Isso **não deixa nenhuma rota protegida realmente aberta** — toda
+  rota de negócio já checa `getUsuarioLogado()` por conta própria (seção 2) — mas significa que o
+  rate limiting centralizado e a segunda camada de auth documentados nesta seção estão
+  **inativos em produção hoje**. A exceção para `/api/f/*` foi adicionada mesmo assim, por
+  robustez: se a localização for corrigida no futuro, a rota pública do formulário continua
+  funcionando sem exigir login. **Corrigir a localização do arquivo é decisão pendente,
+  fora do escopo deste bloco** (impacto maior — rate limiting central passaria a valer de
+  verdade em todas as rotas — não decidido ainda).
+
+### 13.9 Decisão — reenvio de anamnese por paciente existente
+
+Quando a tela de triagem (F2.5) processar um `EnvioFormulario` cujo CPF já corresponde a um
+`Paciente` com anamnese preenchida, o novo conteúdo será **anexado como um bloco datado no
+topo** do campo `Paciente.anamnese`, preservando o texto anterior abaixo — **nunca
+sobrescrito**. Motivação: uma reavaliação só tem valor clínico se comparável com o estado
+anterior (evolução do quadro); substituir apagaria essa comparação. Ainda não implementado —
+registrado aqui para a F2.5 não reabrir essa decisão.
 
 ## 14. Baseline de migrations (2026-08-04)
 

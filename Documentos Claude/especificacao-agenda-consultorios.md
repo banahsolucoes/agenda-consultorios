@@ -481,12 +481,20 @@ seed) em `ARCHITECTURE.md` §13.
 1. **F1 — Modelo de dados + seed** (esta entrega): schema (`FormularioAnamnese`,
    `PerguntaFormulario`, `EnvioFormulario`, `RespostaFormulario`) + seed das 50 perguntas reais
    da Pâmela, lidas direto da planilha configurada.
-2. **F2 — Rota pública de envio**: validação de payload, rate limit por IP, honeypot
-   anti-bot, limite de tamanho de payload, resposta genérica que nunca revela se um CPF já
-   existe no banco, `clinicaId` derivado exclusivamente do slug da URL, consentimento
-   bloqueante. Fica no domínio já em uso pelo sistema — sem DNS novo. **Bloqueada até o plano
-   da Vercel virar Pro** (Hobby proíbe uso comercial em rota pública, ver §13.4).
-3. **F3 — Tela de edição**: criar, editar, reordenar e desativar perguntas nas configurações
+2. **F2 — Rota pública de envio** (código entregue 2026-08-04): wizard mobile-first em até 5
+   etapas (dados pessoais, contato e endereço, saúde geral, voz e hábitos, relatos abertos) +
+   consentimento, com validação em tempo real (CPF por dígito verificador, telefone, e-mail,
+   data) e rascunho salvo no dispositivo. Rota de envio protegida por rate limit, honeypot,
+   limite de payload e resposta sempre genérica (nunca revela se um CPF já existe no banco —
+   a rota nem consulta `Paciente`). `clinicaId` só vem do slug da URL. Fica no domínio já em uso
+   pelo sistema — sem DNS novo. **Deploy em produção bloqueado até o plano da Vercel virar Pro**
+   (ver §13.4) — o código está pronto e testado localmente, mas não publicado.
+3. **F2.5 — Triagem de envios pendentes** (não iniciada): todo envio some como
+   `EnvioFormulario.status = PENDENTE` — nada vira `Paciente` nem anamnese automaticamente. Uma
+   tela de revisão humana decide o que fazer com cada envio, incluindo a regra de reenvio
+   (§13.6): anamnese nova de um CPF já cadastrado é **anexada** por cima da anterior, nunca a
+   substitui.
+4. **F3 — Tela de edição**: criar, editar, reordenar e desativar perguntas nas configurações
    da clínica, respeitando a trava de perguntas cadastrais estruturais (§13.2).
 
 ### 13.4 Pendência bloqueante — plano Vercel
@@ -505,7 +513,15 @@ dedupe silenciosamente — o sistema não detecta, só descobre depois (foi assi
 inválidos do backfill apareceram). Resolvida na origem quando a Fase 2 entrar em produção
 (validação no envio do formulário); o cadastro manual continua sem essa validação até então.
 
-### 13.6 Estado do backfill de anamnese (pamela-rachid, 2026-08-04)
+### 13.6 Decisão — reenvio de anamnese por paciente existente
+
+Quando a triagem (F2.5) encontrar um envio cujo CPF já pertence a um paciente com anamnese
+preenchida, o conteúdo novo é **anexado como bloco datado no topo**, preservando o texto
+anterior abaixo — nunca sobrescrito. Uma reavaliação só tem valor clínico se for possível
+comparar com o estado anterior (evolução do quadro); substituir apagaria essa comparação.
+Decisão registrada agora para não ser reaberta quando a F2.5 for implementada.
+
+### 13.7 Estado do backfill de anamnese (pamela-rachid, 2026-08-04)
 
 61 pacientes, 18 com anamnese preenchida. Pendente: 17 aguardando conferência manual da Daiane
 (7 CPF inválido, 10 divergência de nome — 2 com forte suspeita de CPF de familiar), 22 sem CPF,
