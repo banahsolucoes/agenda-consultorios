@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     // Nível 1 — sinal já conhecido pelo banco, sem chamar o Google.
     const semSync = await prisma.agendamento.findMany({
       where: {
-        paciente: { clinicaId: clinica.id },
+        clinicaId: clinica.id,
         status: { in: ["AGENDADA", "REAGENDADA"] },
         inicio: { gt: agora },
         googleSyncStatus: { not: "SINCRONIZADO" },
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
       if (calendar) {
         const futuros = await prisma.agendamento.findMany({
           where: {
-            paciente: { clinicaId: clinica.id },
+            clinicaId: clinica.id,
             status: { in: ["AGENDADA", "REAGENDADA"] },
             // Restrito à mesma janela do events.list abaixo — sem isso, todo
             // agendamento além de +60 dias aparece como "evento ausente"

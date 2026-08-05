@@ -110,10 +110,12 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | uuid (PK) | |
-| pacoteId | uuid (FK) | |
-| pacienteId | uuid (FK) | desnormalizado p/ consulta rápida |
-| numeroSessao | int | 1..N |
-| totalPacote | int | |
+| clinicaId | uuid (FK) | próprio desde 2026-08-05 (antes só derivado via `paciente.clinicaId`); obrigatório |
+| pacoteId | uuid (FK), opcional | vazio numa reunião avulsa de mentorado |
+| pacienteId | uuid (FK), opcional | desnormalizado p/ consulta rápida; vazio numa reunião avulsa de mentorado |
+| alunoId | uuid (FK), opcional | `MentoriaAluno` — reunião avulsa de mentorado (2026-08-05) |
+| numeroSessao | int, opcional | 1..N — só sessão de paciente numera |
+| totalPacote | int, opcional | só sessão de paciente |
 | inicio | timestamp | fonte da verdade do horário |
 | duracaoMin | int | default 45 |
 | status | enum | AGENDADA, REAGENDADA, REALIZADA, NAO_REALIZADA, CANCELADA |
@@ -122,6 +124,8 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
 | linkMeet | text | |
 
 **Rótulo exibido/título do evento (2026-07-30):** não é um campo persistido — é calculado por `formatarTituloAgendamento()` (`src/lib/blocoAgenda.ts`), ponto único de formatação. Regra: se `tipoSessao.ehAtendimentoUnico === true` (tipo de atendimento único, configurável por clínica — ex.: "Avaliação online"/"Avaliação presencial") e o tipo tem `nome` resolvido, o rótulo é `{paciente} - {nome do tipo}`, sem numeração. Caso contrário (sessão normal, ou tipo de atendimento único sem nome resolvido), mantém `{paciente} (numeroSessao/totalPacote)`. Não existe enum fixo de "avaliação" no schema — o critério é o booleano `TipoSessao.ehAtendimentoUnico`, não o texto do nome.
+
+**Reunião avulsa de mentorado (2026-08-05):** quando `alunoId` está preenchido (e `pacienteId`/`pacoteId` vazios), o rótulo é fixo — `formatarTituloMentorado()` → `"FonoElite (Pâmela & {nomeMentorado})"` — sem numeração. Criada via `POST /api/agendamentos/mentoria`, a partir do mesmo botão "Novo agendamento" da grade (`AgendaCalendario.tsx`) usado para criar sessão de paciente — o operador escolhe Paciente ou Mentorado no primeiro passo do modal. Mesma engine de sincronização com o Google (Meet sempre gerado); sem lembrete automático de WhatsApp para mentorado nesta entrega. Detalhe técnico completo em `ARCHITECTURE.md` §9.
 
 ### LogAuditoria
 | Campo | Tipo | Notas |

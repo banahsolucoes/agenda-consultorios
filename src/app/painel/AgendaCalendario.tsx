@@ -44,11 +44,13 @@ const DIA_SEMANA_POR_INDICE = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA"
 
 interface SessaoAgenda {
   id: string;
-  pacoteId: string;
-  pacienteId: string;
-  paciente: { id: string; nome: string };
-  numeroSessao: number;
-  totalPacote: number;
+  pacoteId: string | null;
+  pacienteId: string | null;
+  paciente: { id: string; nome: string } | null;
+  alunoId: string | null;
+  aluno: { id: string; nomeCompleto: string } | null;
+  numeroSessao: number | null;
+  totalPacote: number | null;
   inicio: string;
   duracaoMin: number;
   status: string;
@@ -58,6 +60,12 @@ interface SessaoAgenda {
   linkMeet: string | null;
   motivoCancelamento: string | null;
   confirmada: boolean;
+}
+
+// Nome de exibição de uma sessão — de paciente ou de mentorado (reunião
+// avulsa). Espelha src/lib/blocoAgenda.ts:nomeSessao no backend.
+function nomeDaSessao(sessao: SessaoAgenda): string {
+  return sessao.paciente?.nome ?? sessao.aluno?.nomeCompleto ?? "";
 }
 
 type EscopoMove = "ESTA" | "ESTA_E_FUTURAS";
@@ -74,6 +82,7 @@ interface TipoSessaoOpcao {
   nome: string;
   cor: string | null;
   ehOnline: boolean;
+  ehAtendimentoUnico: boolean;
 }
 
 interface ClinicaAgenda {
@@ -82,6 +91,18 @@ interface ClinicaAgenda {
   templateConfirmacao: string;
   templateMeet: string;
   permitirResizeSessao: boolean;
+  mentoriaAtivada: boolean;
+}
+
+interface PacienteOpcao {
+  id: string;
+  nome: string;
+  telefone: string | null;
+}
+
+interface AlunoOpcao {
+  id: string;
+  nomeCompleto: string;
 }
 
 function horaParaMinutos(hora: string) {
@@ -173,7 +194,7 @@ function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda)
   const inicio = new Date(sessao.inicio);
   return renderizarTemplateMensagem(clinica.templateConfirmacao, {
     saudacao: saudacaoAtual(),
-    paciente: sessao.paciente.nome.split(" ")[0],
+    paciente: nomeDaSessao(sessao).split(" ")[0],
     data: formatarDiaMes(inicio),
     hora: formatarHorario(inicio),
     horarioLimite: clinica.horarioLimiteConfirmacao,
@@ -186,7 +207,7 @@ function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda)
 function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
   return renderizarTemplateMensagem(clinica.templateMeet, {
     saudacao: saudacaoAtual(),
-    paciente: sessao.paciente.nome.split(" ")[0],
+    paciente: nomeDaSessao(sessao).split(" ")[0],
     hora: formatarHorario(new Date(sessao.inicio)),
     linkMeet: sessao.linkMeet ?? "",
     assistente: clinica.nomeAssistente,
@@ -224,6 +245,7 @@ export default function AgendaCalendario({
   const [aviso, setAviso] = useState("");
   const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
   const [anamnesePacienteId, setAnamnesePacienteId] = useState<string | null>(null);
+  const [modalNovo, setModalNovo] = useState(false);
   // Alvo de um drag que tem irmã futura elegível — aguarda a escolha do
   // usuário no EscopoMoveModal antes de mover qualquer coisa (nem local, nem
   // no servidor).
@@ -324,6 +346,7 @@ export default function AgendaCalendario({
             templateConfirmacao: c.templateConfirmacao,
             templateMeet: c.templateMeet,
             permitirResizeSessao: c.permitirResizeSessao,
+            mentoriaAtivada: c.mentoriaAtivada ?? false,
           })
       );
     fetch("/api/clinica/tipos-sessao")
@@ -619,6 +642,12 @@ export default function AgendaCalendario({
           >
             Dia
           </button>
+          <button
+            onClick={() => setModalNovo(true)}
+            className="rounded-lg border border-gold bg-gold/10 px-3 py-1.5 text-sm font-medium text-gold hover:bg-gold/20"
+          >
+            + Novo agendamento
+          </button>
         </div>
       </div>
 
@@ -731,6 +760,18 @@ export default function AgendaCalendario({
             } finally {
               destravarMovimento();
             }
+          }}
+        />
+      )}
+
+      {modalNovo && (
+        <NovoAgendamentoModal
+          tiposSessao={tiposSessao}
+          mentoriaAtivada={clinica?.mentoriaAtivada ?? false}
+          onFechar={() => setModalNovo(false)}
+          onCriado={() => {
+            setModalNovo(false);
+            carregarSessoes();
           }}
         />
       )}
@@ -1014,19 +1055,21 @@ function BlocoSessao({
         }
       }}
       style={style}
-      title={`${sessao.paciente.nome} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
+      title={`${nomeDaSessao(sessao)} — ${sessao.tipoSessao?.nome ?? "Sessão"} (${statusLabel(sessao.status)})`}
       className={`absolute ${sobreposta ? "" : "left-1 right-1"} flex items-center justify-between gap-1 overflow-hidden rounded-md px-1.5 py-0 text-left text-white shadow-sm`}
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <p className="truncate text-[11px] font-medium leading-none">
-          {textoLinhaBlocoAgenda(
-            sessao.paciente.nome,
-            sessao.numeroSessao,
-            sessao.totalPacote,
-            sessao.confirmada,
-            sessao.tipoSessao?.ehAtendimentoUnico ?? false,
-            sessao.tipoSessao?.nome ?? null
-          )}
+          {sessao.aluno
+            ? `${nomeDaSessao(sessao).split(" ")[0]} (FonoElite)${sessao.confirmada ? " ✅" : ""}`
+            : textoLinhaBlocoAgenda(
+                nomeDaSessao(sessao),
+                sessao.numeroSessao ?? 0,
+                sessao.totalPacote ?? 0,
+                sessao.confirmada,
+                sessao.tipoSessao?.ehAtendimentoUnico ?? false,
+                sessao.tipoSessao?.nome ?? null
+              )}
         </p>
         {copiado ? (
           <p className="truncate text-[11px] font-medium leading-none">Copiado!</p>
@@ -1138,6 +1181,432 @@ function IconPrancheta({ className }: { className?: string }) {
 // Modal aberto ao soltar um drag de sessão que tem irmã futura elegível no
 // mesmo pacote — pergunta se a mudança de dia/horário vale só para a sessão
 // arrastada ou também realinha as seguintes, antes de persistir qualquer coisa.
+const TIPOS_PACOTE_OPCOES = ["AVULSA", "MENSAL", "BIMESTRAL", "TRIMESTRAL", "PERSONALIZADO"] as const;
+const TIPO_PACOTE_LABEL: Record<string, string> = {
+  AVULSA: "Avulsa", MENSAL: "Mensal", BIMESTRAL: "Bimestral", TRIMESTRAL: "Trimestral", PERSONALIZADO: "Personalizado",
+};
+
+function mascararHorarioAgenda(valor: string) {
+  const digitos = valor.replace(/\D/g, "").slice(0, 4);
+  return digitos.length > 2 ? `${digitos.slice(0, 2)}:${digitos.slice(2)}` : digitos;
+}
+
+// Modal "Novo agendamento" — ponto de entrada único na grade pra criar
+// sessão de Paciente OU reunião avulsa de Mentorado. Paciente reusa
+// exatamente POST /api/pacotes (mesmo fluxo do painel do paciente, sem
+// alteração); Mentorado usa POST /api/agendamentos/mentoria (Fase 3) — mesma
+// engine de Google Calendar/Meet nos dois casos, cada rota já cuida disso.
+function NovoAgendamentoModal({
+  tiposSessao,
+  mentoriaAtivada,
+  onFechar,
+  onCriado,
+}: {
+  tiposSessao: TipoSessaoOpcao[];
+  mentoriaAtivada: boolean;
+  onFechar: () => void;
+  onCriado: () => void;
+}) {
+  const [tipo, setTipo] = useState<"PACIENTE" | "MENTORADO" | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  // --- campos comuns ---
+  const [dataInicial, setDataInicial] = useState("");
+  const [horario, setHorario] = useState("");
+  const [tipoSessaoId, setTipoSessaoId] = useState("");
+
+  // --- Paciente ---
+  const [buscaPaciente, setBuscaPaciente] = useState("");
+  const [opcoesPaciente, setOpcoesPaciente] = useState<PacienteOpcao[]>([]);
+  const [pacienteEscolhido, setPacienteEscolhido] = useState<PacienteOpcao | null>(null);
+  const [tipoPacote, setTipoPacote] = useState<string>(TIPOS_PACOTE_OPCOES[0]);
+  const [totalSessoes, setTotalSessoes] = useState("");
+
+  // --- Mentorado ---
+  const [opcoesAluno, setOpcoesAluno] = useState<AlunoOpcao[]>([]);
+  const [alunoId, setAlunoId] = useState("");
+  const [duracaoMentorado, setDuracaoMentorado] = useState(45);
+
+  useEffect(() => {
+    if (tipo !== "PACIENTE") return;
+    const buscaLimpa = buscaPaciente.trim();
+    if (!buscaLimpa) {
+      setOpcoesPaciente([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`/api/pacientes?busca=${encodeURIComponent(buscaLimpa)}`, { signal: controller.signal })
+        .then((r) => (r.ok ? r.json() : []))
+        .then(setOpcoesPaciente)
+        .catch(() => {});
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [tipo, buscaPaciente]);
+
+  useEffect(() => {
+    if (tipo !== "MENTORADO") return;
+    fetch("/api/mentoria/alunos")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setOpcoesAluno)
+      .catch(() => {});
+  }, [tipo]);
+
+  const tipoSessaoEhUnico = tiposSessao.find((t) => t.id === tipoSessaoId)?.ehAtendimentoUnico ?? false;
+
+  async function handleCriarPaciente(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pacienteEscolhido) {
+      setErro("selecione um paciente");
+      return;
+    }
+    if (!dataInicial || !horario) {
+      setErro("informe o dia e o horário da 1ª sessão");
+      return;
+    }
+    if (!tipoSessaoId) {
+      setErro("informe o tipo de atendimento");
+      return;
+    }
+    setErro("");
+    setSalvando(true);
+    try {
+      const body: Record<string, unknown> = {
+        pacienteId: pacienteEscolhido.id,
+        tipo: tipoPacote,
+        dataInicial,
+        horario,
+        tipoSessaoId,
+      };
+      if (tipoPacote === "PERSONALIZADO") body.totalSessoes = Number(totalSessoes);
+
+      const res = await fetch("/api/pacotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível criar o atendimento");
+        return;
+      }
+      onCriado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function handleCriarMentorado(e: React.FormEvent) {
+    e.preventDefault();
+    if (!alunoId) {
+      setErro("selecione um mentorado");
+      return;
+    }
+    if (!dataInicial || !horario) {
+      setErro("informe o dia e o horário da reunião");
+      return;
+    }
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/agendamentos/mentoria", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alunoId,
+          dataInicial,
+          horario,
+          duracaoMin: duracaoMentorado,
+          tipoSessaoId: tipoSessaoId || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível criar a reunião");
+        return;
+      }
+      onCriado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
+        <div className="mb-4 flex items-start justify-between">
+          <h2 className="font-serif text-lg font-semibold text-fg">Novo agendamento</h2>
+          <button onClick={onFechar} className="text-muted hover:text-fg" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+
+        {tipo === null && (
+          <div className="space-y-2">
+            <button
+              onClick={() => setTipo("PACIENTE")}
+              className="w-full rounded-lg border border-border px-4 py-3 text-left text-sm font-medium text-fg hover:bg-bg"
+            >
+              Paciente
+              <span className="mt-0.5 block text-xs font-normal text-muted">Sessão de atendimento (avulsa ou em pacote)</span>
+            </button>
+            <button
+              onClick={() => mentoriaAtivada && setTipo("MENTORADO")}
+              disabled={!mentoriaAtivada}
+              className="w-full rounded-lg border border-border px-4 py-3 text-left text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Mentorado
+              <span className="mt-0.5 block text-xs font-normal text-muted">
+                {mentoriaAtivada ? "Reunião avulsa de mentoria" : "Módulo Mentoria não está ativado nesta clínica"}
+              </span>
+            </button>
+          </div>
+        )}
+
+        {tipo === "PACIENTE" && (
+          <form onSubmit={handleCriarPaciente} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Paciente</label>
+              {pacienteEscolhido ? (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2">
+                  <span className="text-sm text-fg">{pacienteEscolhido.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => setPacienteEscolhido(null)}
+                    className="text-xs font-medium text-gold hover:underline"
+                  >
+                    trocar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="buscar por nome..."
+                    value={buscaPaciente}
+                    onChange={(e) => setBuscaPaciente(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                  {opcoesPaciente.length > 0 && (
+                    <ul className="mt-1 max-h-40 overflow-auto rounded-lg border border-border">
+                      {opcoesPaciente.map((p) => (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPacienteEscolhido(p);
+                              setOpcoesPaciente([]);
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-fg hover:bg-bg"
+                          >
+                            {p.nome}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Tipo de atendimento</label>
+              {tiposSessao.length === 0 ? (
+                <p className="text-sm text-muted">Nenhum tipo de atendimento cadastrado.</p>
+              ) : (
+                <select
+                  value={tipoSessaoId}
+                  onChange={(e) => {
+                    setTipoSessaoId(e.target.value);
+                    const t = tiposSessao.find((ts) => ts.id === e.target.value);
+                    if (t?.ehAtendimentoUnico) setTipoPacote(TIPOS_PACOTE_OPCOES[0]);
+                  }}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  <option value="">selecione...</option>
+                  {tiposSessao.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.nome}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Recorrência</label>
+              <select
+                value={tipoPacote}
+                onChange={(e) => setTipoPacote(e.target.value)}
+                disabled={tipoSessaoEhUnico}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {(tipoSessaoEhUnico ? [TIPOS_PACOTE_OPCOES[0]] : TIPOS_PACOTE_OPCOES).map((t) => (
+                  <option key={t} value={t}>
+                    {TIPO_PACOTE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {tipoPacote === "PERSONALIZADO" && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Total de sessões</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={totalSessoes}
+                  onChange={(e) => setTotalSessoes(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">Dia da 1ª sessão</label>
+                <DatePickerSP value={dataInicial} onChange={setDataInicial} />
+              </div>
+              <div>
+                <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">Horário</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="14:00"
+                  pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                  value={horario}
+                  onChange={(e) => setHorario(mascararHorarioAgenda(e.target.value))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+            </div>
+
+            {erro && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setTipo(null)}
+                disabled={salvando}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={salvando}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white hover:bg-gold/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvando ? "Criando..." : "Criar atendimento"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {tipo === "MENTORADO" && (
+          <form onSubmit={handleCriarMentorado} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Mentorado</label>
+              {opcoesAluno.length === 0 ? (
+                <p className="text-sm text-muted">Nenhum aluno cadastrado em Mentoria → Alunos.</p>
+              ) : (
+                <select
+                  value={alunoId}
+                  onChange={(e) => setAlunoId(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                >
+                  <option value="">selecione...</option>
+                  {opcoesAluno.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nomeCompleto}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Tipo de atendimento (opcional)</label>
+              <select
+                value={tipoSessaoId}
+                onChange={(e) => setTipoSessaoId(e.target.value)}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              >
+                <option value="">sem tipo</option>
+                {tiposSessao.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">Dia</label>
+                <DatePickerSP value={dataInicial} onChange={setDataInicial} />
+              </div>
+              <div>
+                <label className="mb-1 block whitespace-nowrap text-sm font-medium text-fg">Horário</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="14:00"
+                  pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                  value={horario}
+                  onChange={(e) => setHorario(mascararHorarioAgenda(e.target.value))}
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-fg">Duração (min)</label>
+              <select
+                value={duracaoMentorado}
+                onChange={(e) => setDuracaoMentorado(Number(e.target.value))}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              >
+                {[30, 45, 60, 90, 120].map((min) => (
+                  <option key={min} value={min}>
+                    {min} min
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {erro && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setTipo(null)}
+                disabled={salvando}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={salvando}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white hover:bg-gold/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvando ? "Criando..." : "Criar reunião"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EscopoMoveModal({
   sessao,
   qtdIrmas,
@@ -1154,7 +1623,7 @@ function EscopoMoveModal({
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
         <h2 className="mb-2 font-serif text-lg font-semibold text-fg">Mover sessões futuras?</h2>
         <p className="mb-4 text-sm text-muted">
-          A sessão {sessao.numeroSessao}/{sessao.totalPacote} de {sessao.paciente.nome} faz parte de um pacote com{" "}
+          A sessão {sessao.numeroSessao}/{sessao.totalPacote} de {nomeDaSessao(sessao)} faz parte de um pacote com{" "}
           {qtdIrmas} sessão{qtdIrmas > 1 ? "ões" : ""} seguinte{qtdIrmas > 1 ? "s" : ""}. “Esta e as futuras”
           realinha todas as seguintes para o novo dia e horário, mantendo a cadência semanal.
         </p>
@@ -1378,9 +1847,11 @@ function SessaoDetalheModal({
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h2 className="font-serif text-lg font-semibold text-fg">{sessao.paciente.nome}</h2>
+            <h2 className="font-serif text-lg font-semibold text-fg">{nomeDaSessao(sessao)}</h2>
             <p className="text-sm text-muted">
-              Sessão {sessao.numeroSessao}/{sessao.totalPacote} — {sessao.tipoSessao?.nome ?? "Sem tipo"}
+              {sessao.aluno
+                ? `Reunião de mentoria — ${sessao.tipoSessao?.nome ?? "Sem tipo"}`
+                : `Sessão ${sessao.numeroSessao}/${sessao.totalPacote} — ${sessao.tipoSessao?.nome ?? "Sem tipo"}`}
             </p>
             <p className="text-sm text-muted">
               {inicio.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: TIMEZONE })} às{" "}
@@ -1466,12 +1937,14 @@ function SessaoDetalheModal({
               >
                 Duração
               </button>
-              <button
-                onClick={() => onEditarPaciente(sessao.pacienteId)}
-                className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
-              >
-                Editar paciente
-              </button>
+              {sessao.pacienteId && (
+                <button
+                  onClick={() => onEditarPaciente(sessao.pacienteId!)}
+                  className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+                >
+                  Editar paciente
+                </button>
+              )}
               <button
                 onClick={() => {
                   setMotivo("");
@@ -1499,13 +1972,15 @@ function SessaoDetalheModal({
               >
                 {copiado === "meet" ? "Copiado!" : "Copiar link Meet"}
               </button>
-              <button
-                onClick={() => onAbrirAnamnese(sessao.pacienteId)}
-                className="flex items-center gap-1.5 rounded-lg border border-gold px-2 py-1 text-sm font-medium text-gold hover:bg-gold/10"
-              >
-                <IconPrancheta className="h-3.5 w-3.5" />
-                Anamnese
-              </button>
+              {sessao.pacienteId && (
+                <button
+                  onClick={() => onAbrirAnamnese(sessao.pacienteId!)}
+                  className="flex items-center gap-1.5 rounded-lg border border-gold px-2 py-1 text-sm font-medium text-gold hover:bg-gold/10"
+                >
+                  <IconPrancheta className="h-3.5 w-3.5" />
+                  Anamnese
+                </button>
+              )}
             </div>
           </div>
         )}

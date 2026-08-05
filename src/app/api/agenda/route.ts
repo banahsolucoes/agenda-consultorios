@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const t0 = Date.now();
   const sessoes = await prisma.agendamento.findMany({
     where: {
-      paciente: { clinicaId: usuario.clinicaId },
+      clinicaId: usuario.clinicaId,
       inicio: { gte: inicio, lte: fim },
       // Sessão cancelada some do calendário visual (a profissional acompanha
       // pelo Google Agenda no celular, que só deve refletir sessões ativas);
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     },
     include: {
       paciente: { select: { id: true, nome: true } },
+      aluno: { select: { id: true, nomeCompleto: true } },
       tipoSessao: { select: { id: true, nome: true, cor: true, ehAtendimentoUnico: true } },
     },
     orderBy: { inicio: "asc" },

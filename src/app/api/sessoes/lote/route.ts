@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
-import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
+import { formatarTituloAgendamento, formatarTituloMentorado, nomeSessao } from "@/lib/blocoAgenda";
 import { registrarLog } from "@/lib/auditoria";
 import {
   filtrarSessoesElegiveis,
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   const sessoes = await prisma.agendamento.findMany({
     where: { id: { in: ids } },
-    include: { paciente: true, tipoSessao: true },
+    include: { paciente: true, aluno: true, tipoSessao: true },
   });
 
   // Toda sessão fora da clínica do usuário logado é tratada como "não
@@ -110,13 +110,16 @@ export async function POST(req: NextRequest) {
       const google = await obterClinicaECalendar(usuario.clinicaId);
       if (google) {
         for (const s of comEvento) {
-          const titulo = `${formatarTituloAgendamento({
-            nomePaciente: s.paciente.nome,
-            tipoSessaoNome: s.tipoSessao?.nome ?? null,
-            ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
-            numeroSessao: s.numeroSessao,
-            totalPacote: s.totalPacote,
-          })}${s.confirmada ? " ✅" : ""}${SUFIXO_STATUS[status] ?? ""}`;
+          const tituloBase = s.aluno
+            ? formatarTituloMentorado(s.aluno.nomeCompleto)
+            : formatarTituloAgendamento({
+                nomePaciente: s.paciente?.nome ?? "",
+                tipoSessaoNome: s.tipoSessao?.nome ?? null,
+                ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
+                numeroSessao: s.numeroSessao ?? 0,
+                totalPacote: s.totalPacote ?? 0,
+              });
+          const titulo = `${tituloBase}${s.confirmada ? " ✅" : ""}${SUFIXO_STATUS[status] ?? ""}`;
           const ok = await sincronizarEventoGoogle(
             google.calendar,
             s.googleCalendarId ?? s.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
@@ -135,14 +138,14 @@ export async function POST(req: NextRequest) {
 
   // Sessões selecionadas podem pertencer a pacotes diferentes do mesmo
   // paciente (ex.: atendimento renovado) — verifica a finalização de cada um.
-  const pacoteIds = Array.from(new Set(validas.map((s) => s.pacoteId)));
+  const pacoteIds = Array.from(new Set(validas.map((s) => s.pacoteId).filter((id): id is string => id !== null)));
   let pacoteFinalizado = false;
   for (const pacoteId of pacoteIds) {
     const finalizou = await verificarFinalizacao(pacoteId, usuario.id);
     if (finalizou) pacoteFinalizado = true;
   }
 
-  const nomePaciente = resolverNomePaciente(validas.map((s) => s.paciente.nome));
+  const nomePaciente = resolverNomePaciente(validas.map((s) => nomeSessao(s)));
   const acao = status === "CANCELADA" ? "LOTE_CANCELAR" : "LOTE_STATUS";
   const detalhe = montarDetalheLote(status, validas.length, nomePaciente, motivo, arquivar);
 

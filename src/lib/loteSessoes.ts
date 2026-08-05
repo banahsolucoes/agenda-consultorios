@@ -14,14 +14,14 @@ export function statusLoteValido(status: unknown): status is StatusLoteValido {
 interface SessaoParaFiltro {
   id: string;
   status: string;
-  paciente: { clinicaId: string };
+  clinicaId: string;
 }
 
 // Sessões elegíveis para a ação em lote: pertencem à clínica do usuário
 // logado e ainda não foram consumidas. As demais são "puladas" — nunca
 // barram a operação inteira.
 export function filtrarSessoesElegiveis<T extends SessaoParaFiltro>(sessoes: T[], clinicaId: string): T[] {
-  return sessoes.filter((s) => s.paciente.clinicaId === clinicaId && !STATUS_CONSUMIDOS_LOTE.includes(s.status));
+  return sessoes.filter((s) => s.clinicaId === clinicaId && !STATUS_CONSUMIDOS_LOTE.includes(s.status));
 }
 
 export function resolverNomePaciente(nomes: string[]): string {

@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < total; i++) {
     const inicio = new Date(primeira.getTime() + i * 7 * DIA_MS);
     sessoes.push({
+      clinicaId: usuario.clinicaId,
       pacoteId: pacote.id, pacienteId,
       numeroSessao: i + 1, totalPacote: total,
       inicio, duracaoMin: tipoSessaoDuracaoMin,

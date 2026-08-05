@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
 import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle } from "@/lib/google";
-import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
+import { formatarTituloAgendamento, formatarTituloMentorado, nomeSessao } from "@/lib/blocoAgenda";
 import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
 import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
@@ -48,6 +48,30 @@ function dentroDoExpediente(
     : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
 }
 
+// Título do evento do Google, ramificando entre sessão de paciente (numerada,
+// via pacote) e reunião avulsa de mentorado (rótulo fixo, sem numeração) —
+// mesma função reaproveitada em todos os pontos de sincronização com o Google
+// desta rota, para nunca haver caminho de título divergente entre os dois.
+function tituloDaSessao(
+  sessao: {
+    aluno: { nomeCompleto: string } | null;
+    paciente: { nome: string } | null;
+    numeroSessao: number | null;
+    totalPacote: number | null;
+  },
+  tipoSessaoNome: string | null | undefined,
+  ehAtendimentoUnico: boolean
+): string {
+  if (sessao.aluno) return formatarTituloMentorado(sessao.aluno.nomeCompleto);
+  return formatarTituloAgendamento({
+    nomePaciente: sessao.paciente?.nome ?? "",
+    tipoSessaoNome,
+    ehAtendimentoUnico,
+    numeroSessao: sessao.numeroSessao ?? 0,
+    totalPacote: sessao.totalPacote ?? 0,
+  });
+}
+
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
@@ -55,9 +79,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const sessao = await prisma.agendamento.findUnique({
     where: { id },
-    include: { paciente: true, tipoSessao: true },
+    include: { paciente: true, aluno: true, tipoSessao: true },
   });
-  if (!sessao || sessao.paciente.clinicaId !== usuario.clinicaId) {
+  if (!sessao || sessao.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
   }
 
@@ -99,9 +123,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         usuario.clinicaId,
         usuario.id,
         "CANCELAR_SESSAO",
-        `Cancelou${arquivar ? " e arquivou" : ""} a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} — motivo: ${motivo}`
+        `Cancelou${arquivar ? " e arquivou" : ""} a sessão ${sessao.numeroSessao} de ${nomeSessao(sessao)} — motivo: ${motivo}`
       );
-      const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
+      const finalizou = sessao.pacoteId ? await verificarFinalizacao(sessao.pacoteId, usuario.id) : false;
       return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
     }
 
@@ -117,7 +141,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       usuario.clinicaId,
       usuario.id,
       "STATUS_SESSAO",
-      `Marcou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} como ${statusLabel(body.status)}`
+      `Marcou a sessão ${sessao.numeroSessao} de ${nomeSessao(sessao)} como ${statusLabel(body.status)}`
     );
 
     // Reflete a mudança de status no título do evento do Google, se a sessão
@@ -128,13 +152,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (sessao.googleEventId) {
       const google = await obterClinicaECalendar(usuario.clinicaId);
       if (google) {
-        const titulo = `${formatarTituloAgendamento({
-          nomePaciente: sessao.paciente.nome,
-          tipoSessaoNome: sessao.tipoSessao?.nome ?? null,
-          ehAtendimentoUnico: sessao.tipoSessao?.ehAtendimentoUnico ?? false,
-          numeroSessao: sessao.numeroSessao,
-          totalPacote: sessao.totalPacote,
-        })}${sessao.confirmada ? " ✅" : ""}${SUFIXO_STATUS[body.status] ?? ""}`;
+        const titulo = `${tituloDaSessao(
+          sessao,
+          sessao.tipoSessao?.nome ?? null,
+          sessao.tipoSessao?.ehAtendimentoUnico ?? false
+        )}${sessao.confirmada ? " ✅" : ""}${SUFIXO_STATUS[body.status] ?? ""}`;
         const ok = await sincronizarEventoGoogle(
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
@@ -149,7 +171,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
     }
 
-    const finalizou = await verificarFinalizacao(sessao.pacoteId, usuario.id);
+    const finalizou = sessao.pacoteId ? await verificarFinalizacao(sessao.pacoteId, usuario.id) : false;
     return NextResponse.json({ ...atualizada, pacoteFinalizado: finalizou });
   }
 
@@ -164,7 +186,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ erro: "sessão consumida não pode ser editada" }, { status: 400 });
     }
 
-    const escopo = body.escopo === "ESTA_E_FUTURAS" ? "ESTA_E_FUTURAS" : "ESTA";
+    // Reunião avulsa de mentorado não tem pacote — "esta e as futuras" não
+    // existe pra ela, mesmo que o body peça (cai em "esta" silenciosamente).
+    const escopo = body.escopo === "ESTA_E_FUTURAS" && sessao.pacoteId ? "ESTA_E_FUTURAS" : "ESTA";
 
     const dataMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(body.novaData);
     if (!dataMatch) return NextResponse.json({ erro: "data inválida" }, { status: 400 });
@@ -195,7 +219,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const inicioMin = h * 60 + m;
     const fimMin = inicioMin + sessao.duracaoMin;
     const todosHorarios = await prisma.horarioTrabalho.findMany({
-      where: { clinicaId: sessao.paciente.clinicaId },
+      where: { clinicaId: sessao.clinicaId },
     });
     if (!dentroDoExpediente(todosHorarios, diaSemanaNome, inicioMin, fimMin)) {
       return NextResponse.json({ erro: "horário fora do expediente da clínica" }, { status: 400 });
@@ -212,7 +236,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const irmas = await prisma.agendamento.findMany({
         where: {
           pacoteId: sessao.pacoteId,
-          numeroSessao: { gt: sessao.numeroSessao },
+          numeroSessao: { gt: sessao.numeroSessao ?? 0 },
           status: "AGENDADA",
           arquivada: false,
         },
@@ -223,7 +247,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       // Isolamento de tenant: toda irmã precisa pertencer à mesma clínica do
       // usuário logado (garantido estruturalmente por pacoteId->paciente,
       // mas confirmado aqui de forma explícita).
-      if (irmas.some((irma) => irma.paciente.clinicaId !== usuario.clinicaId)) {
+      if (irmas.some((irma) => irma.clinicaId !== usuario.clinicaId)) {
         return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
       }
 
@@ -240,7 +264,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         ...irmas.map((irma) => ({
           id: irma.id,
           numeroSessao: irma.numeroSessao,
-          novoInicio: new Date(novaData.getTime() + (irma.numeroSessao - sessao.numeroSessao) * 7 * DIA_MS),
+          novoInicio: new Date(novaData.getTime() + ((irma.numeroSessao ?? 0) - (sessao.numeroSessao ?? 0)) * 7 * DIA_MS),
           duracaoMin: irma.duracaoMin,
           googleEventId: irma.googleEventId,
           googleCalendarId: irma.googleCalendarId ?? irma.tipoSessao?.googleCalendarId ?? null,
@@ -300,7 +324,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         usuario.clinicaId,
         usuario.id,
         "EDITAR_SESSAO",
-        `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} e realinhou ${irmas.length} sessão(ões) seguinte(s) a partir de ${formatarDataHoraSP(novaData)}`
+        `Editou a sessão ${sessao.numeroSessao} de ${nomeSessao(sessao)} e realinhou ${irmas.length} sessão(ões) seguinte(s) a partir de ${formatarDataHoraSP(novaData)}`
       );
 
       // Reflete o novo horário de cada sessão movida com evento vinculado no
@@ -308,7 +332,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       // lote todo, e falha na integração nunca desfaz o que já foi movido.
       const movimentosComEvento = movimentos.filter((mov) => mov.googleEventId);
       if (movimentosComEvento.length > 0) {
-        const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+        const google = await obterClinicaECalendar(sessao.clinicaId);
         if (google) {
           for (const mov of movimentosComEvento) {
             await sincronizarEventoGoogle(
@@ -333,17 +357,23 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       });
     }
 
-    // Conflito de semana: nenhuma outra sessão (não cancelada) deste mesmo
-    // paciente pode cair na mesma semana (segunda a domingo, calendário de
-    // São Paulo) da nova data. Validado aqui no backend — não confiamos
-    // apenas na checagem já feita no front.
-    const outrasSessoesPaciente = await prisma.agendamento.findMany({
-      where: { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
+    // Conflito de semana: nenhuma outra sessão (não cancelada) desta mesma
+    // pessoa — paciente ou mentorado — pode cair na mesma semana (segunda a
+    // domingo, calendário de São Paulo) da nova data. Validado aqui no
+    // backend — não confiamos apenas na checagem já feita no front.
+    // `pacienteId: sessao.pacienteId` sozinho quebraria pra mentorado
+    // (pacienteId null casaria com todo agendamento sem paciente, de
+    // qualquer clínica) — por isso o filtro é sempre por quem é dono desta
+    // sessão especificamente.
+    const outrasSessoesMesmaPessoa = await prisma.agendamento.findMany({
+      where: sessao.alunoId
+        ? { alunoId: sessao.alunoId, id: { not: sessao.id } }
+        : { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
       select: { id: true, inicio: true, status: true },
     });
-    if (existeConflitoDeSemana(novaData, outrasSessoesPaciente)) {
+    if (existeConflitoDeSemana(novaData, outrasSessoesMesmaPessoa)) {
       return NextResponse.json(
-        { erro: "Não é possível: já existe uma sessão deste paciente nesta semana." },
+        { erro: `Não é possível: já existe uma sessão deste${sessao.alunoId ? " mentorado" : " paciente"} nesta semana.` },
         { status: 409 }
       );
     }
@@ -356,13 +386,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       usuario.clinicaId,
       usuario.id,
       "EDITAR_SESSAO",
-      `Editou a sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} para ${formatarDataHoraSP(novaData)}`
+      `Editou a sessão ${sessao.numeroSessao} de ${nomeSessao(sessao)} para ${formatarDataHoraSP(novaData)}`
     );
 
     // Reflete o novo horário no Google Calendar, se a sessão tiver evento
     // vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
     if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      const google = await obterClinicaECalendar(sessao.clinicaId);
       if (google) {
         await sincronizarEventoGoogle(
           google.calendar,
@@ -397,7 +427,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const inicioMin = inicioComponentes.hora * 60 + inicioComponentes.minuto;
     const fimMin = inicioMin + novaDuracaoMin;
     const todosHorarios = await prisma.horarioTrabalho.findMany({
-      where: { clinicaId: sessao.paciente.clinicaId },
+      where: { clinicaId: sessao.clinicaId },
     });
     if (!dentroDoExpediente(todosHorarios, diaSemanaNome, inicioMin, fimMin)) {
       return NextResponse.json({ erro: "duração ultrapassa o expediente da clínica" }, { status: 400 });
@@ -411,13 +441,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       usuario.clinicaId,
       usuario.id,
       "ALTERAR_DURACAO_SESSAO",
-      `Alterou a duração da sessão ${sessao.numeroSessao} de ${sessao.paciente.nome} de ${sessao.duracaoMin} para ${novaDuracaoMin} minutos`
+      `Alterou a duração da sessão ${sessao.numeroSessao} de ${nomeSessao(sessao)} de ${sessao.duracaoMin} para ${novaDuracaoMin} minutos`
     );
 
     // Reflete o novo fim do evento no Google Calendar, se a sessão tiver
     // evento vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
     if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      const google = await obterClinicaECalendar(sessao.clinicaId);
       if (google) {
         await sincronizarEventoGoogle(
           google.calendar,
@@ -438,7 +468,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
 
     const novoTipo = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
-    if (!novoTipo || novoTipo.clinicaId !== sessao.paciente.clinicaId) {
+    if (!novoTipo || novoTipo.clinicaId !== sessao.clinicaId) {
       return NextResponse.json({ erro: "tipo de atendimento inválido" }, { status: 400 });
     }
 
@@ -457,20 +487,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     let avisoMeet: string | null = null;
 
     const precisaGoogle = (!eraOnline && ficaOnline && !sessao.linkMeet) || Boolean(sessao.googleEventId);
-    const google = precisaGoogle ? await obterClinicaECalendar(sessao.paciente.clinicaId) : null;
+    const google = precisaGoogle ? await obterClinicaECalendar(sessao.clinicaId) : null;
 
     // Nome/numeração do paciente não mudam com a troca de tipo — mas o rótulo
     // de atendimento único (ex.: avaliação) depende do tipo em si, então usa
     // o novoTipo (destino da troca), não o tipo antigo da sessão: se a troca
     // entra ou sai de um tipo de atendimento único, o título precisa refletir
     // isso já nesta chamada, sem esperar uma próxima sincronização.
-    const titulo = `${formatarTituloAgendamento({
-      nomePaciente: sessao.paciente.nome,
-      tipoSessaoNome: novoTipo.nome,
-      ehAtendimentoUnico: novoTipo.ehAtendimentoUnico,
-      numeroSessao: sessao.numeroSessao,
-      totalPacote: sessao.totalPacote,
-    })}${sessao.confirmada ? " ✅" : ""}`;
+    const titulo = `${tituloDaSessao(sessao, novoTipo.nome, novoTipo.ehAtendimentoUnico)}${sessao.confirmada ? " ✅" : ""}`;
 
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
       if (google) {
@@ -524,15 +548,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     });
 
     if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(sessao.paciente.clinicaId);
+      const google = await obterClinicaECalendar(sessao.clinicaId);
       if (google) {
-        const titulo = `${formatarTituloAgendamento({
-          nomePaciente: sessao.paciente.nome,
-          tipoSessaoNome: sessao.tipoSessao?.nome ?? null,
-          ehAtendimentoUnico: sessao.tipoSessao?.ehAtendimentoUnico ?? false,
-          numeroSessao: sessao.numeroSessao,
-          totalPacote: sessao.totalPacote,
-        })}${body.confirmada ? " ✅" : ""}`;
+        const titulo = `${tituloDaSessao(
+          sessao,
+          sessao.tipoSessao?.nome ?? null,
+          sessao.tipoSessao?.ehAtendimentoUnico ?? false
+        )}${body.confirmada ? " ✅" : ""}`;
         await sincronizarEventoGoogle(
           google.calendar,
           sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",

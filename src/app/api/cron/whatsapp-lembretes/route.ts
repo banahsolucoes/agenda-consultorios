@@ -21,13 +21,18 @@ const TIPO_MENSAGEM_DIA = "meet_dia";
 const JANELA_INICIO_H = 24;
 const JANELA_FIM_H = 72;
 
-type Falha = { agendamentoId: string; pacienteId: string; erro: string };
+type Falha = { agendamentoId: string; pacienteId: string | null; erro: string };
 
 async function enviarLembretes48h(agora: Date) {
   const inicioJanela = new Date(agora.getTime() + JANELA_INICIO_H * HORA_MS);
   const fimJanela = new Date(agora.getTime() + JANELA_FIM_H * HORA_MS);
 
-  const candidatos = await prisma.agendamento.findMany({
+  // O filtro `paciente: {...}` já exclui estruturalmente qualquer agendamento
+  // sem paciente (reunião de mentorado) — sem lembrete de WhatsApp para
+  // mentorado nesta entrega. O `.filter` abaixo é só pra TS: o campo virou
+  // opcional no schema (Agendamento agora também pode ser de mentorado), mas
+  // o filtro da query já garante paciente presente em todo item retornado.
+  const candidatosBrutos = await prisma.agendamento.findMany({
     where: {
       inicio: { gte: inicioJanela, lt: fimJanela },
       status: { not: "CANCELADA" },
@@ -38,6 +43,9 @@ async function enviarLembretes48h(agora: Date) {
     include: { paciente: true },
     orderBy: { inicio: "asc" },
   });
+  const candidatos = candidatosBrutos.filter(
+    (a): a is typeof a & { paciente: NonNullable<typeof a.paciente> } => a.paciente !== null
+  );
 
   let enviados = 0;
   const falhas: Falha[] = [];
@@ -52,7 +60,7 @@ async function enviarLembretes48h(agora: Date) {
     try {
       const resultado = await getProvider().enviarTemplate({
         clinicaId: agendamento.paciente.clinicaId,
-        pacienteId: agendamento.pacienteId,
+        pacienteId: agendamento.paciente.id,
         telefone,
         nome: agendamento.paciente.nome,
         data: formatarDataCurtaSP(agendamento.inicio),
@@ -93,7 +101,10 @@ async function enviarMensagensDoDia(agora: Date) {
   const inicioHoje = criarDataSP(c.ano, c.mes, c.dia, 0, 0, 0);
   const fimHoje = criarDataSP(c.ano, c.mes, c.dia, 23, 59, 59);
 
-  const candidatos = await prisma.agendamento.findMany({
+  // Mesma observação da função acima: o filtro `paciente: {...}` já exclui
+  // reuniões de mentorado (sem paciente) — o `.filter` é só pra satisfazer o
+  // TS agora que o campo é opcional no schema.
+  const candidatosBrutos = await prisma.agendamento.findMany({
     where: {
       inicio: { gte: inicioHoje, lte: fimHoje },
       status: { not: "CANCELADA" },
@@ -103,6 +114,9 @@ async function enviarMensagensDoDia(agora: Date) {
     include: { paciente: { include: { clinica: true } } },
     orderBy: { inicio: "asc" },
   });
+  const candidatos = candidatosBrutos.filter(
+    (a): a is typeof a & { paciente: NonNullable<typeof a.paciente> } => a.paciente !== null
+  );
 
   let enviados = 0;
   const falhas: Falha[] = [];

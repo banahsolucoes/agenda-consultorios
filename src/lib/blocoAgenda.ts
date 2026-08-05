@@ -1,5 +1,22 @@
 import { primeiroUltimoNome } from "@/lib/nomes";
 
+// Nome de exibição de uma sessão — de paciente ou de mentorado (avulsa,
+// sem pacote). Ponto único pra não espalhar `paciente?.nome ?? aluno?.nomeCompleto`
+// pelas rotas de sessão.
+export function nomeSessao(sessao: {
+  paciente?: { nome: string } | null;
+  aluno?: { nomeCompleto: string } | null;
+}): string {
+  return sessao.paciente?.nome ?? sessao.aluno?.nomeCompleto ?? "";
+}
+
+// Título do evento do Google Calendar/Meet para reunião avulsa de mentorado
+// (sem pacote, sem numeração) — formato fixo definido para o lançamento do
+// módulo de mentoria na agenda: "FonoElite (Pâmela & {nomeMentorado})".
+export function formatarTituloMentorado(nomeMentorado: string): string {
+  return `FonoElite (Pâmela & ${nomeMentorado})`;
+}
+
 // Texto da primeira linha do bloco de sessão na agenda visual: primeiro nome
 // do paciente + numeração do pacote (ou o nome do tipo, se for atendimento
 // único — ex.: avaliação, que não faz sentido numerar), com um ✅ ao final

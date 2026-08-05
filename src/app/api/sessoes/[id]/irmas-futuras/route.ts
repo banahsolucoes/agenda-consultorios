@@ -14,16 +14,20 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const { id } = await ctx.params;
   const sessao = await prisma.agendamento.findUnique({
     where: { id },
-    include: { paciente: true },
   });
-  if (!sessao || sessao.paciente.clinicaId !== usuario.clinicaId) {
+  if (!sessao || sessao.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
+  }
+
+  // Reunião avulsa de mentorado não tem pacote — nunca tem "irmãs futuras".
+  if (!sessao.pacoteId) {
+    return NextResponse.json({ temFuturas: false, quantidade: 0 });
   }
 
   const quantidade = await prisma.agendamento.count({
     where: {
       pacoteId: sessao.pacoteId,
-      numeroSessao: { gt: sessao.numeroSessao },
+      numeroSessao: { gt: sessao.numeroSessao ?? 0 },
       status: "AGENDADA",
       arquivada: false,
     },

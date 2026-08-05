@@ -48,8 +48,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ erro: "sessão de corte não encontrada" }, { status: 404 });
   }
 
-  const anteriores = sessoes.filter((s) => s.numeroSessao < corte.numeroSessao);
-  const aMover = sessoes.filter((s) => s.numeroSessao >= corte.numeroSessao);
+  // pacienteId sempre não-nulo nesta query — toda sessão aqui é numerada
+  // (vem de um pacote), nunca uma reunião avulsa de mentorado.
+  const anteriores = sessoes.filter((s) => (s.numeroSessao ?? 0) < (corte.numeroSessao ?? 0));
+  const aMover = sessoes.filter((s) => (s.numeroSessao ?? 0) >= (corte.numeroSessao ?? 0));
 
   // Regra de conflito: a sessão de corte recuada 7 dias não pode cair na mesma
   // semana (segunda a domingo) de uma sessão anterior que não será movida.
@@ -108,8 +110,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
               nomePaciente: paciente.nome,
               tipoSessaoNome: mov.sessao.tipoSessao?.nome ?? null,
               ehAtendimentoUnico: mov.sessao.tipoSessao?.ehAtendimentoUnico ?? false,
-              numeroSessao: mov.sessao.numeroSessao,
-              totalPacote: mov.sessao.totalPacote,
+              numeroSessao: mov.sessao.numeroSessao ?? 0,
+              totalPacote: mov.sessao.totalPacote ?? 0,
             }),
             inicio: mov.novaData,
             duracaoMin: mov.sessao.duracaoMin,

@@ -10,7 +10,7 @@ const CLINICA_A = "clinica-a";
 const CLINICA_B = "clinica-b";
 
 function sessao(id: string, status: string, clinicaId: string = CLINICA_A) {
-  return { id, status, paciente: { clinicaId } };
+  return { id, status, clinicaId };
 }
 
 describe("statusLoteValido", () => {

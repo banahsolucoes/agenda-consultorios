@@ -86,6 +86,7 @@ model Clinica {
   conversasWhatsapp   ConversaWhatsapp[]
   formulariosAnamnese FormularioAnamnese[]
   enviosFormulario    EnvioFormulario[]
+  agendamentos        Agendamento[]
 
   mentoriaAtivada   Boolean            @default(false)
   mentoriaAlunos    MentoriaAluno[]
@@ -259,10 +260,12 @@ model Pacote {
 
 model Agendamento {
   id                        String                    @id @default(uuid())
-  pacoteId                  String
-  pacienteId                String
-  numeroSessao              Int
-  totalPacote               Int
+  clinicaId                 String
+  pacoteId                  String?
+  pacienteId                String?
+  alunoId                   String?
+  numeroSessao              Int?
+  totalPacote               Int?
   inicio                    DateTime
   duracaoMin                Int                       @default(45)
   status                    StatusSessao              @default(AGENDADA)
@@ -277,11 +280,15 @@ model Agendamento {
   lembreteWhatsappEnviadoEm DateTime?
   criadoEm                  DateTime                  @default(now())
 
-  pacote     Pacote      @relation(fields: [pacoteId], references: [id])
-  paciente   Paciente    @relation(fields: [pacienteId], references: [id])
-  tipoSessao TipoSessao? @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
+  clinica    Clinica        @relation(fields: [clinicaId], references: [id])
+  pacote     Pacote?        @relation(fields: [pacoteId], references: [id], onDelete: Restrict)
+  paciente   Paciente?      @relation(fields: [pacienteId], references: [id], onDelete: Restrict)
+  aluno      MentoriaAluno? @relation(fields: [alunoId], references: [id])
+  tipoSessao TipoSessao?    @relation(fields: [tipoSessaoId], references: [id], onDelete: Restrict)
 
+  @@index([clinicaId])
   @@index([pacienteId])
+  @@index([alunoId])
   @@index([inicio])
   @@index([tipoSessaoId])
 }
@@ -628,6 +635,7 @@ model MentoriaAluno {
   submissionId      String?
 
   contratos    MentoriaContrato[]
+  agendamentos Agendamento[]
   criadoEm     DateTime           @default(now())
   atualizadoEm DateTime           @updatedAt
 
