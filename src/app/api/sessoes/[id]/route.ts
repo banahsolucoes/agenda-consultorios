@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle } from "@/lib/google";
+import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle, resolverCalendarIdMentorado } from "@/lib/google";
 import { formatarTituloAgendamento, formatarTituloMentorado, nomeSessao } from "@/lib/blocoAgenda";
 import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
 import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
@@ -498,9 +498,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     if (!eraOnline && ficaOnline && !sessao.linkMeet) {
       if (google) {
+        // Regra da categoria: reunião de mentorado nunca cria evento no
+        // calendário do tipo/clínica — sempre no calendário de mentoria,
+        // mesmo quando essa troca de tipo é o que dispara a criação do
+        // evento (ex.: Google reconectado depois de ter falhado na criação).
+        const calendarIdDestino = sessao.alunoId
+          ? resolverCalendarIdMentorado(novoTipo.googleCalendarId)
+          : (novoTipo.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary");
         const resultado = await criarEventoGoogleMeet(
           google.calendar,
-          novoTipo.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
+          calendarIdDestino,
           { titulo, inicio: sessao.inicio, duracaoMin: novaDuracaoMin, cor: novoTipo.cor },
           true,
           google.clinica.id

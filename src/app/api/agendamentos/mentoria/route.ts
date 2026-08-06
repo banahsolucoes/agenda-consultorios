@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { obterClinicaECalendar, criarEventoGoogleMeet } from "@/lib/google";
+import { obterClinicaECalendar, criarEventoGoogleMeet, resolverCalendarIdMentorado } from "@/lib/google";
 import { formatarTituloMentorado } from "@/lib/blocoAgenda";
 import { criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
@@ -58,12 +58,14 @@ export async function POST(req: NextRequest) {
   const inicio = criarDataSP(dataEscolhida.ano, dataEscolhida.mes, dataEscolhida.dia, h, m);
 
   let tipoSessaoId: string | null = null;
+  let tipoSessaoGoogleCalendarId: string | null = null;
   if (body.tipoSessaoId !== undefined && body.tipoSessaoId !== null) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
       return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
     }
     tipoSessaoId = tipoSessao.id;
+    tipoSessaoGoogleCalendarId = tipoSessao.googleCalendarId;
   }
 
   const duracaoMin =
@@ -76,7 +78,10 @@ export async function POST(req: NextRequest) {
   // Mesma engine de Google Calendar/Meet do fluxo de paciente
   // (criarEventoGoogleMeet — src/lib/google.ts) — nenhum caminho de sync
   // paralelo. Meet sempre gerado para reunião de mentorado (comMeet: true),
-  // independente de tipo de sessão.
+  // independente de tipo de sessão. Calendário: SEMPRE o de mentoria — o
+  // calendário clínico (Clinica.googleCalendarId) nunca é fallback válido
+  // aqui, regra da categoria (ver resolverCalendarIdMentorado).
+  const calendarIdDestino = resolverCalendarIdMentorado(tipoSessaoGoogleCalendarId);
   const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
   const google = clinica ? await obterClinicaECalendar(clinica.id) : null;
 
@@ -88,7 +93,7 @@ export async function POST(req: NextRequest) {
   if (google && clinica) {
     dadosGoogle = await criarEventoGoogleMeet(
       google.calendar,
-      clinica.googleCalendarId ?? "primary",
+      calendarIdDestino,
       { titulo, inicio, duracaoMin },
       true,
       clinica.id

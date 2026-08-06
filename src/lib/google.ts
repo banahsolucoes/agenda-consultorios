@@ -25,6 +25,30 @@ const ESCOPOS_GOOGLE = [
   "https://www.googleapis.com/auth/spreadsheets.readonly",
 ];
 
+// Calendário Google dedicado a reuniões de mentoria (2026-08-06) — toda
+// reunião de mentorado (Agendamento.alunoId presente) sincroniza aqui,
+// NUNCA no calendário clínico (nem TipoSessao.googleCalendarId de outro
+// tipo, nem Clinica.googleCalendarId, nem "primary" são fallback válido
+// pra mentorado — ver resolverCalendarIdMentorado abaixo).
+// Valor fixo porque hoje só existe uma clínica ativa (Fono Pâmela Rachid).
+// DÍVIDA (2026-08-06): quando houver uma 2ª clínica, isso precisa virar
+// um campo por-clínica (ex.: Clinica.googleCalendarIdMentoria) — ver
+// ARCHITECTURE.md §9. Não implementado agora por decisão explícita (fora
+// de escopo deste bloco, sem migração).
+export const CALENDAR_MENTORIA_ID =
+  "c_8c7a8a487847433ebcac52b67b3be7fdc90ddf1717dfed23c9014c82d6ce5111@group.calendar.google.com";
+
+// Calendário de destino de uma reunião de mentorado — sempre
+// CALENDAR_MENTORIA_ID. Só existe uma forma de o resultado bater com o
+// googleCalendarId de um TipoSessao: o próprio tipo já apontar pra esse
+// mesmo calendário (coincide, não é fallback). Chamar em todo ponto de
+// sync (criar/editar/mover/cancelar/status) que uma sessão com alunoId
+// possa atravessar — nunca deixar cair na cadeia clínica
+// (tipoSessao.googleCalendarId / clinica.googleCalendarId / "primary").
+export function resolverCalendarIdMentorado(tipoSessaoGoogleCalendarId?: string | null): string {
+  return tipoSessaoGoogleCalendarId === CALENDAR_MENTORIA_ID ? tipoSessaoGoogleCalendarId : CALENDAR_MENTORIA_ID;
+}
+
 // Detecta se um erro de chamada à API do Google é especificamente token
 // revogado/expirado de verdade (não um erro transitório de rede/quota) —
 // confirmado por teste controlado: err.response.data.error === "invalid_grant"
