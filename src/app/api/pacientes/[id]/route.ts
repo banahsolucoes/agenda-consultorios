@@ -40,6 +40,24 @@ const ORIGENS_VALIDAS = ["MANUAL", "FORMS"];
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 const STATUS_GERAL_VALIDOS = ["ATIVO", "CANCELADO", "FINALIZADO"];
 
+// nome é obrigatório (String, não-nulo no schema) — nunca pode virar null.
+// origemCadastro também é obrigatório (enum com default) — mesmo raciocínio.
+// Todos os demais campos de CAMPOS_EDITAVEIS são colunas opcionais (String?)
+// e seguem o contrato de três estados abaixo.
+const CAMPOS_NAO_NULAVEIS = new Set(["nome", "origemCadastro"]);
+
+// Contrato de três estados pro PATCH (2026-08-06, corrige o bug de salvar
+// paciente com diaPreferido/horarioFixo nulos — ver ARCHITECTURE.md):
+//   chave ausente no body  -> não altera o campo
+//   null                   -> limpa o campo (grava null)
+//   ""                     -> tratado como null (string vazia nunca é um
+//                              valor válido — evita o front mandar "" sem
+//                              querer e ficar destoando de quem manda null)
+//   string não-vazia       -> valida normalmente
+function normalizarVazio(valor: unknown): unknown {
+  return valor === "" ? null : valor;
+}
+
 // GET /api/pacientes/[id] — retorna o paciente da clínica logada
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const usuario = await getUsuarioLogado();
@@ -104,22 +122,35 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const body = await req.json();
 
-  if (body.diaPreferido !== undefined && !DIAS_VALIDOS.includes(body.diaPreferido)) {
-    return NextResponse.json({ erro: "diaPreferido inválido" }, { status: 400 });
-  }
-  if (body.horarioFixo !== undefined && !HORA_REGEX.test(body.horarioFixo)) {
-    return NextResponse.json({ erro: "horarioFixo deve estar no formato HH:MM" }, { status: 400 });
+  // nome/origemCadastro são obrigatórios — "" nunca vira null pra eles,
+  // rejeitado direto como valor inválido.
+  if (body.nome !== undefined && (typeof body.nome !== "string" || body.nome.trim() === "")) {
+    return NextResponse.json({ erro: "nome não pode ser vazio" }, { status: 400 });
   }
   if (body.origemCadastro !== undefined && !ORIGENS_VALIDAS.includes(body.origemCadastro)) {
     return NextResponse.json({ erro: "origemCadastro inválida" }, { status: 400 });
   }
-  if (body.tipoSessaoId) {
-    const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
+
+  // Demais campos: "" normaliza pra null antes de validar — null (explícito
+  // ou vindo de "") sempre significa "limpar o campo", nunca dispara
+  // validação de formato/existência.
+  const diaPreferido = body.diaPreferido !== undefined ? normalizarVazio(body.diaPreferido) : undefined;
+  if (diaPreferido !== undefined && diaPreferido !== null && !DIAS_VALIDOS.includes(diaPreferido as string)) {
+    return NextResponse.json({ erro: "diaPreferido inválido" }, { status: 400 });
+  }
+  const horarioFixo = body.horarioFixo !== undefined ? normalizarVazio(body.horarioFixo) : undefined;
+  if (horarioFixo !== undefined && horarioFixo !== null && !HORA_REGEX.test(horarioFixo as string)) {
+    return NextResponse.json({ erro: "horarioFixo deve estar no formato HH:MM" }, { status: 400 });
+  }
+  const tipoSessaoId = body.tipoSessaoId !== undefined ? normalizarVazio(body.tipoSessaoId) : undefined;
+  if (tipoSessaoId !== undefined && tipoSessaoId !== null) {
+    const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: tipoSessaoId as string } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
       return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
     }
   }
-  if (body.pastaDriveUrl && !pareceUrl(body.pastaDriveUrl)) {
+  const pastaDriveUrl = body.pastaDriveUrl !== undefined ? normalizarVazio(body.pastaDriveUrl) : undefined;
+  if (pastaDriveUrl !== undefined && pastaDriveUrl !== null && !pareceUrl(pastaDriveUrl as string)) {
     return NextResponse.json({ erro: "pastaDriveUrl deve ser uma URL válida" }, { status: 400 });
   }
   if (body.statusGeral !== undefined && !STATUS_GERAL_VALIDOS.includes(body.statusGeral)) {
@@ -128,10 +159,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const data: Record<string, unknown> = {};
   for (const campo of CAMPOS_EDITAVEIS) {
-    if (body[campo] !== undefined) data[campo] = body[campo];
+    if (body[campo] === undefined) continue;
+    data[campo] = CAMPOS_NAO_NULAVEIS.has(campo) ? body[campo] : normalizarVazio(body[campo]);
   }
   // Normaliza pra só dígitos antes de gravar — consistência com a
-  // constraint @@unique([clinicaId, cpf]).
+  // constraint @@unique([clinicaId, cpf]). Sobrescreve o valor já
+  // normalizado acima (mesmo resultado pra "" -> null, mas também limpa
+  // pontuação de um CPF preenchido).
   if (body.cpf !== undefined) {
     data.cpf = soDigitos(String(body.cpf ?? "")) || null;
   }

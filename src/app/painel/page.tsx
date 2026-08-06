@@ -203,6 +203,25 @@ const FORM_VAZIO = {
   tipoSessaoId: "",
 };
 
+// Campos do form que são obrigatórios no cadastro/edição — "" nunca vira
+// null pra eles (mesma exceção do contrato de três estados do backend,
+// PATCH /api/pacientes/[id]).
+const CAMPOS_FORM_NAO_NULAVEIS = new Set<keyof typeof FORM_VAZIO>(["nome", "origemCadastro"]);
+
+// Contrato de três estados (2026-08-06): campo em branco no form vira null
+// no body, nunca "" — string vazia nunca é enviada como valor de um campo
+// opcional. Corrige o bug de Salvar quebrar quando diaPreferido/horarioFixo
+// vêm nulos do banco (o select/input mostra "" — controlado, correto — mas
+// não pode ser reenviado como "" literal). Ver ARCHITECTURE.md.
+function normalizarFormParaEnvio(form: typeof FORM_VAZIO): Record<string, string | null> {
+  const normalizado: Record<string, string | null> = {};
+  for (const [campo, valor] of Object.entries(form)) {
+    normalizado[campo] =
+      valor === "" && !CAMPOS_FORM_NAO_NULAVEIS.has(campo as keyof typeof FORM_VAZIO) ? null : valor;
+  }
+  return normalizado;
+}
+
 // Aplica máscara 00000-000 ao CEP conforme o usuário digita
 function mascararCep(valor: string) {
   const digitos = valor.replace(/\D/g, "").slice(0, 8);
@@ -788,8 +807,8 @@ export default function PainelPage() {
       quemIndicou: p.quemIndicou ?? "",
       pastaDriveUrl: p.pastaDriveUrl ?? "",
       origemCadastro: p.origemCadastro,
-      diaPreferido: p.diaPreferido,
-      horarioFixo: p.horarioFixo,
+      diaPreferido: p.diaPreferido ?? "",
+      horarioFixo: p.horarioFixo ?? "",
       tipoSessaoId: p.tipoSessaoId ?? "",
     });
     setErroForm("");
@@ -840,7 +859,7 @@ export default function PainelPage() {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(normalizarFormParaEnvio(form)),
       });
 
       if (!res.ok) {
