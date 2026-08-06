@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { obterClinicaECalendar } from "@/lib/google";
 import { registrarLog } from "@/lib/auditoria";
-import { pareceUrl } from "@/lib/validacao";
+import { pareceUrl, normalizarVazio } from "@/lib/validacao";
 import { soDigitos } from "@/lib/importacao";
 import { pode } from "@/lib/permissoes";
 import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
@@ -45,18 +45,6 @@ const STATUS_GERAL_VALIDOS = ["ATIVO", "CANCELADO", "FINALIZADO"];
 // Todos os demais campos de CAMPOS_EDITAVEIS são colunas opcionais (String?)
 // e seguem o contrato de três estados abaixo.
 const CAMPOS_NAO_NULAVEIS = new Set(["nome", "origemCadastro"]);
-
-// Contrato de três estados pro PATCH (2026-08-06, corrige o bug de salvar
-// paciente com diaPreferido/horarioFixo nulos — ver ARCHITECTURE.md):
-//   chave ausente no body  -> não altera o campo
-//   null                   -> limpa o campo (grava null)
-//   ""                     -> tratado como null (string vazia nunca é um
-//                              valor válido — evita o front mandar "" sem
-//                              querer e ficar destoando de quem manda null)
-//   string não-vazia       -> valida normalmente
-function normalizarVazio(valor: unknown): unknown {
-  return valor === "" ? null : valor;
-}
 
 // GET /api/pacientes/[id] — retorna o paciente da clínica logada
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

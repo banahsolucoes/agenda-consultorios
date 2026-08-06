@@ -1,3 +1,17 @@
+// Contrato de três estados (2026-08-06, ver ARCHITECTURE.md) — usado em todo
+// ponto de escrita de campo opcional (String?) do Paciente:
+//   ausente/undefined -> não altera o campo
+//   null               -> limpa o campo (grava null)
+//   ""                 -> tratado como null (string vazia nunca é um valor
+//                          válido gravado — evita "" e null coexistirem como
+//                          dois jeitos diferentes de dizer "sem valor")
+//   string não-vazia   -> valor real, segue pra validação específica do campo
+// Usado por PATCH /api/pacientes/[id] e por POST /api/importacao/executar —
+// ponto único pra não duplicar a mesma regra nos dois lugares.
+export function normalizarVazio(valor: unknown): unknown {
+  return valor === "" ? null : valor;
+}
+
 // Validação leve: só confere que dá pra interpretar como uma URL absoluta
 // (http/https) — não verifica se o link aponta pra algo que existe/é acessível.
 export function pareceUrl(valor: string): boolean {
