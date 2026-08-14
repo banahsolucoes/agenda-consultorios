@@ -75,6 +75,31 @@ export async function marcarFalhaTokenSeRevogado(clinicaId: string, err: unknown
     .catch((updateErr) => console.error("Falha ao marcar googleTokenValido=false:", updateErr));
 }
 
+// Janela de "recente" pro popup/banner reagirem a uma falha do outbox de
+// sincronização (googleUltimoErro/googleUltimoErroEm) mesmo quando o token
+// em si continua válido (erro transitório, quota, escopo insuficiente etc.
+// — não só invalid_grant). 2h cobre várias tentativas de backoff do outbox
+// (1min/5min/30min/2h/6h) sem deixar o alerta aceso por muito tempo depois
+// que o problema já foi resolvido — marcarConcluido() em sincronizacao.ts
+// limpa o campo assim que qualquer sincronização daquela clínica funciona
+// de novo, então na prática o alerta some antes disso na maioria dos casos.
+const JANELA_ERRO_RECENTE_MS = 2 * 60 * 60 * 1000;
+
+// Fonte única de verdade de "a conexão Google desta clínica está com
+// problema real" — usada tanto pelo banner/contagem de `GET /api/notificacoes`
+// quanto pelo popup global de reconexão (`GET
+// /api/integracoes/google/reconexao-status`). Clínica nunca conectada não
+// conta como problema (não há nada pra reconectar de verdade — é estado
+// inicial, não uma queda).
+export function googlePrecisaReconectar(
+  clinica: Pick<Clinica, "googleConectado" | "googleTokenValido" | "googleUltimoErroEm">
+): boolean {
+  const erroRecente =
+    clinica.googleUltimoErroEm !== null &&
+    Date.now() - clinica.googleUltimoErroEm.getTime() < JANELA_ERRO_RECENTE_MS;
+  return Boolean(clinica.googleConectado && (!clinica.googleTokenValido || erroRecente));
+}
+
 // Opção comum às funções de chamada Google deste módulo: por padrão elas são
 // tolerantes a falha (retornam um sentinel null/false, nunca lançam) — é o
 // que os call sites síncronos existentes esperam e continuam recebendo sem
