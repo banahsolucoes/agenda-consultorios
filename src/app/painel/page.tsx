@@ -146,6 +146,7 @@ interface Sessao {
   linkMeet: string | null;
   motivoCancelamento: string | null;
   tipoSessao: { nome: string; ehAtendimentoUnico: boolean } | null;
+  googleSyncStatus: string;
 }
 
 interface Clinica {
@@ -1462,7 +1463,11 @@ export default function PainelPage() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        setErroCompartilhar(data?.erro ?? "não foi possível compartilhar a pasta");
+        const falhas: string[] = [];
+        if (data?.pastaCompartilhada === false) falhas.push("pasta não foi compartilhada");
+        if (data?.emailEnviado === false) falhas.push("e-mail não foi enviado");
+        const resumo = falhas.length > 0 ? falhas.join(" · ") : (data?.erro ?? "não foi possível compartilhar a pasta");
+        setErroCompartilhar(data?.detalhe ? `${resumo} — ${data.detalhe}` : resumo);
         return;
       }
 
@@ -1495,7 +1500,7 @@ export default function PainelPage() {
       saudacao: saudacaoAtual(),
       paciente: pacienteSelecionado.nome.split(" ")[0],
       hora: formatarHorario(s.inicio),
-      linkMeet: s.linkMeet ?? "(link ainda não gerado)",
+      linkMeet: s.linkMeet ?? (s.googleSyncStatus === "PENDENTE" ? "(sincronizando com o Google — tente novamente em instantes)" : "(link ainda não gerado)"),
       assistente: clinica.nomeAssistente,
     });
   }
@@ -1676,7 +1681,7 @@ export default function PainelPage() {
 
       {notificacoes.integracaoGoogleFalhou && (
         <div className="shrink-0 border-b border-red/30 bg-red/10 px-6 py-2 text-center text-sm font-medium text-red">
-          Conexão com Google Agenda perdida — reconecte em Configurações → Integrações.
+          Algo falhou na sincronização com o Google (agenda/Drive) — confira em Configurações → Integrações.
         </div>
       )}
 
@@ -2338,10 +2343,20 @@ export default function PainelPage() {
                           </p>
                         </div>
                       </div>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(s.status)}`}
-                      >
-                        {statusLabel(s.status)}
+                      <span className="flex items-center gap-1.5">
+                        {s.googleSyncStatus === "PENDENTE" && (
+                          <span
+                            className="rounded-full bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold"
+                            title="Aguardando o Google Calendar/Meet confirmar — atualiza sozinho em alguns minutos"
+                          >
+                            Sincronizando…
+                          </span>
+                        )}
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${corStatus(s.status)}`}
+                        >
+                          {statusLabel(s.status)}
+                        </span>
                       </span>
                     </div>
 

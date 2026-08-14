@@ -14,6 +14,7 @@ interface GoogleStatus {
   conectado: boolean;
   email?: string | null;
   calendarId?: string | null;
+  itensFalha?: number;
 }
 
 function extractSheetIdFromUrl(urlOrId: string): string {
@@ -50,6 +51,8 @@ export default function IntegracoesPage() {
   const [erroCarregarGoogle, setErroCarregarGoogle] = useState(false);
   const [desconectandoGoogle, setDesconectandoGoogle] = useState(false);
   const [avisoGoogle, setAvisoGoogle] = useState<"conectado" | "erro" | null>(null);
+  const [reenfileirando, setReenfileirando] = useState(false);
+  const [avisoReenfileirar, setAvisoReenfileirar] = useState("");
 
   const [pastaRaizInput, setPastaRaizInput] = useState("");
   const [editandoPastaRaiz, setEditandoPastaRaiz] = useState(false);
@@ -132,6 +135,29 @@ export default function IntegracoesPage() {
       setAvisoGoogle(null);
     } finally {
       setDesconectandoGoogle(false);
+    }
+  }
+
+  async function handleReenfileirar() {
+    setReenfileirando(true);
+    setAvisoReenfileirar("");
+    try {
+      const res = await fetch("/api/integracoes/google/reenfileirar", { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setAvisoReenfileirar(data?.erro ?? "não foi possível reenfileirar");
+        return;
+      }
+      setAvisoReenfileirar(
+        data.reenfileirados > 0
+          ? `${data.reenfileirados} item(ns) reenfileirado(s) — o cron processa em até 10 minutos.`
+          : "Nada para reenfileirar."
+      );
+      await carregarGoogleStatus();
+    } catch {
+      setAvisoReenfileirar("não foi possível reenfileirar");
+    } finally {
+      setReenfileirando(false);
     }
   }
 
@@ -309,6 +335,26 @@ export default function IntegracoesPage() {
               </button>
             )}
           </div>
+        )}
+
+        {!carregandoGoogle && googleStatus && (googleStatus.itensFalha ?? 0) > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red/30 bg-red/10 px-4 py-3">
+            <p className="text-sm text-red">
+              {googleStatus.itensFalha} item{(googleStatus.itensFalha ?? 0) > 1 ? "ns" : ""} de sincronização com o
+              Google falharam (evento/pasta não criados) e pararam de tentar de novo.
+            </p>
+            <button
+              type="button"
+              onClick={handleReenfileirar}
+              disabled={reenfileirando}
+              className="shrink-0 rounded-lg border border-red px-3 py-1.5 text-sm font-medium text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {reenfileirando ? "Reenfileirando..." : "Tentar de novo"}
+            </button>
+          </div>
+        )}
+        {avisoReenfileirar && (
+          <p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-sm text-fg">{avisoReenfileirar}</p>
         )}
 
         <div className="mt-4">

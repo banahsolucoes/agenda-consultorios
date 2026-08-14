@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterClinicaECalendar, criarEventoGoogleMeet, sincronizarEventoGoogle, resolverCalendarIdMentorado } from "@/lib/google";
-import { formatarTituloAgendamento, formatarTituloMentorado, nomeSessao } from "@/lib/blocoAgenda";
+import { enfileirar, enfileirarRemocaoDeAgendamento } from "@/lib/sincronizacao";
+import { nomeSessao } from "@/lib/blocoAgenda";
 import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
 import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
 import { registrarLog } from "@/lib/auditoria";
@@ -14,19 +14,19 @@ import { validarStatusSessao } from "@/lib/validacaoSessao";
 // Sessões nesses status são somente-leitura — nem data/horário nem tipo de
 // atendimento podem mudar.
 const STATUS_CONSUMIDOS = ["REALIZADA", "NAO_REALIZADA", "CANCELADA"];
-// O Google Calendar não tem conceito nativo de "status da sessão" — o
-// mínimo aceitável (Bloco 5, 2026-07-25) é refletir no título do evento,
-// mesmo padrão já usado pro ✅ de confirmação. AGENDADA é o estado "normal",
-// sem sufixo — só os desvios ganham marcação visual.
-const SUFIXO_STATUS: Partial<Record<string, string>> = {
-  REALIZADA: " — Realizada",
-  NAO_REALIZADA: " — Não realizada",
-  REAGENDADA: " — Reagendada",
-};
 const DIA_NOME_POR_NUM: Record<number, string> = {
   0: "DOMINGO", 1: "SEGUNDA", 2: "TERCA", 3: "QUARTA", 4: "QUINTA", 5: "SEXTA", 6: "SABADO",
 };
 const DIA_MS = 24 * 60 * 60 * 1000;
+
+// Gate leve pra decidir se vale a pena enfileirar um CALENDAR_ATUALIZAR/CRIAR
+// — só um SELECT do campo booleano, sem montar client OAuth (isso o worker
+// faz na hora de processar). Enfileirar sem checar geraria itens fadados a
+// FALHA depois de 5 tentativas pra clínica que nunca conectou o Google.
+async function clinicaGoogleConectada(clinicaId: string): Promise<boolean> {
+  const clinica = await prisma.clinica.findUnique({ where: { id: clinicaId }, select: { googleConectado: true } });
+  return clinica?.googleConectado ?? false;
+}
 
 // Mesma regra usada tanto ao mover quanto ao redimensionar uma sessão: um dia
 // sem faixa cadastrada está fechado quando a clínica já configurou algum
@@ -46,30 +46,6 @@ function dentroDoExpediente(
         return inicioMin >= hi * 60 + mi && fimMin <= hf * 60 + mf;
       })
     : inicioMin >= 8 * 60 && fimMin <= 19 * 60 + 30;
-}
-
-// Título do evento do Google, ramificando entre sessão de paciente (numerada,
-// via pacote) e reunião avulsa de mentorado (rótulo fixo, sem numeração) —
-// mesma função reaproveitada em todos os pontos de sincronização com o Google
-// desta rota, para nunca haver caminho de título divergente entre os dois.
-function tituloDaSessao(
-  sessao: {
-    aluno: { nomeCompleto: string } | null;
-    paciente: { nome: string } | null;
-    numeroSessao: number | null;
-    totalPacote: number | null;
-  },
-  tipoSessaoNome: string | null | undefined,
-  ehAtendimentoUnico: boolean
-): string {
-  if (sessao.aluno) return formatarTituloMentorado(sessao.aluno.nomeCompleto);
-  return formatarTituloAgendamento({
-    nomePaciente: sessao.paciente?.nome ?? "",
-    tipoSessaoNome,
-    ehAtendimentoUnico,
-    numeroSessao: sessao.numeroSessao ?? 0,
-    totalPacote: sessao.totalPacote ?? 0,
-  });
 }
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -100,20 +76,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
       const arquivar = body.arquivar === true;
 
-      // Remove o evento do Google Calendar da clínica, se houver um vinculado
-      // a esta sessão. Falha na integração nunca deve impedir o cancelamento
-      // local — o Google fica "melhor esforço".
-      if (sessao.googleEventId) {
-        const google = await obterClinicaECalendar(usuario.clinicaId);
-        if (google) {
-          await google.calendar.events
-            .delete({
-              calendarId: sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-              eventId: sessao.googleEventId,
-            })
-            .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));
-        }
-      }
+      // Remove o evento do Google Calendar da clínica (se houver um vinculado)
+      // via outbox — CALENDAR_REMOVER, com supersede de qualquer
+      // CALENDAR_CRIAR/ATUALIZAR pendente pra esta mesma sessão, pra nunca
+      // deixar um evento fantasma (ver enfileirarRemocaoDeAgendamento).
+      // Chamado incondicionalmente: mesmo sem googleEventId ainda pode haver
+      // um CRIAR pendente que precisa ser superseded. Falha na integração
+      // nunca impede o cancelamento local — o Google fica "melhor esforço".
+      await enfileirarRemocaoDeAgendamento(usuario.clinicaId, sessao.id);
 
       const atualizada = await prisma.agendamento.update({
         where: { id },
@@ -145,30 +115,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     );
 
     // Reflete a mudança de status no título do evento do Google, se a sessão
-    // tiver evento vinculado — melhor esforço, mesma regra de sempre (falha
-    // aqui nunca desfaz a mudança de status já commitada no banco). O
-    // Calendar não tem campo nativo de status; o título é o mínimo aceitável
-    // pra não deixar o espelho mudo sobre Realizada/Não realizada/Reagendada.
-    if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(usuario.clinicaId);
-      if (google) {
-        const titulo = `${tituloDaSessao(
-          sessao,
-          sessao.tipoSessao?.nome ?? null,
-          sessao.tipoSessao?.ehAtendimentoUnico ?? false
-        )}${sessao.confirmada ? " ✅" : ""}${SUFIXO_STATUS[body.status] ?? ""}`;
-        const ok = await sincronizarEventoGoogle(
-          google.calendar,
-          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          sessao.googleEventId,
-          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo },
-          google.clinica.id
-        );
-        atualizada = await prisma.agendamento.update({
-          where: { id },
-          data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
-        });
-      }
+    // tiver evento vinculado — via outbox (o worker relê status/confirmada já
+    // atualizados e monta o título com o sufixo certo, ver
+    // sincronizacao.ts:construirTitulo). Falha nunca desfaz a mudança de
+    // status já commitada no banco.
+    if (sessao.googleEventId && (await clinicaGoogleConectada(usuario.clinicaId))) {
+      atualizada = await prisma.agendamento.update({
+        where: { id },
+        data: { googleSyncStatus: "PENDENTE" },
+      });
+      await enfileirar(usuario.clinicaId, "CALENDAR_ATUALIZAR", { agendamentoId: id });
     }
 
     const finalizou = sessao.pacoteId ? await verificarFinalizacao(sessao.pacoteId, usuario.id) : false;
@@ -328,21 +284,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       );
 
       // Reflete o novo horário de cada sessão movida com evento vinculado no
-      // Google Calendar. Melhor esforço — busca o client uma única vez para o
-      // lote todo, e falha na integração nunca desfaz o que já foi movido.
+      // Google Calendar — um item CALENDAR_ATUALIZAR por sessão movida, na
+      // mesma ordem em que os updates locais acabaram de ser commitados
+      // acima (não paraleliza: enfileirar() é sequencial neste for). Falha
+      // na integração nunca desfaz o que já foi movido no banco.
       const movimentosComEvento = movimentos.filter((mov) => mov.googleEventId);
-      if (movimentosComEvento.length > 0) {
-        const google = await obterClinicaECalendar(sessao.clinicaId);
-        if (google) {
-          for (const mov of movimentosComEvento) {
-            await sincronizarEventoGoogle(
-              google.calendar,
-              mov.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-              mov.googleEventId!,
-              { inicio: mov.novoInicio, duracaoMin: mov.duracaoMin },
-              google.clinica.id
-            );
-          }
+      if (movimentosComEvento.length > 0 && (await clinicaGoogleConectada(sessao.clinicaId))) {
+        for (const mov of movimentosComEvento) {
+          await enfileirar(sessao.clinicaId, "CALENDAR_ATUALIZAR", { agendamentoId: mov.id });
         }
       }
 
@@ -390,18 +339,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     );
 
     // Reflete o novo horário no Google Calendar, se a sessão tiver evento
-    // vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
-    if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(sessao.clinicaId);
-      if (google) {
-        await sincronizarEventoGoogle(
-          google.calendar,
-          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          sessao.googleEventId,
-          { inicio: novaData, duracaoMin: sessao.duracaoMin },
-          google.clinica.id
-        );
-      }
+    // vinculado — via outbox. Falha aqui nunca desfaz a mudança local.
+    if (sessao.googleEventId && (await clinicaGoogleConectada(sessao.clinicaId))) {
+      await enfileirar(sessao.clinicaId, "CALENDAR_ATUALIZAR", { agendamentoId: id });
     }
 
     return NextResponse.json(atualizada);
@@ -445,18 +385,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     );
 
     // Reflete o novo fim do evento no Google Calendar, se a sessão tiver
-    // evento vinculado. Melhor esforço — falha aqui nunca desfaz a mudança local.
-    if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(sessao.clinicaId);
-      if (google) {
-        await sincronizarEventoGoogle(
-          google.calendar,
-          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          sessao.googleEventId,
-          { inicio: sessao.inicio, duracaoMin: novaDuracaoMin },
-          google.clinica.id
-        );
-      }
+    // evento vinculado — via outbox. Falha aqui nunca desfaz a mudança local.
+    if (sessao.googleEventId && (await clinicaGoogleConectada(sessao.clinicaId))) {
+      await enfileirar(sessao.clinicaId, "CALENDAR_ATUALIZAR", { agendamentoId: id });
     }
 
     return NextResponse.json(atualizada);
@@ -483,63 +414,47 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     // evento, mesmo quando o Meet em si não muda.
     const novaDuracaoMin = novoTipo.duracaoPadraoMin;
 
-    let dadosGoogle: { googleEventId?: string | null; googleCalendarId?: string | null; linkMeet?: string | null } = {};
+    const precisaCriarMeet = !eraOnline && ficaOnline && !sessao.linkMeet;
+    const precisaGoogle = precisaCriarMeet || Boolean(sessao.googleEventId);
+    const conectada = precisaGoogle && (await clinicaGoogleConectada(sessao.clinicaId));
+
     let avisoMeet: string | null = null;
-
-    const precisaGoogle = (!eraOnline && ficaOnline && !sessao.linkMeet) || Boolean(sessao.googleEventId);
-    const google = precisaGoogle ? await obterClinicaECalendar(sessao.clinicaId) : null;
-
-    // Nome/numeração do paciente não mudam com a troca de tipo — mas o rótulo
-    // de atendimento único (ex.: avaliação) depende do tipo em si, então usa
-    // o novoTipo (destino da troca), não o tipo antigo da sessão: se a troca
-    // entra ou sai de um tipo de atendimento único, o título precisa refletir
-    // isso já nesta chamada, sem esperar uma próxima sincronização.
-    const titulo = `${tituloDaSessao(sessao, novoTipo.nome, novoTipo.ehAtendimentoUnico)}${sessao.confirmada ? " ✅" : ""}`;
-
-    if (!eraOnline && ficaOnline && !sessao.linkMeet) {
-      if (google) {
-        // Regra da categoria: reunião de mentorado nunca cria evento no
-        // calendário do tipo/clínica — sempre no calendário de mentoria,
-        // mesmo quando essa troca de tipo é o que dispara a criação do
-        // evento (ex.: Google reconectado depois de ter falhado na criação).
-        const calendarIdDestino = sessao.alunoId
-          ? resolverCalendarIdMentorado(novoTipo.googleCalendarId)
-          : (novoTipo.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary");
-        const resultado = await criarEventoGoogleMeet(
-          google.calendar,
-          calendarIdDestino,
-          { titulo, inicio: sessao.inicio, duracaoMin: novaDuracaoMin, cor: novoTipo.cor },
-          true,
-          google.clinica.id
-        );
-        if (resultado.linkMeet) {
-          dadosGoogle = resultado;
-        } else {
-          avisoMeet = "não foi possível gerar o link do Meet";
-        }
-      } else {
-        avisoMeet = "Google não conectado — não foi possível gerar o Meet";
-      }
+    if (precisaCriarMeet && !conectada) {
+      avisoMeet = "Google não conectado — não foi possível gerar o Meet";
     }
+
+    // O Calendar não permite "upar" conferenceData num evento existente via
+    // patch — por isso presencial->online sempre nasce como evento novo (via
+    // CALENDAR_CRIAR), nunca um patch do evento presencial antigo. Zeramos
+    // aqui os campos do evento antigo (se havia um) pra: 1) a idempotência
+    // do CALENDAR_CRIAR no worker (que pula se já houver googleEventId) não
+    // achar que já está sincronizado, e 2) a checagem noturna não comparar
+    // contra um evento que vai ficar órfão no Google — mesmo efeito líquido
+    // do código anterior, que sobrescrevia esses campos assim que o novo
+    // evento fosse criado.
+    const camposParaLimpar = precisaCriarMeet
+      ? { googleEventId: null, googleCalendarId: null, linkMeet: null }
+      : {};
+    const googleSyncStatus = precisaGoogle && conectada ? "PENDENTE" : undefined;
 
     const atualizada = await prisma.agendamento.update({
       where: { id },
-      data: { tipoSessaoId: novoTipo.id, duracaoMin: novaDuracaoMin, ...dadosGoogle },
+      data: {
+        tipoSessaoId: novoTipo.id,
+        duracaoMin: novaDuracaoMin,
+        ...camposParaLimpar,
+        ...(googleSyncStatus ? { googleSyncStatus } : {}),
+      },
       include: { tipoSessao: true },
     });
 
-    // Evento que já existia antes desta troca (não foi criado agora pelo
-    // bloco acima) — sincroniza duração, título e cor do novo tipo. Sempre
-    // dispara (não só quando a duração muda): a cor pode ser diferente entre
-    // dois tipos com a mesma duração.
-    if (!dadosGoogle.googleEventId && sessao.googleEventId && google) {
-      await sincronizarEventoGoogle(
-        google.calendar,
-        sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-        sessao.googleEventId,
-        { inicio: sessao.inicio, duracaoMin: novaDuracaoMin, titulo, cor: novoTipo.cor },
-        google.clinica.id
-      );
+    if (conectada) {
+      // Título, cor e (quando aplicável) calendário de mentoria são
+      // resolvidos pelo worker ao reler o agendamento — já reflete
+      // tipoSessaoId novo, gravado acima antes de enfileirar.
+      await enfileirar(sessao.clinicaId, precisaCriarMeet ? "CALENDAR_CRIAR" : "CALENDAR_ATUALIZAR", {
+        agendamentoId: id,
+      });
     }
 
     return NextResponse.json({ ...atualizada, avisoMeet });
@@ -548,28 +463,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (typeof body.confirmada === "boolean") {
     // Confirmação de presença é independente do status — não interfere na
     // máquina de status da sessão, mas replica o mesmo ✅ do bloco na agenda
-    // no título do evento do Google, já que é por lá que a Pâmela acompanha.
+    // no título do evento do Google (via outbox — worker relê `confirmada`
+    // já atualizada), já que é por lá que a Pâmela acompanha.
     const atualizada = await prisma.agendamento.update({
       where: { id },
       data: { confirmada: body.confirmada },
     });
 
-    if (sessao.googleEventId) {
-      const google = await obterClinicaECalendar(sessao.clinicaId);
-      if (google) {
-        const titulo = `${tituloDaSessao(
-          sessao,
-          sessao.tipoSessao?.nome ?? null,
-          sessao.tipoSessao?.ehAtendimentoUnico ?? false
-        )}${body.confirmada ? " ✅" : ""}`;
-        await sincronizarEventoGoogle(
-          google.calendar,
-          sessao.googleCalendarId ?? sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          sessao.googleEventId,
-          { inicio: sessao.inicio, duracaoMin: sessao.duracaoMin, titulo },
-          google.clinica.id
-        );
-      }
+    if (sessao.googleEventId && (await clinicaGoogleConectada(sessao.clinicaId))) {
+      await enfileirar(sessao.clinicaId, "CALENDAR_ATUALIZAR", { agendamentoId: id });
     }
 
     return NextResponse.json(atualizada);

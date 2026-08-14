@@ -4,8 +4,7 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
 import { componentesSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
-import { obterClinicaECalendar, sincronizarEventoGoogle, criarEventoGoogleMeet } from "@/lib/google";
-import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
+import { enfileirar } from "@/lib/sincronizacao";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -76,54 +75,32 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     )
   );
 
-  // Reflete a nova data/hora no Google Calendar de cada sessão movida —
-  // atualiza o evento já existente, ou cria um novo se a sessão nunca teve
-  // evento (mesmo gate de criação de POST /api/pacotes: clínica conectada,
-  // Meet só quando o tipo de atendimento é online). Melhor esforço — busca o
-  // client uma única vez para o lote todo, e falha na integração nunca
-  // desfaz o que já foi movido no banco; grava googleSyncStatus pra
-  // distinguir sucesso de falha em vez de deixar como se nada tivesse
-  // acontecido (achado da auditoria de 2026-07-23: sessões do paciente Jadir
-  // ficaram com a data desatualizada no Google porque a falha aqui era só
-  // logada e nunca registrada).
-  const google = await obterClinicaECalendar(usuario.clinicaId);
-  if (google) {
+  // Reflete a nova data/hora no Google Calendar de cada sessão movida — via
+  // outbox: um item CALENDAR_ATUALIZAR se a sessão já tinha evento, ou
+  // CALENDAR_CRIAR se nunca teve (mesmo gate de POST /api/pacotes: clínica
+  // conectada, Meet só quando o tipo de atendimento é online — resolvido
+  // pelo worker ao reler a sessão). enfileirar() é chamado sequencialmente
+  // dentro do for (nunca em paralelo) pra preservar a ordem relativa do
+  // loop na fila; cada item aponta pra uma sessão diferente, então não há
+  // dependência real entre eles além dessa ordem de criação. Falha na
+  // integração nunca desfaz o que já foi movido no banco; googleSyncStatus
+  // vira PENDENTE (era SINCRONIZADO/FALHOU síncrono antes) pra distinguir
+  // "aguardando" de "nunca tentou" — mesmo espírito do achado da auditoria
+  // de 2026-07-23 (sessões do paciente Jadir ficaram com a data desatualizada
+  // no Google porque a falha síncrona de então era só logada).
+  const clinica = await prisma.clinica.findUnique({
+    where: { id: usuario.clinicaId },
+    select: { googleConectado: true },
+  });
+  if (clinica?.googleConectado) {
     for (const mov of movimentos) {
-      if (mov.sessao.googleEventId) {
-        const ok = await sincronizarEventoGoogle(
-          google.calendar,
-          mov.sessao.googleCalendarId ?? mov.sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          mov.sessao.googleEventId,
-          { inicio: mov.novaData, duracaoMin: mov.sessao.duracaoMin },
-          google.clinica.id
-        );
-        await prisma.agendamento.update({
-          where: { id: mov.sessao.id },
-          data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
-        });
-      } else {
-        const dadosGoogle = await criarEventoGoogleMeet(
-          google.calendar,
-          mov.sessao.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          {
-            titulo: formatarTituloAgendamento({
-              nomePaciente: paciente.nome,
-              tipoSessaoNome: mov.sessao.tipoSessao?.nome ?? null,
-              ehAtendimentoUnico: mov.sessao.tipoSessao?.ehAtendimentoUnico ?? false,
-              numeroSessao: mov.sessao.numeroSessao ?? 0,
-              totalPacote: mov.sessao.totalPacote ?? 0,
-            }),
-            inicio: mov.novaData,
-            duracaoMin: mov.sessao.duracaoMin,
-          },
-          mov.sessao.tipoSessao?.ehOnline ?? false,
-          google.clinica.id
-        );
-        await prisma.agendamento.update({
-          where: { id: mov.sessao.id },
-          data: { ...dadosGoogle, googleSyncStatus: dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU" },
-        });
-      }
+      await prisma.agendamento.update({
+        where: { id: mov.sessao.id },
+        data: { googleSyncStatus: "PENDENTE" },
+      });
+      await enfileirar(usuario.clinicaId, mov.sessao.googleEventId ? "CALENDAR_ATUALIZAR" : "CALENDAR_CRIAR", {
+        agendamentoId: mov.sessao.id,
+      });
     }
   }
 

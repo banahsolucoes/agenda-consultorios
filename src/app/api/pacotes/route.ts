@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
-import { obterCalendarDaClinica, criarEventoGoogleMeet } from "@/lib/google";
+import { enfileirar } from "@/lib/sincronizacao";
 import { criarDataSP } from "@/lib/timezone";
-import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
 import { registrarLog } from "@/lib/auditoria";
 import { tipoPacoteLabel } from "@/lib/labels";
 import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
@@ -69,22 +68,18 @@ export async function POST(req: NextRequest) {
   // paciente, mas o operador pode trocar (ex.: uma avaliação avulsa online
   // para um paciente cujo atendimento normal é presencial).
   let tipoSessaoId = paciente.tipoSessaoId;
-  let tipoSessaoEhOnline = paciente.tipoSessao?.ehOnline ?? false;
   let tipoSessaoEhAtendimentoUnico = paciente.tipoSessao?.ehAtendimentoUnico ?? false;
   let tipoSessaoNome = paciente.tipoSessao?.nome ?? null;
   let tipoSessaoDuracaoMin = paciente.tipoSessao?.duracaoPadraoMin ?? 45;
-  let tipoSessaoGoogleCalendarId = paciente.tipoSessao?.googleCalendarId ?? null;
   if (body.tipoSessaoId !== undefined) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
       return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
     }
     tipoSessaoId = tipoSessao.id;
-    tipoSessaoEhOnline = tipoSessao.ehOnline;
     tipoSessaoEhAtendimentoUnico = tipoSessao.ehAtendimentoUnico;
     tipoSessaoNome = tipoSessao.nome;
     tipoSessaoDuracaoMin = tipoSessao.duracaoPadraoMin;
-    tipoSessaoGoogleCalendarId = tipoSessao.googleCalendarId;
   }
 
   // Tipo de sessão de atendimento único (ex.: avaliação) só pode ser usado
@@ -126,44 +121,23 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Clínica com Google conectado: cria um evento por sessão — com Meet só
-  // quando o tipo de atendimento é online — e grava link/id + status de
-  // sincronização junto do agendamento. O gate é a conexão da clínica, não o
-  // tipo de sessão: antes, sessão presencial pulava a integração inteira
-  // mesmo com a clínica conectada (bug real — ver auditoria de 2026-07-21).
-  // Falha na chamada ao Google nunca pode travar a criação da sessão em si —
-  // só grava FALHOU pra não confundir com "nunca tentou". O calendário é
-  // escolhido pelo tipo de sessão (TipoSessao.googleCalendarId) quando
-  // configurado — sem isso, todo evento caía no googleCalendarId único da
-  // Clinica, misturando presencial e online no mesmo calendário (bug
-  // histórico corrigido em 2026-07-23).
+  // Clínica com Google conectado: cada sessão criada aqui vira um item
+  // CALENDAR_CRIAR no outbox (src/lib/sincronizacao.ts) — o evento em si
+  // (com Meet só quando o tipo de atendimento é online, calendário
+  // escolhido pelo tipo de sessão) é criado pelo worker, de forma
+  // assíncrona. O gate continua sendo a conexão da clínica, não o tipo de
+  // sessão (bug histórico corrigido em 2026-07-21). A gravação da sessão em
+  // si nunca espera o Google: enfileirar() nunca lança, e o worker relê o
+  // agendamento pelo id pra montar título/calendário/Meet na hora de
+  // processar (não precisa do estado local nesta requisição).
   const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-  const calendar = clinica ? await obterCalendarDaClinica(clinica).catch(() => null) : null;
 
-  if (calendar && clinica) {
-    for (const sessao of sessoes) {
-      const dadosGoogle = await criarEventoGoogleMeet(
-        calendar,
-        tipoSessaoGoogleCalendarId ?? clinica.googleCalendarId ?? "primary",
-        {
-          titulo: formatarTituloAgendamento({
-            nomePaciente: paciente.nome,
-            tipoSessaoNome: tipoSessaoNome,
-            ehAtendimentoUnico: tipoSessaoEhAtendimentoUnico,
-            numeroSessao: sessao.numeroSessao,
-            totalPacote: sessao.totalPacote,
-          }),
-          inicio: sessao.inicio,
-          duracaoMin: sessao.duracaoMin,
-        },
-        tipoSessaoEhOnline,
-        clinica.id
-      );
-      const googleSyncStatus = dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU";
-      await prisma.agendamento.create({ data: { ...sessao, ...dadosGoogle, googleSyncStatus } });
+  for (const sessao of sessoes) {
+    const googleSyncStatus = clinica?.googleConectado ? "PENDENTE" : "NAO_APLICAVEL";
+    const agendamento = await prisma.agendamento.create({ data: { ...sessao, googleSyncStatus } });
+    if (clinica?.googleConectado) {
+      await enfileirar(clinica.id, "CALENDAR_CRIAR", { agendamentoId: agendamento.id });
     }
-  } else {
-    await prisma.agendamento.createMany({ data: sessoes });
   }
 
   const acaoLog = foiRenovacao ? "RENOVAR_ATENDIMENTO" : "CRIAR_ATENDIMENTO";

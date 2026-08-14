@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { obterClinicaECalendar, criarEventoGoogleMeet, resolverCalendarIdMentorado } from "@/lib/google";
-import { formatarTituloMentorado } from "@/lib/blocoAgenda";
+import { enfileirar } from "@/lib/sincronizacao";
 import { criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 
@@ -58,14 +57,12 @@ export async function POST(req: NextRequest) {
   const inicio = criarDataSP(dataEscolhida.ano, dataEscolhida.mes, dataEscolhida.dia, h, m);
 
   let tipoSessaoId: string | null = null;
-  let tipoSessaoGoogleCalendarId: string | null = null;
   if (body.tipoSessaoId !== undefined && body.tipoSessaoId !== null) {
     const tipoSessao = await prisma.tipoSessao.findUnique({ where: { id: body.tipoSessaoId } });
     if (!tipoSessao || tipoSessao.clinicaId !== usuario.clinicaId) {
       return NextResponse.json({ erro: "tipoSessaoId inválido" }, { status: 400 });
     }
     tipoSessaoId = tipoSessao.id;
-    tipoSessaoGoogleCalendarId = tipoSessao.googleCalendarId;
   }
 
   const duracaoMin =
@@ -73,33 +70,15 @@ export async function POST(req: NextRequest) {
       ? body.duracaoMin
       : DURACAO_PADRAO_MIN;
 
-  const titulo = formatarTituloMentorado(aluno.nomeCompleto);
-
-  // Mesma engine de Google Calendar/Meet do fluxo de paciente
-  // (criarEventoGoogleMeet — src/lib/google.ts) — nenhum caminho de sync
-  // paralelo. Meet sempre gerado para reunião de mentorado (comMeet: true),
-  // independente de tipo de sessão. Calendário: SEMPRE o de mentoria — o
-  // calendário clínico (Clinica.googleCalendarId) nunca é fallback válido
-  // aqui, regra da categoria (ver resolverCalendarIdMentorado).
-  const calendarIdDestino = resolverCalendarIdMentorado(tipoSessaoGoogleCalendarId);
+  // Evento Google Calendar/Meet vira um item CALENDAR_CRIAR no outbox
+  // (src/lib/sincronizacao.ts) em vez de chamada síncrona — mesma engine
+  // (criarEventoGoogleMeet, chamada pelo worker), nenhum caminho de sync
+  // paralelo. Título, comMeet:true e o calendário SEMPRE de mentoria (nunca
+  // o calendário clínico, ver resolverCalendarIdMentorado) são resolvidos
+  // pelo worker ao reler o agendamento pelo id — ele sabe que é reunião de
+  // mentorado pelo alunoId presente.
   const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-  const google = clinica ? await obterClinicaECalendar(clinica.id) : null;
-
-  let dadosGoogle: { googleEventId: string | null; googleCalendarId: string | null; linkMeet: string | null } = {
-    googleEventId: null,
-    googleCalendarId: null,
-    linkMeet: null,
-  };
-  if (google && clinica) {
-    dadosGoogle = await criarEventoGoogleMeet(
-      google.calendar,
-      calendarIdDestino,
-      { titulo, inicio, duracaoMin },
-      true,
-      clinica.id
-    );
-  }
-  const googleSyncStatus = dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU";
+  const googleSyncStatus = clinica?.googleConectado ? "PENDENTE" : "NAO_APLICAVEL";
 
   const agendamento = await prisma.agendamento.create({
     data: {
@@ -108,12 +87,13 @@ export async function POST(req: NextRequest) {
       inicio,
       duracaoMin,
       tipoSessaoId,
-      googleEventId: dadosGoogle.googleEventId,
-      googleCalendarId: dadosGoogle.googleCalendarId,
-      linkMeet: dadosGoogle.linkMeet,
       googleSyncStatus,
     },
   });
+
+  if (clinica?.googleConectado) {
+    await enfileirar(clinica.id, "CALENDAR_CRIAR", { agendamentoId: agendamento.id });
+  }
 
   await registrarLog(
     usuario.clinicaId,

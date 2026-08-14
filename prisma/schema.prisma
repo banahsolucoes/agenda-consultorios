@@ -60,6 +60,10 @@ model Clinica {
   // separada por espaço, formato do próprio Google) — usado só para saber
   // se a conexão já cobre Drive/Gmail, sem precisar chamar a API pra checar.
   googleEscopos       String?
+  // Último erro do outbox de sincronização Google (qualquer tipo, não só
+  // invalid_grant) — alimenta o banner de conexão junto com googleTokenValido.
+  googleUltimoErro    String?
+  googleUltimoErroEm  DateTime?
 
   // Pasta-mãe do Google Drive onde as pastas de cada paciente são criadas
   // automaticamente no cadastro (Tarefa Drive Parte 3).
@@ -102,6 +106,10 @@ model Clinica {
   mpPayerEmail           String?
   trialFim               DateTime?
   assinaturaAtualizadaEm DateTime?
+
+  sincronizacoesPendentes SincronizacaoPendente[]
+
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 // Tipos de sessão configuráveis por clínica (substitui o antigo enum TipoSessao/TipoSessaoLegado)
@@ -526,6 +534,43 @@ enum StatusSincronizacaoGoogle {
   PENDENTE
   SINCRONIZADO
   FALHOU
+}
+
+// Outbox de sincronização com o Google (Calendar/Drive/Gmail) — tira a
+// chamada Google do caminho síncrono da requisição do usuário. O dado local
+// já foi gravado antes de enfileirar; o worker (cron) processa e faz retry
+// com backoff, sem nunca bloquear a operação que originou o registro.
+enum SincronizacaoTipo {
+  CALENDAR_CRIAR
+  CALENDAR_ATUALIZAR
+  CALENDAR_REMOVER
+  DRIVE_CRIAR_PASTA
+  GMAIL_ENVIAR
+}
+
+enum SincronizacaoStatus {
+  PENDENTE
+  PROCESSANDO
+  CONCLUIDO
+  FALHA
+}
+
+model SincronizacaoPendente {
+  id                 String              @id @default(uuid())
+  clinicaId          String
+  tipo               SincronizacaoTipo
+  payload            Json
+  status             SincronizacaoStatus @default(PENDENTE)
+  tentativas         Int                 @default(0)
+  proximaTentativaEm DateTime            @default(now())
+  ultimoErro         String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  clinica Clinica @relation(fields: [clinicaId], references: [id])
+
+  @@index([clinicaId])
+  @@index([status, proximaTentativaEm])
 }
 
 enum TarefaTipo {

@@ -4,8 +4,7 @@ import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
 import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
-import { obterClinicaECalendar, sincronizarEventoGoogle, criarEventoGoogleMeet } from "@/lib/google";
-import { formatarTituloAgendamento } from "@/lib/blocoAgenda";
+import { enfileirar } from "@/lib/sincronizacao";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -74,21 +73,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const sessoes = await prisma.agendamento.findMany({
     where: { pacienteId, status: { notIn: ["CANCELADA"] } },
     orderBy: { numeroSessao: "asc" },
-    include: { tipoSessao: true },
   });
 
   const movimentos: {
     id: string;
     novaData: Date;
     googleEventId: string | null;
-    googleCalendarId: string | null;
-    duracaoMin: number;
-    numeroSessao: number;
-    totalPacote: number;
-    ehOnline: boolean;
-    ehAtendimentoUnico: boolean;
-    tipoSessaoNome: string | null;
-    tipoSessaoGoogleCalendarId: string | null;
   }[] = [];
   for (const s of sessoes) {
     if (s.inicio < agora) continue;
@@ -112,19 +102,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         { status: 400 }
       );
     }
-    movimentos.push({
-      id: s.id,
-      novaData,
-      googleEventId: s.googleEventId,
-      googleCalendarId: s.googleCalendarId,
-      duracaoMin: s.duracaoMin,
-      numeroSessao: s.numeroSessao ?? 0,
-      totalPacote: s.totalPacote ?? 0,
-      ehOnline: s.tipoSessao?.ehOnline ?? false,
-      ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
-      tipoSessaoNome: s.tipoSessao?.nome ?? null,
-      tipoSessaoGoogleCalendarId: s.tipoSessao?.googleCalendarId ?? null,
-    });
+    movimentos.push({ id: s.id, novaData, googleEventId: s.googleEventId });
   }
 
   if (movimentos.length === 0) {
@@ -161,54 +139,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       : []),
   ]);
 
-  // Reflete a nova data/hora no Google Calendar de cada sessão movida —
-  // atualiza o evento já existente, ou cria um novo se a sessão nunca teve
-  // evento (mesmo gate de criação de POST /api/pacotes: clínica conectada,
-  // Meet só quando o tipo de atendimento é online). Melhor esforço — busca o
-  // client uma única vez para o lote todo, e falha na integração nunca
-  // desfaz o que já foi movido no banco; grava googleSyncStatus pra
-  // distinguir sucesso de falha em vez de deixar como se nada tivesse
-  // acontecido (achado da auditoria de 2026-07-23: sessões do paciente Jadir
-  // ficaram com a data desatualizada no Google porque a falha aqui era só
-  // logada e nunca registrada).
-  const google = await obterClinicaECalendar(usuario.clinicaId);
-  if (google) {
+  // Reflete a nova data/hora no Google Calendar de cada sessão movida — via
+  // outbox: CALENDAR_ATUALIZAR se a sessão já tinha evento, CALENDAR_CRIAR se
+  // nunca teve (mesmo gate de POST /api/pacotes: clínica conectada, Meet só
+  // quando o tipo de atendimento é online — resolvido pelo worker ao reler a
+  // sessão). enfileirar() sequencial dentro do for (nunca em paralelo) pra
+  // preservar a ordem relativa do loop na fila — mesmo raciocínio de
+  // pacientes/[id]/adiar/route.ts. Falha na integração nunca desfaz o que já
+  // foi movido no banco; googleSyncStatus vira PENDENTE (era
+  // SINCRONIZADO/FALHOU síncrono antes) — mesmo espírito do achado da
+  // auditoria de 2026-07-23 (sessões do paciente Jadir ficaram com a data
+  // desatualizada no Google porque a falha síncrona de então era só logada).
+  const clinica = await prisma.clinica.findUnique({
+    where: { id: usuario.clinicaId },
+    select: { googleConectado: true },
+  });
+  if (clinica?.googleConectado) {
     for (const mov of movimentos) {
-      if (mov.googleEventId) {
-        const ok = await sincronizarEventoGoogle(
-          google.calendar,
-          mov.googleCalendarId ?? mov.tipoSessaoGoogleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          mov.googleEventId,
-          { inicio: mov.novaData, duracaoMin: mov.duracaoMin },
-          google.clinica.id
-        );
-        await prisma.agendamento.update({
-          where: { id: mov.id },
-          data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
-        });
-      } else {
-        const dadosGoogle = await criarEventoGoogleMeet(
-          google.calendar,
-          mov.tipoSessaoGoogleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-          {
-            titulo: formatarTituloAgendamento({
-              nomePaciente: paciente.nome,
-              tipoSessaoNome: mov.tipoSessaoNome,
-              ehAtendimentoUnico: mov.ehAtendimentoUnico,
-              numeroSessao: mov.numeroSessao,
-              totalPacote: mov.totalPacote,
-            }),
-            inicio: mov.novaData,
-            duracaoMin: mov.duracaoMin,
-          },
-          mov.ehOnline,
-          google.clinica.id
-        );
-        await prisma.agendamento.update({
-          where: { id: mov.id },
-          data: { ...dadosGoogle, googleSyncStatus: dadosGoogle.googleEventId ? "SINCRONIZADO" : "FALHOU" },
-        });
-      }
+      await prisma.agendamento.update({ where: { id: mov.id }, data: { googleSyncStatus: "PENDENTE" } });
+      await enfileirar(usuario.clinicaId, mov.googleEventId ? "CALENDAR_ATUALIZAR" : "CALENDAR_CRIAR", {
+        agendamentoId: mov.id,
+      });
     }
   }
 

@@ -8,6 +8,7 @@ import {
   obterGmailDaClinica,
   compartilharPastaComEmail,
   enviarEmailBoasVindas,
+  extrairErroGoogle,
 } from "@/lib/google";
 import { renderizarCorpoEmailHtml } from "@/lib/emailBoasVindas";
 
@@ -52,22 +53,50 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
+  // propagarErro:true (diferente do resto do sistema, que trata Google como
+  // melhor-esforço silencioso): esta é uma ação síncrona deliberada do
+  // operador, não um evento de sistema — ele precisa saber na hora se
+  // falhou, pra decidir se tenta de novo. Ver ETAPA 3b.
   const pastaDriveId = extrairIdPastaDrive(paciente.pastaDriveUrl);
-  const [resultadoPasta, resultadoEmail] = await Promise.all([
-    compartilharPastaComEmail(drive, pastaDriveId, paciente.email, clinica.id),
-    enviarEmailBoasVindas(gmail, paciente.email, assunto, renderizarCorpoEmailHtml(corpo), clinica.id),
+  const [resultadoPasta, resultadoEmail] = await Promise.allSettled([
+    compartilharPastaComEmail(drive, pastaDriveId, paciente.email, clinica.id, { propagarErro: true }),
+    enviarEmailBoasVindas(gmail, paciente.email, assunto, renderizarCorpoEmailHtml(corpo), clinica.id, {
+      propagarErro: true,
+    }),
   ]);
+
+  const pastaCompartilhada = resultadoPasta.status === "fulfilled";
+  const emailEnviado = resultadoEmail.status === "fulfilled";
 
   await registrarLog(
     usuario.clinicaId,
     usuario.id,
     "COMPARTILHAR_PASTA_EMAIL",
     `Compartilhou a pasta e enviou boas-vindas para ${paciente.nome} (${paciente.email}) — ` +
-      `pasta: ${resultadoPasta.compartilhado ? "ok" : "falhou"}, e-mail: ${resultadoEmail.enviado ? "ok" : "falhou"}`
+      `pasta: ${pastaCompartilhada ? "ok" : "falhou"}, e-mail: ${emailEnviado ? "ok" : "falhou"}`
   );
 
-  return NextResponse.json({
-    pastaCompartilhada: resultadoPasta.compartilhado,
-    emailEnviado: resultadoEmail.enviado,
-  });
+  if (!pastaCompartilhada || !emailEnviado) {
+    let detalhe = "";
+    if (resultadoPasta.status === "rejected") {
+      const { codigo, mensagem } = extrairErroGoogle(resultadoPasta.reason);
+      detalhe += `pasta: HTTP ${codigo}: ${mensagem}`;
+    }
+    if (resultadoEmail.status === "rejected") {
+      const { codigo, mensagem } = extrairErroGoogle(resultadoEmail.reason);
+      detalhe += `${detalhe ? " | " : ""}e-mail: HTTP ${codigo}: ${mensagem}`;
+    }
+    detalhe = detalhe.slice(0, 500);
+
+    await prisma.clinica
+      .update({ where: { id: clinica.id }, data: { googleUltimoErro: detalhe, googleUltimoErroEm: new Date() } })
+      .catch((err) => console.error("Falha ao gravar googleUltimoErro na clínica:", err));
+
+    return NextResponse.json(
+      { erro: "Falha ao compartilhar pasta e/ou enviar e-mail pelo Google", pastaCompartilhada, emailEnviado, detalhe },
+      { status: 502 }
+    );
+  }
+
+  return NextResponse.json({ pastaCompartilhada, emailEnviado });
 }

@@ -15,8 +15,12 @@ export async function GET() {
   const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
   if (!clinica) return NextResponse.json({ erro: "clínica não encontrada" }, { status: 404 });
 
+  const itensFalha = await prisma.sincronizacaoPendente.count({
+    where: { clinicaId: usuario.clinicaId, status: "FALHA" },
+  });
+
   if (!clinica.googleConectado) {
-    return NextResponse.json({ conectado: false, prontoParaCompartilhar: false });
+    return NextResponse.json({ conectado: false, prontoParaCompartilhar: false, itensFalha });
   }
 
   // Buscar o e-mail da conta é best-effort: se a chamada falhar (rede, token
@@ -40,5 +44,6 @@ export async function GET() {
     email,
     calendarId: clinica.googleCalendarId,
     prontoParaCompartilhar: clinicaProntaParaCompartilhar(clinica),
+    itensFalha,
   });
 }

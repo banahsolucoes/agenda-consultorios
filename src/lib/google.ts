@@ -75,6 +75,52 @@ export async function marcarFalhaTokenSeRevogado(clinicaId: string, err: unknown
     .catch((updateErr) => console.error("Falha ao marcar googleTokenValido=false:", updateErr));
 }
 
+// Opção comum às funções de chamada Google deste módulo: por padrão elas são
+// tolerantes a falha (retornam um sentinel null/false, nunca lançam) — é o
+// que os call sites síncronos existentes esperam e continuam recebendo sem
+// passar nada aqui. propagarErro:true inverte isso (usado pelo outbox e por
+// compartilhar-pasta/route.ts): a função ainda loga e chama
+// marcarFalhaTokenSeRevogado como sempre, mas relança o erro original em vez
+// de engolir — só assim o chamador consegue o código HTTP/mensagem reais do
+// Google (ver extrairErroGoogle) em vez de um "falhou" genérico.
+type OpcoesChamadaGoogle = { propagarErro?: boolean };
+
+// Extrai código HTTP + mensagem de um erro de chamada à API do Google, nos
+// dois formatos que a lib emite: erro de token (err.response.data.error é
+// string, ex.: "invalid_grant") e erro de API REST comum (err.response.data
+// .error é objeto, ex.: { code, message, errors }). Usado pelo outbox
+// (sincronizacao.ts) e por qualquer chamador síncrono que opte por
+// propagarErro:true, para persistir o motivo real da falha em vez de um
+// "falhou" genérico.
+export function extrairErroGoogle(err: unknown): { codigo: string; mensagem: string } {
+  const resp = (
+    err as {
+      response?: {
+        status?: number;
+        data?: { error?: string | { message?: string }; error_description?: string };
+      };
+      code?: number | string;
+    }
+  ).response;
+  const data = resp?.data;
+
+  let mensagem: string;
+  if (typeof data?.error === "string") {
+    mensagem = data.error_description ? `${data.error}: ${data.error_description}` : data.error;
+  } else if (data?.error && typeof data.error === "object" && typeof data.error.message === "string") {
+    mensagem = data.error.message;
+  } else if (err instanceof Error) {
+    mensagem = err.message;
+  } else {
+    mensagem = String(err);
+  }
+
+  const codigoBruto = resp?.status ?? (err as { code?: number | string })?.code;
+  const codigo = codigoBruto !== undefined ? String(codigoBruto) : "??";
+
+  return { codigo, mensagem };
+}
+
 // Confere se a última autorização OAuth da clínica concedeu um escopo
 // específico — usado pra saber se dá pra compartilhar pasta/mandar e-mail
 // sem precisar tentar a chamada pra descobrir.
@@ -239,7 +285,8 @@ export async function criarPastaPacienteDrive(
   drive: drive_v3.Drive,
   pastaRaizDriveId: string,
   nomePaciente: string,
-  clinicaId: string
+  clinicaId: string,
+  opcoes: OpcoesChamadaGoogle = {}
 ): Promise<{ pastaDriveId: string | null; pastaDriveUrl: string | null }> {
   try {
     const { data } = await drive.files.create({
@@ -255,6 +302,7 @@ export async function criarPastaPacienteDrive(
   } catch (err) {
     console.error("Falha ao criar pasta do paciente no Google Drive:", err);
     await marcarFalhaTokenSeRevogado(clinicaId, err);
+    if (opcoes.propagarErro) throw err;
     return { pastaDriveId: null, pastaDriveUrl: null };
   }
 }
@@ -267,7 +315,8 @@ export async function compartilharPastaComEmail(
   drive: drive_v3.Drive,
   pastaDriveId: string,
   email: string,
-  clinicaId: string
+  clinicaId: string,
+  opcoes: OpcoesChamadaGoogle = {}
 ): Promise<{ compartilhado: boolean }> {
   try {
     await drive.permissions.create({
@@ -279,6 +328,7 @@ export async function compartilharPastaComEmail(
   } catch (err) {
     console.error("Falha ao compartilhar pasta do Drive:", err);
     await marcarFalhaTokenSeRevogado(clinicaId, err);
+    if (opcoes.propagarErro) throw err;
     return { compartilhado: false };
   }
 }
@@ -320,7 +370,8 @@ export async function enviarEmailBoasVindas(
   para: string,
   assunto: string,
   corpoHtml: string,
-  clinicaId: string
+  clinicaId: string,
+  opcoes: OpcoesChamadaGoogle = {}
 ): Promise<{ enviado: boolean }> {
   try {
     await gmail.users.messages.send({
@@ -331,6 +382,7 @@ export async function enviarEmailBoasVindas(
   } catch (err) {
     console.error("Falha ao enviar e-mail de boas-vindas via Gmail:", err);
     await marcarFalhaTokenSeRevogado(clinicaId, err);
+    if (opcoes.propagarErro) throw err;
     return { enviado: false };
   }
 }
@@ -382,7 +434,8 @@ export async function criarEventoGoogleMeet(
   googleCalendarId: string,
   dados: { titulo: string; inicio: Date; duracaoMin: number; cor?: string | null },
   comMeet: boolean,
-  clinicaId: string
+  clinicaId: string,
+  opcoes: OpcoesChamadaGoogle = {}
 ): Promise<{ googleEventId: string | null; googleCalendarId: string | null; linkMeet: string | null }> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
@@ -416,6 +469,7 @@ export async function criarEventoGoogleMeet(
   } catch (err) {
     console.error("Falha ao criar evento no Google Calendar:", err);
     await marcarFalhaTokenSeRevogado(clinicaId, err);
+    if (opcoes.propagarErro) throw err;
     return { googleEventId: null, googleCalendarId: null, linkMeet: null };
   }
 }
@@ -433,7 +487,8 @@ export async function sincronizarEventoGoogle(
   googleCalendarId: string,
   eventId: string,
   dados: { inicio: Date; duracaoMin: number; titulo?: string; cor?: string | null },
-  clinicaId: string
+  clinicaId: string,
+  opcoes: OpcoesChamadaGoogle = {}
 ): Promise<boolean> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
@@ -452,6 +507,32 @@ export async function sincronizarEventoGoogle(
   } catch (err) {
     console.error("Falha ao atualizar evento no Google Calendar:", err);
     await marcarFalhaTokenSeRevogado(clinicaId, err);
+    if (opcoes.propagarErro) throw err;
+    return false;
+  }
+}
+
+// Remove o evento de uma sessão do Google Calendar. Um evento já ausente
+// (404/410 — apagado manualmente, ou remoção reprocessada pelo outbox após
+// falha registrada mas efetivada do lado do Google) conta como sucesso: o
+// resultado desejado (evento não existe mais) já está garantido. Melhor
+// esforço, mesmo padrão das demais funções deste módulo — nunca lança.
+export async function removerEventoGoogle(
+  calendar: calendar_v3.Calendar,
+  googleCalendarId: string,
+  eventId: string,
+  clinicaId: string,
+  opcoes: OpcoesChamadaGoogle = {}
+): Promise<boolean> {
+  try {
+    await calendar.events.delete({ calendarId: googleCalendarId, eventId });
+    return true;
+  } catch (err) {
+    const status = (err as { code?: number; response?: { status?: number } })?.response?.status ?? (err as { code?: number })?.code;
+    if (status === 404 || status === 410) return true;
+    console.error("Falha ao remover evento no Google Calendar:", err);
+    await marcarFalhaTokenSeRevogado(clinicaId, err);
+    if (opcoes.propagarErro) throw err;
     return false;
   }
 }

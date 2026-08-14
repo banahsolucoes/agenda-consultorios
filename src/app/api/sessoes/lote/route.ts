@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { verificarFinalizacao } from "@/lib/finalizacao";
-import { obterClinicaECalendar, sincronizarEventoGoogle } from "@/lib/google";
-import { formatarTituloAgendamento, formatarTituloMentorado, nomeSessao } from "@/lib/blocoAgenda";
+import { enfileirar, enfileirarRemocaoDeAgendamento } from "@/lib/sincronizacao";
+import { nomeSessao } from "@/lib/blocoAgenda";
 import { registrarLog } from "@/lib/auditoria";
 import {
   filtrarSessoesElegiveis,
@@ -12,15 +12,6 @@ import {
   statusLoteValido,
 } from "@/lib/loteSessoes";
 import { validarStatusSessao } from "@/lib/validacaoSessao";
-
-// Mesmo critério de src/app/api/sessoes/[id]/route.ts (Bloco 5, 2026-07-25) —
-// o Google Calendar não tem campo nativo de status; refletir no título é o
-// mínimo aceitável. AGENDADA é o estado "normal", sem sufixo.
-const SUFIXO_STATUS: Partial<Record<string, string>> = {
-  REALIZADA: " — Realizada",
-  NAO_REALIZADA: " — Não realizada",
-  REAGENDADA: " — Reagendada",
-};
 
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
@@ -69,21 +60,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ aplicadas: 0, puladas: ids.length });
   }
 
-  // Remoção dos eventos do Google Calendar é melhor esforço: busca o cliente
-  // uma única vez para todo o lote e nunca deixa uma falha de integração
-  // impedir o cancelamento local de nenhuma sessão.
+  // Remoção dos eventos do Google Calendar via outbox — CALENDAR_REMOVER por
+  // sessão, com supersede de qualquer CALENDAR_CRIAR/ATUALIZAR pendente pra
+  // não deixar evento fantasma (ver enfileirarRemocaoDeAgendamento).
+  // Chamado pra toda sessão válida, não só as que já têm googleEventId: uma
+  // sessão sem evento ainda pode ter um CRIAR pendente que precisa ser
+  // superseded. Nunca impede o cancelamento local.
   if (status === "CANCELADA") {
-    const google = await obterClinicaECalendar(usuario.clinicaId);
-    if (google) {
-      for (const s of validas) {
-        if (!s.googleEventId) continue;
-        await google.calendar.events
-          .delete({
-            calendarId: s.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-            eventId: s.googleEventId,
-          })
-          .catch((err) => console.error("Falha ao remover evento do Google Calendar:", err));
-      }
+    for (const s of validas) {
+      await enfileirarRemocaoDeAgendamento(usuario.clinicaId, s.id);
     }
   }
 
@@ -107,30 +92,14 @@ export async function POST(req: NextRequest) {
   if (status !== "CANCELADA") {
     const comEvento = validas.filter((s) => s.googleEventId);
     if (comEvento.length > 0) {
-      const google = await obterClinicaECalendar(usuario.clinicaId);
-      if (google) {
+      const clinica = await prisma.clinica.findUnique({
+        where: { id: usuario.clinicaId },
+        select: { googleConectado: true },
+      });
+      if (clinica?.googleConectado) {
         for (const s of comEvento) {
-          const tituloBase = s.aluno
-            ? formatarTituloMentorado(s.aluno.nomeCompleto)
-            : formatarTituloAgendamento({
-                nomePaciente: s.paciente?.nome ?? "",
-                tipoSessaoNome: s.tipoSessao?.nome ?? null,
-                ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
-                numeroSessao: s.numeroSessao ?? 0,
-                totalPacote: s.totalPacote ?? 0,
-              });
-          const titulo = `${tituloBase}${s.confirmada ? " ✅" : ""}${SUFIXO_STATUS[status] ?? ""}`;
-          const ok = await sincronizarEventoGoogle(
-            google.calendar,
-            s.googleCalendarId ?? s.tipoSessao?.googleCalendarId ?? google.clinica.googleCalendarId ?? "primary",
-            s.googleEventId!,
-            { inicio: s.inicio, duracaoMin: s.duracaoMin, titulo },
-            google.clinica.id
-          );
-          await prisma.agendamento.update({
-            where: { id: s.id },
-            data: { googleSyncStatus: ok ? "SINCRONIZADO" : "FALHOU" },
-          });
+          await prisma.agendamento.update({ where: { id: s.id }, data: { googleSyncStatus: "PENDENTE" } });
+          await enfileirar(usuario.clinicaId, "CALENDAR_ATUALIZAR", { agendamentoId: s.id });
         }
       }
     }
