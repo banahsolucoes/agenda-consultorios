@@ -7,10 +7,6 @@
     {
       "path": "/api/cron/whatsapp-lembretes",
       "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/cron/sincronizacao",
-      "schedule": "*/10 * * * *"
     }
   ]
 }

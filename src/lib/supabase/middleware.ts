@@ -16,6 +16,14 @@ export async function updateSession(request: NextRequest) {
   // enviado direto ao paciente. clinicaId vem só do slug da URL, nunca de
   // sessão/cookie.
   const ehRotaFormularioPublico = path.startsWith("/api/f/");
+  // Rotas de cron (2026-08-14) — chamadas pela Vercel Cron ou por um cron
+  // externo (nunca por um usuário logado), autenticadas pelo próprio secret
+  // de cada rota (CRON_SECRET via "Authorization: Bearer" ou "x-cron-secret",
+  // ver cron/sincronizacao/route.ts). Sem esta exceção, toda chamada de cron
+  // seria barrada aqui com 401 antes de chegar à checagem do secret, porque
+  // nunca carrega cookie de sessão Supabase — achado ao expor
+  // /api/cron/sincronizacao pra um chamador externo (ver ARCHITECTURE.md §9).
+  const ehRotaCron = path.startsWith("/api/cron/");
   const ip = obterIp(request);
 
   // /api/auth (login/signup) é o alvo mais óbvio de força bruta, por isso
@@ -62,7 +70,7 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   // rotas de API protegidas exigem login (exceto /api/auth e /api/f/*)
-  const rotaProtegida = path.startsWith("/api/") && !ehRotaAuth && !ehRotaFormularioPublico;
+  const rotaProtegida = path.startsWith("/api/") && !ehRotaAuth && !ehRotaFormularioPublico && !ehRotaCron;
 
   if (rotaProtegida && !user) {
     return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
