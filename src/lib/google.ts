@@ -7,9 +7,6 @@ import { prisma } from "@/lib/prisma";
 import type { Clinica } from "@/generated/prisma";
 import type { NextRequest } from "next/server";
 import { TIMEZONE } from "@/lib/timezone";
-import { mapearCorParaGoogleColorId } from "@/lib/google/cores";
-
-export { mapearCorParaGoogleColorId };
 
 // calendar.events cobre a integração de agenda/Meet; userinfo.email é só
 // para exibir o e-mail da conta conectada na tela de Configurações — sem
@@ -423,14 +420,13 @@ export async function enviarEmailBoasVindas(
 export async function criarEventoGoogleMeet(
   calendar: calendar_v3.Calendar,
   googleCalendarId: string,
-  dados: { titulo: string; inicio: Date; duracaoMin: number; cor?: string | null },
+  dados: { titulo: string; inicio: Date; duracaoMin: number },
   comMeet: boolean,
   clinicaId: string,
   opcoes: OpcoesChamadaGoogle = {}
 ): Promise<{ googleEventId: string | null; googleCalendarId: string | null; linkMeet: string | null }> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
-    const colorId = mapearCorParaGoogleColorId(dados.cor);
     const { data: evento } = await calendar.events.insert({
       calendarId: googleCalendarId,
       ...(comMeet ? { conferenceDataVersion: 1 } : {}),
@@ -438,7 +434,6 @@ export async function criarEventoGoogleMeet(
         summary: dados.titulo,
         start: { dateTime: dados.inicio.toISOString(), timeZone: TIMEZONE },
         end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
-        ...(colorId ? { colorId } : {}),
         ...(comMeet
           ? {
               conferenceData: {
@@ -466,10 +461,12 @@ export async function criarEventoGoogleMeet(
 }
 
 // Ponto único que sincroniza o evento já existente de uma sessão de volta
-// pro Google Calendar — data/hora (a partir de início + duração), e
-// opcionalmente título e cor (colorId). Usado por toda operação que move,
-// empurra, adia ou muda a duração/tipo/confirmação de uma sessão que já tem
-// googleEventId. Melhor esforço: qualquer falha só é logada, nunca
+// pro Google Calendar — data/hora (a partir de início + duração) e
+// opcionalmente título. Cor nunca é enviada: o Google Calendar já colore o
+// evento pela cor do calendário de destino — forçar colorId sobrepunha isso
+// desnecessariamente (ver ARCHITECTURE.md §9). Usado por toda operação que
+// move, empurra, adia ou muda a duração/tipo/confirmação de uma sessão que
+// já tem googleEventId. Melhor esforço: qualquer falha só é logada, nunca
 // interrompe a operação local que já foi persistida — mas o caller ainda
 // recebe se deu certo (para gravar googleSyncStatus), daí retornar boolean
 // em vez de void.
@@ -477,13 +474,12 @@ export async function sincronizarEventoGoogle(
   calendar: calendar_v3.Calendar,
   googleCalendarId: string,
   eventId: string,
-  dados: { inicio: Date; duracaoMin: number; titulo?: string; cor?: string | null },
+  dados: { inicio: Date; duracaoMin: number; titulo?: string },
   clinicaId: string,
   opcoes: OpcoesChamadaGoogle = {}
 ): Promise<boolean> {
   try {
     const fim = new Date(dados.inicio.getTime() + dados.duracaoMin * 60_000);
-    const colorId = mapearCorParaGoogleColorId(dados.cor);
     await calendar.events.patch({
       calendarId: googleCalendarId,
       eventId,
@@ -491,7 +487,6 @@ export async function sincronizarEventoGoogle(
         start: { dateTime: dados.inicio.toISOString(), timeZone: TIMEZONE },
         end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
         ...(dados.titulo ? { summary: dados.titulo } : {}),
-        ...(colorId ? { colorId } : {}),
       },
     });
     return true;

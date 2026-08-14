@@ -267,7 +267,7 @@ async function processarCalendarCriar(item: LinhaFila): Promise<void> {
   const resultado = await criarEventoGoogleMeet(
     calendar,
     googleCalendarId,
-    { titulo, inicio: agendamento.inicio, duracaoMin: agendamento.duracaoMin, cor: agendamento.tipoSessao?.cor },
+    { titulo, inicio: agendamento.inicio, duracaoMin: agendamento.duracaoMin },
     comMeet,
     item.clinicaId,
     { propagarErro: true }
@@ -304,7 +304,7 @@ async function processarCalendarAtualizar(item: LinhaFila): Promise<void> {
     calendar,
     agendamento.googleCalendarId,
     agendamento.googleEventId,
-    { inicio: agendamento.inicio, duracaoMin: agendamento.duracaoMin, titulo, cor: agendamento.tipoSessao?.cor },
+    { inicio: agendamento.inicio, duracaoMin: agendamento.duracaoMin, titulo },
     item.clinicaId,
     { propagarErro: true }
   );
