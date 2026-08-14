@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapearCorParaGoogleColorId } from "./google";
+import { mapearCorParaGoogleColorId } from "./cores";
 
 describe("mapearCorParaGoogleColorId", () => {
   it("mapeia uma cor exata da paleta do Google para o colorId correspondente", () => {
