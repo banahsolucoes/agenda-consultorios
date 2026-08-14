@@ -214,17 +214,18 @@ export default function MensagensPage() {
             <h3 className="mb-1 font-serif text-base font-semibold text-fg">Mensagens de copiar-colar</h3>
             <p className="mb-4 text-sm text-muted">
               Textos usados nos botões &quot;Copiar confirmação&quot; e &quot;Copiar link do Meet&quot;, na agenda e
-              no painel do paciente. Variáveis disponíveis:{" "}
-              <strong>{"{saudacao}"}</strong> (Bom dia/Boa tarde/Boa noite, conforme o horário atual),{" "}
-              <strong>{"{paciente}"}</strong> (primeiro nome), <strong>{"{data}"}</strong> (dd/mm),{" "}
-              <strong>{"{hora}"}</strong> (HH:MM), <strong>{"{horarioLimite}"}</strong> (limite de confirmação da
-              clínica), <strong>{"{linkMeet}"}</strong> (link da sessão) e <strong>{"{assistente}"}</strong> (nome
-              do assistente).
+              no painel do paciente.
             </p>
 
             <form onSubmit={handleSalvarTemplatesMensagem} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Texto de confirmação</label>
+                <p className="mb-1 text-xs text-muted">
+                  Variáveis: <strong>{"{saudacao}"}</strong> (Bom dia/Boa tarde/Boa noite),{" "}
+                  <strong>{"{paciente}"}</strong> (primeiro nome), <strong>{"{data}"}</strong> (dd/mm),{" "}
+                  <strong>{"{hora}"}</strong> (HH:MM), <strong>{"{horarioLimite}"}</strong> (limite de confirmação da
+                  clínica) e <strong>{"{assistente}"}</strong> (nome do assistente).
+                </p>
                 <textarea
                   name="templateConfirmacao"
                   value={form.templateConfirmacao}
@@ -237,6 +238,12 @@ export default function MensagensPage() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">Texto do link do Meet</label>
+                <p className="mb-1 text-xs text-muted">
+                  Variáveis: <strong>{"{nome}"}</strong> (primeiro nome), <strong>{"{data}"}</strong> (dd/mm),{" "}
+                  <strong>{"{hora}"}</strong> (HH:MM), <strong>{"{link}"}</strong> (link da sessão) e{" "}
+                  <strong>{"{numero}"}</strong>/<strong>{"{total}"}</strong> (posição da sessão no pacote — numa
+                  reunião de mentorado, sem pacote, a linha com essas duas variáveis é omitida sozinha).
+                </p>
                 <textarea
                   name="templateMeet"
                   value={form.templateMeet}

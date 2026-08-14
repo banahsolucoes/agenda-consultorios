@@ -75,10 +75,17 @@ model Clinica {
   emailBoasVindasCorpo   String @default("Olá {nome}, tudo bem?\n\nSuas sessões ficam gravadas e disponíveis através do acesso por esse e-mail. É só clicar e acionar seu conteúdo.\n\n{link_pasta}\n\nVale muito a pena ir praticando durante a semana, nos intervalos do dia mesmo… no banho, arrumando a casa, caminhando. Esses pequenos momentos fazem diferença de verdade no seu resultado.\n\nQualquer dúvida, me chama 😊\n\nAtenciosamente\nFono Pâmela Rachid")
 
   // Templates das mensagens de copiar-colar (popup da agenda + painel do
-  // paciente). Variáveis: {saudacao} {paciente} {data} {hora}
-  // {horarioLimite} {linkMeet} {assistente} — ver src/lib/templatesMensagem.ts.
+  // paciente). templateConfirmacao usa {saudacao} {paciente} {data} {hora}
+  // {horarioLimite} {assistente}; templateMeet (2026-08-14) usa um conjunto
+  // próprio — {nome} {data} {hora} {link} {numero} {total} — sem
+  // {saudacao}/{assistente} (texto fixo agora). {numero}/{total} vêm de
+  // Agendamento.numeroSessao/totalPacote (mesma variável do título do evento
+  // no Google, "{paciente} (N/T)"); quando a sessão não pertence a um pacote
+  // (ex.: reunião de mentorado), a linha inteira "Sessão {numero}/{total}" é
+  // omitida em vez de renderizar valores vazios — ver
+  // src/lib/templatesMensagem.ts (removerLinhaSessaoPacote).
   templateConfirmacao String @default("{saudacao} {paciente}, tudo bem?! \n🌸 Passando para confirmar sua sessão no dia {data} às {hora}hr. 🗓\n👉 Podemos confirmar? ✅\n⸻\n⚠️ Importante\nCaso não haja confirmação até hoje, às {horarioLimite}hr, o horário será automaticamente cancelado.\nUm abraço\n\n{assistente} 🥰")
-  templateMeet        String @default("{saudacao} {paciente}, tudo bem? ☀️\n\nSegue o link da sua sessão de hoje às {hora}h.\n🔗 {linkMeet} 🔗\n\nQualquer coisa, estou por aqui.\n\n{assistente} 🥰")
+  templateMeet        String @default("Olá {nome}!!!\nEsse será o link para sua sessão no dia {data}, às {hora}hr.\n🔗 {link} 🔗\nSessão {numero}/{total}\nQualquer coisa, estou por aqui.\n\nDai 🥰")
 
   usuarios            Usuario[]
   pacientes           Paciente[]

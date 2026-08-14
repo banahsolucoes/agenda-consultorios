@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TEMPLATE_CONFIRMACAO_PADRAO,
   TEMPLATE_MEET_PADRAO,
+  removerLinhaSessaoPacote,
   renderizarTemplateMensagem,
   saudacaoAtual,
 } from "./templatesMensagem";
@@ -51,22 +52,22 @@ describe("renderizarTemplateMensagem", () => {
 
   it("substitui todas as variáveis do template do Meet, mantendo as quebras de linha", () => {
     const resultado = renderizarTemplateMensagem(TEMPLATE_MEET_PADRAO, {
-      saudacao: "Boa tarde",
-      paciente: "William",
+      nome: "William",
+      data: "06/07",
       hora: "14:30",
-      linkMeet: "https://meet.google.com/fnz-tood-zgt",
-      assistente: "Ana",
+      link: "https://meet.google.com/fnz-tood-zgt",
+      numero: "3",
+      total: "8",
     });
 
     expect(resultado).toBe(
-      "Boa tarde William, tudo bem? ☀️\n" +
-        "\n" +
-        "Segue o link da sua sessão de hoje às 14:30h.\n" +
+      "Olá William!!!\n" +
+        "Esse será o link para sua sessão no dia 06/07, às 14:30hr.\n" +
         "🔗 https://meet.google.com/fnz-tood-zgt 🔗\n" +
-        "\n" +
+        "Sessão 3/8\n" +
         "Qualquer coisa, estou por aqui.\n" +
         "\n" +
-        "Ana 🥰"
+        "Dai 🥰"
     );
   });
 
@@ -74,13 +75,44 @@ describe("renderizarTemplateMensagem", () => {
     const variaveis = {
       saudacao: "Bom dia",
       paciente: "William",
+      nome: "William",
       data: "06/07",
       hora: "14:00",
       horarioLimite: "17:00",
-      linkMeet: "https://meet.google.com/abc",
+      link: "https://meet.google.com/abc",
+      numero: "3",
+      total: "8",
       assistente: "Ana",
     };
     expect(renderizarTemplateMensagem(TEMPLATE_CONFIRMACAO_PADRAO, variaveis)).not.toMatch(/\{\w+\}/);
     expect(renderizarTemplateMensagem(TEMPLATE_MEET_PADRAO, variaveis)).not.toMatch(/\{\w+\}/);
+  });
+});
+
+describe("removerLinhaSessaoPacote", () => {
+  it("remove a linha inteira que contém {numero}/{total}, sem deixar linha em branco no lugar", () => {
+    const resultado = removerLinhaSessaoPacote(TEMPLATE_MEET_PADRAO);
+    expect(resultado).toBe(
+      "Olá {nome}!!!\n" +
+        "Esse será o link para sua sessão no dia {data}, às {hora}hr.\n" +
+        "🔗 {link} 🔗\n" +
+        "Qualquer coisa, estou por aqui.\n" +
+        "\n" +
+        "Dai 🥰"
+    );
+    expect(resultado).not.toContain("{numero}");
+    expect(resultado).not.toContain("{total}");
+  });
+
+  it("renderizado sem a linha de pacote não deixa nenhum placeholder de sessão pra trás", () => {
+    const semLinha = removerLinhaSessaoPacote(TEMPLATE_MEET_PADRAO);
+    const resultado = renderizarTemplateMensagem(semLinha, {
+      nome: "Débora",
+      data: "20/08",
+      hora: "11:30",
+      link: "https://meet.google.com/xyz",
+    });
+    expect(resultado).not.toMatch(/\{\w+\}/);
+    expect(resultado).not.toContain("Sessão");
   });
 });

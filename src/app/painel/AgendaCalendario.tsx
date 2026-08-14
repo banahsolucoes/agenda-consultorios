@@ -14,7 +14,7 @@ import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
 import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
-import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import { removerLinhaSessaoPacote, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import DatePickerSP from "./DatePickerSP";
 import AnamneseModal from "./AnamneseModal";
 
@@ -203,14 +203,19 @@ function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda)
 }
 
 // Texto do link do Meet — só é chamado quando sessao.linkMeet já existe (os
-// botões de copiar ficam desabilitados sem link).
+// botões de copiar ficam desabilitados sem link). Única view que mistura
+// sessão de paciente (sempre com pacote) e reunião avulsa de mentorado (sem
+// pacote, numeroSessao/totalPacote null) — por isso é a única que precisa de
+// removerLinhaSessaoPacote antes de renderizar.
 function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
-  return renderizarTemplateMensagem(clinica.templateMeet, {
-    saudacao: saudacaoAtual(),
-    paciente: nomeDaSessao(sessao).split(" ")[0],
+  const temPacote = sessao.numeroSessao != null && sessao.totalPacote != null;
+  const template = temPacote ? clinica.templateMeet : removerLinhaSessaoPacote(clinica.templateMeet);
+  return renderizarTemplateMensagem(template, {
+    nome: nomeDaSessao(sessao).split(" ")[0],
+    data: formatarDiaMes(new Date(sessao.inicio)),
     hora: formatarHorario(new Date(sessao.inicio)),
-    linkMeet: sessao.linkMeet ?? "",
-    assistente: clinica.nomeAssistente,
+    link: sessao.linkMeet ?? "",
+    ...(temPacote ? { numero: String(sessao.numeroSessao), total: String(sessao.totalPacote) } : {}),
   });
 }
 

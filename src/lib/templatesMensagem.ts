@@ -16,14 +16,13 @@ export const TEMPLATE_CONFIRMACAO_PADRAO =
   "{assistente} 🥰";
 
 export const TEMPLATE_MEET_PADRAO =
-  "{saudacao} {paciente}, tudo bem? ☀️\n" +
-  "\n" +
-  "Segue o link da sua sessão de hoje às {hora}h.\n" +
-  "🔗 {linkMeet} 🔗\n" +
-  "\n" +
+  "Olá {nome}!!!\n" +
+  "Esse será o link para sua sessão no dia {data}, às {hora}hr.\n" +
+  "🔗 {link} 🔗\n" +
+  "Sessão {numero}/{total}\n" +
   "Qualquer coisa, estou por aqui.\n" +
   "\n" +
-  "{assistente} 🥰";
+  "Dai 🥰";
 
 // "Bom dia" (00h–11h59) / "Boa tarde" (12h–17h59) / "Boa noite" (18h–23h59),
 // sempre pelo horário atual de São Paulo — independe do fuso do processo
@@ -43,4 +42,16 @@ export function renderizarTemplateMensagem(template: string, variaveis: Record<s
     (acc, [chave, valor]) => acc.split(`{${chave}}`).join(valor),
     template
   );
+}
+
+// Remove a linha inteira que contém {numero}/{total} de templateMeet —
+// usado quando a sessão não pertence a um pacote (ex.: reunião avulsa de
+// mentorado, sem numeroSessao/totalPacote), pra nunca imprimir "Sessão /"
+// com os placeholders vazios. Chamar ANTES de renderizarTemplateMensagem,
+// enquanto os placeholders ainda estão literais no texto.
+export function removerLinhaSessaoPacote(template: string): string {
+  return template
+    .split("\n")
+    .filter((linha) => !linha.includes("{numero}") && !linha.includes("{total}"))
+    .join("\n");
 }

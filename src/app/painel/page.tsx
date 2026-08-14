@@ -1493,15 +1493,19 @@ export default function PainelPage() {
     });
   }
 
-  // Monta a mensagem com o link do Meet, pronta para copiar e colar
+  // Monta a mensagem com o link do Meet, pronta para copiar e colar. Sessões
+  // desta lista sempre pertencem a um pacote do paciente selecionado (nunca
+  // reunião de mentorado, que não passa por aqui) — numeroSessao/totalPacote
+  // sempre presentes, sem precisar de removerLinhaSessaoPacote.
   function montarMensagemMeet(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
     return renderizarTemplateMensagem(clinica.templateMeet, {
-      saudacao: saudacaoAtual(),
-      paciente: pacienteSelecionado.nome.split(" ")[0],
+      nome: pacienteSelecionado.nome.split(" ")[0],
+      data: formatarDataCurta(s.inicio),
       hora: formatarHorario(s.inicio),
-      linkMeet: s.linkMeet ?? (s.googleSyncStatus === "PENDENTE" ? "(sincronizando com o Google — tente novamente em instantes)" : "(link ainda não gerado)"),
-      assistente: clinica.nomeAssistente,
+      link: s.linkMeet ?? (s.googleSyncStatus === "PENDENTE" ? "(sincronizando com o Google — tente novamente em instantes)" : "(link ainda não gerado)"),
+      numero: String(s.numeroSessao),
+      total: String(s.totalPacote),
     });
   }
 
