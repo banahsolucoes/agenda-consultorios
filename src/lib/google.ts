@@ -522,3 +522,26 @@ export async function removerEventoGoogle(
     return false;
   }
 }
+
+// Um evento apagado manualmente no Google não some do outbox: como visto no
+// caso Robson Aparecido (2026-08-17), o Google mantém o evento como um
+// "tombstone" (status "cancelled", datas zeradas) — GET nele funciona, mas
+// PATCH devolve 403 Forbidden pra sempre, nunca 404/410 (esses só aparecem
+// se o evento já tiver sido definitivamente purgado). Sem esta checagem, o
+// worker (processarCalendarAtualizar) reagenda o mesmo PATCH em loop de
+// backoff até esgotar tentativas e virar FALHA definitivo — o evento nunca
+// volta a existir sozinho. Chamada só no catch de uma falha de PATCH (não
+// no caminho feliz), pra não gastar uma chamada extra por atualização.
+export async function eventoGoogleAusenteOuCancelado(
+  calendar: calendar_v3.Calendar,
+  googleCalendarId: string,
+  eventId: string
+): Promise<boolean> {
+  try {
+    const { data } = await calendar.events.get({ calendarId: googleCalendarId, eventId });
+    return data.status === "cancelled";
+  } catch (err) {
+    const status = (err as { code?: number; response?: { status?: number } })?.response?.status ?? (err as { code?: number })?.code;
+    return status === 404 || status === 410;
+  }
+}

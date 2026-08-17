@@ -17,6 +17,7 @@ import {
   criarPastaPacienteDrive,
   resolverCalendarIdMentorado,
   extrairErroGoogle,
+  eventoGoogleAusenteOuCancelado,
 } from "@/lib/google";
 import { formatarTituloAgendamento, formatarTituloMentorado } from "@/lib/blocoAgenda";
 
@@ -300,14 +301,32 @@ async function processarCalendarAtualizar(item: LinhaFila): Promise<void> {
 
   const titulo = construirTitulo(agendamento);
 
-  await sincronizarEventoGoogle(
-    calendar,
-    agendamento.googleCalendarId,
-    agendamento.googleEventId,
-    { inicio: agendamento.inicio, duracaoMin: agendamento.duracaoMin, titulo },
-    item.clinicaId,
-    { propagarErro: true }
-  );
+  try {
+    await sincronizarEventoGoogle(
+      calendar,
+      agendamento.googleCalendarId,
+      agendamento.googleEventId,
+      { inicio: agendamento.inicio, duracaoMin: agendamento.duracaoMin, titulo },
+      item.clinicaId,
+      { propagarErro: true }
+    );
+  } catch (err) {
+    // Caso Robson Aparecido (2026-08-17): evento apagado manualmente no
+    // Google vira "cancelled" (tombstone) — PATCH nele nunca funciona, então
+    // insistir com retry/backoff só adia o inevitável até FALHA definitivo.
+    // Em vez disso, auto-cura: limpa a referência local e enfileira
+    // CALENDAR_CRIAR pra recriar o evento do zero, no calendário certo do
+    // tipo de sessão (processarCalendarCriar já resolve isso sozinho).
+    if (await eventoGoogleAusenteOuCancelado(calendar, agendamento.googleCalendarId, agendamento.googleEventId)) {
+      await prisma.agendamento.update({
+        where: { id: agendamento.id },
+        data: { googleEventId: null, googleCalendarId: null, linkMeet: null, googleSyncStatus: "PENDENTE" },
+      });
+      await enfileirar(item.clinicaId, "CALENDAR_CRIAR", { agendamentoId: agendamento.id });
+      return; // item atual: sucesso — a recriação é um novo item, não um retry deste
+    }
+    throw err; // erro real (rede, token, permissão) — segue o fluxo normal de falha/retry
+  }
 
   await prisma.agendamento.update({ where: { id: agendamento.id }, data: { googleSyncStatus: "SINCRONIZADO" } });
 }
