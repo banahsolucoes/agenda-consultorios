@@ -7,6 +7,7 @@
 // clínico. GMAIL_ENVIAR não é implementado aqui — ver nota antes do switch.
 import { Prisma } from "@/generated/prisma";
 import type { SincronizacaoTipo, SincronizacaoStatus } from "@/generated/prisma";
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   obterCalendarDaClinica,
@@ -27,6 +28,12 @@ import { formatarTituloAgendamento, formatarTituloMentorado } from "@/lib/blocoA
 const BACKOFF_MINUTOS = [1, 5, 30, 120, 360];
 const MAX_TENTATIVAS = 5;
 const TRAVADO_APOS_MS = 15 * 60_000;
+
+// Lote do disparo imediato pós-enfileiramento — bem menor que o
+// LIMITE_POR_EXECUCAO=25 do cron (cron/sincronizacao/route.ts), porque este
+// roda dentro de after() depois de uma rota que já fez seu próprio trabalho
+// (gravar o agendamento) e não tem orçamento de tempo dedicado só a isso.
+const LOTE_IMEDIATO = 5;
 
 type LinhaFila = {
   id: string;
@@ -55,6 +62,41 @@ export async function enfileirar(
     await prisma.sincronizacaoPendente.create({ data: { clinicaId, tipo, payload } });
   } catch (err) {
     console.error(`[sincronizacao] Falha ao enfileirar ${tipo} (clínica ${clinicaId}):`, err);
+    return;
+  }
+
+  dispararProcessamentoImediato();
+}
+
+// Reduz a latência entre "usuário mudou o horário" e "Google atualizado":
+// sem isso, a mudança só chega ao Google quando o cron externo rodar (até
+// 10min de atraso — ver .github/workflows/sincronizacao.yml). Dispara um
+// lote pequeno (LOTE_IMEDIATO) via after() (next/server), que mantém a
+// invocação serverless viva depois da resposta HTTP já ter sido enviada ao
+// usuário — nenhum await aqui, então nunca bloqueia a resposta da rota que
+// chamou enfileirar(). O cron de 10min continua existindo como rede de
+// segurança: qualquer coisa que este disparo não pegar (function reciclada
+// antes do after() terminar, erro transiente, disparo fora de request scope)
+// fica na fila do mesmo jeito e é varrida por ele depois.
+//
+// after() lança se chamado fora de um request scope (rota HTTP/Server
+// Function/Proxy) — acontece quando enfileirar() roda a partir de um script
+// standalone (scripts/_*.mjs) ou quando o próprio worker se auto-chama fora
+// de uma rota. Sem problema: é só um atalho de latência que não se aplica
+// nesse contexto, por isso o try/catch aqui nunca deixa esse erro escapar
+// para enfileirar() — que é o que a rota HTTP realmente depende de não
+// lançar (o registro já está gravado na fila de qualquer forma).
+function dispararProcessamentoImediato(): void {
+  try {
+    after(async () => {
+      try {
+        await processarPendentes(LOTE_IMEDIATO);
+      } catch (err) {
+        console.error("[sincronizacao] Falha no processamento imediato (after):", err);
+      }
+    });
+  } catch (err) {
+    console.error("[sincronizacao] Não foi possível agendar processamento imediato (after fora de request scope?):", err);
   }
 }
 
