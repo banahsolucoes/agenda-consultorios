@@ -1,0 +1,22 @@
+name: Sincronizacao Google (outbox)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  processar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar /api/cron/sincronizacao
+        run: |
+          status=$(curl -s -o /tmp/resposta.json -w "%{http_code}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://banahdigital.vercel.app/api/cron/sincronizacao)
+          echo "HTTP $status"
+          cat /tmp/resposta.json
+          if [ "$status" != "200" ]; then
+            echo "Falha: resposta HTTP $status"
+            exit 1
+          fi

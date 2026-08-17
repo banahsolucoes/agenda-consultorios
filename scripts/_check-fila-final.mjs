@@ -1,0 +1,10 @@
+import "dotenv/config";
+import { PrismaClient } from "../src/generated/prisma/index.js";
+import { PrismaPg } from "@prisma/adapter-pg";
+const adapter = new PrismaPg({ connectionString: process.env.DIRECT_URL ?? process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
+const grupos = await prisma.sincronizacaoPendente.groupBy({ by: ["status"], _count: { _all: true } });
+console.log(grupos);
+const pendentes = await prisma.sincronizacaoPendente.findMany({ where: { status: "PENDENTE" }, select: { id: true, payload: true, tentativas: true, ultimoErro: true, proximaTentativaEm: true } });
+console.log(pendentes);
+await prisma.$disconnect();

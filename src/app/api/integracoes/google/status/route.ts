@@ -19,8 +19,27 @@ export async function GET() {
     where: { clinicaId: usuario.clinicaId, status: "FALHA" },
   });
 
+  // Contagem/idade da fila PENDENTE — sinal de que o worker (cron externo a
+  // cada 10min) parou de rodar, independente de haver algum item em FALHA
+  // definitiva ou não (o represamento de 2026-08-17 não gerou nenhum FALHA,
+  // só ficou parado em PENDENTE por 3 dias).
+  const itensPendentes = await prisma.sincronizacaoPendente.count({
+    where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
+  });
+  const pendenteMaisAntigo = await prisma.sincronizacaoPendente.findFirst({
+    where: { clinicaId: usuario.clinicaId, status: "PENDENTE" },
+    orderBy: { createdAt: "asc" },
+    select: { createdAt: true },
+  });
+
   if (!clinica.googleConectado) {
-    return NextResponse.json({ conectado: false, prontoParaCompartilhar: false, itensFalha });
+    return NextResponse.json({
+      conectado: false,
+      prontoParaCompartilhar: false,
+      itensFalha,
+      itensPendentes,
+      pendenteMaisAntigoEm: pendenteMaisAntigo?.createdAt ?? null,
+    });
   }
 
   // Buscar o e-mail da conta é best-effort: se a chamada falhar (rede, token
@@ -45,5 +64,7 @@ export async function GET() {
     calendarId: clinica.googleCalendarId,
     prontoParaCompartilhar: clinicaProntaParaCompartilhar(clinica),
     itensFalha,
+    itensPendentes,
+    pendenteMaisAntigoEm: pendenteMaisAntigo?.createdAt ?? null,
   });
 }

@@ -15,7 +15,11 @@ interface GoogleStatus {
   email?: string | null;
   calendarId?: string | null;
   itensFalha?: number;
+  itensPendentes?: number;
+  pendenteMaisAntigoEm?: string | null;
 }
+
+const LIMITE_ALERTA_FILA_MS = 60 * 60_000; // 1h — acima disso, o worker (cron externo) provavelmente parou.
 
 function extractSheetIdFromUrl(urlOrId: string): string {
   const match = urlOrId.match(/\/d\/([^/]+)/);
@@ -357,6 +361,13 @@ export default function IntegracoesPage() {
           <p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-sm text-fg">{avisoReenfileirar}</p>
         )}
 
+        {!carregandoGoogle && googleStatus && (googleStatus.itensPendentes ?? 0) > 0 && (
+          <FilaPendenteAviso
+            itensPendentes={googleStatus.itensPendentes ?? 0}
+            pendenteMaisAntigoEm={googleStatus.pendenteMaisAntigoEm ?? null}
+          />
+        )}
+
         <div className="mt-4">
           <label className="mb-1 block text-sm font-medium text-fg">Pasta-mãe do Drive</label>
 
@@ -607,6 +618,51 @@ export default function IntegracoesPage() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Contagem da fila PENDENTE de sincronização Google + idade do item mais
+// antigo. Vira alerta (vermelho) quando o mais antigo passa de 1h — acima
+// disso o worker externo (GitHub Actions, roda a cada 10min) provavelmente
+// parou, em vez de só estar com um atraso normal de processamento.
+// Fora do componente — mesmo padrão de janelaAberta() em whatsapp/page.tsx:
+// a regra react-hooks/purity só barra Date.now() chamado direto no corpo do
+// componente, não dentro de uma função auxiliar de nível de módulo.
+function calcularIdadeMs(dataIso: string): number {
+  return Date.now() - new Date(dataIso).getTime();
+}
+
+function FilaPendenteAviso({
+  itensPendentes,
+  pendenteMaisAntigoEm,
+}: {
+  itensPendentes: number;
+  pendenteMaisAntigoEm: string | null;
+}) {
+  const idadeMs = pendenteMaisAntigoEm ? calcularIdadeMs(pendenteMaisAntigoEm) : 0;
+  const atrasado = idadeMs > LIMITE_ALERTA_FILA_MS;
+
+  const idadeTexto = (() => {
+    if (!pendenteMaisAntigoEm) return null;
+    const minutos = Math.floor(idadeMs / 60_000);
+    if (minutos < 60) return `${minutos} min`;
+    const horas = Math.floor(minutos / 60);
+    if (horas < 24) return `${horas}h`;
+    return `${Math.floor(horas / 24)} dia(s)`;
+  })();
+
+  return (
+    <div
+      className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
+        atrasado ? "border-red/30 bg-red/10 text-red" : "border-border bg-bg text-muted"
+      }`}
+    >
+      {itensPendentes} item{itensPendentes > 1 ? "ns" : ""} aguardando sincronização com o Google
+      {idadeTexto && <> — o mais antigo está esperando há {idadeTexto}</>}.
+      {atrasado && (
+        <> O worker de sincronização (cron externo, 10 em 10 min) pode ter parado — verifique a execução no GitHub Actions.</>
       )}
     </div>
   );

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { obterCalendarDaClinica, marcarFalhaTokenSeRevogado } from "@/lib/google";
+import { processarPendentes } from "@/lib/sincronizacao";
+
+// Mesmo limite do worker externo (cron/sincronizacao) — não maior, para não
+// arriscar estourar o timeout da function num único lote sequencial de
+// chamadas ao Google.
+const LIMITE_DRENAGEM = 25;
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const JANELA_DIAS = 60;
@@ -23,6 +29,16 @@ export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
   }
+
+  // Rede de segurança: se o cron externo (GitHub Actions, a cada 10min) ficar
+  // fora do ar, a fila represa e esta checagem passaria a reportar "drift"
+  // que na verdade é só sincronização atrasada, não divergência real. Drena
+  // a fila pendente primeiro — mesmo processarPendentes() do worker externo,
+  // só que chamado por este cron diário como fallback.
+  const drenagem = await processarPendentes(LIMITE_DRENAGEM);
+  console.log(
+    `[cron-google] drenagem prévia da fila: recuperados=${drenagem.recuperados} processados=${drenagem.processados} concluidos=${drenagem.concluidos} falhas=${drenagem.falhas}`
+  );
 
   const agora = new Date();
   const limite = new Date(agora.getTime() + JANELA_DIAS * DIA_MS);
@@ -132,5 +148,5 @@ export async function GET(req: NextRequest) {
     resumo.push({ clinicaId: clinica.id, nome: clinica.nome, semSyncStatus: semSync.length, driftsEncontrados });
   }
 
-  return NextResponse.json({ ok: true, resumo });
+  return NextResponse.json({ ok: true, drenagem, resumo });
 }
