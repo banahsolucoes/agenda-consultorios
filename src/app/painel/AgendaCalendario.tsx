@@ -132,6 +132,19 @@ function minutosParaHora(min: number) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// 401 logo após o mount costuma ser o refresh de token do Supabase perdendo
+// a corrida entre as chamadas paralelas do mount (proxy.ts não faz esse
+// refresh de forma centralizada hoje — ver ARCHITECTURE.md §15.2); uma
+// segunda tentativa ~500ms depois normalmente já pega o token renovado por
+// alguma das outras chamadas. Só reage a 401 (não a 500/rede) — outros erros
+// não têm motivo pra se resolver sozinhos numa segunda tentativa imediata.
+async function fetchComRetry401(url: string, signal?: AbortSignal): Promise<Response> {
+  const res = await fetch(url, { signal });
+  if (res.status !== 401) return res;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return fetch(url, { signal });
+}
+
 // Todas as funções abaixo trabalham em componentes de calendário de São
 // Paulo (via componentesSP/criarDataSP), nunca nos métodos locais do Date
 // (getDay/getDate/setHours...) — esses dependem do fuso do navegador, que
@@ -244,6 +257,7 @@ export default function AgendaCalendario({
   const [refData, setRefData] = useState(() => normalizarData(new Date()));
   const [sessoes, setSessoes] = useState<SessaoAgenda[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [erroSessoes, setErroSessoes] = useState(false);
   const [horarios, setHorarios] = useState<HorarioTrabalho[]>([]);
   const [clinica, setClinica] = useState<ClinicaAgenda | null>(null);
   const [tiposSessao, setTiposSessao] = useState<TipoSessaoOpcao[]>([]);
@@ -322,41 +336,56 @@ export default function AgendaCalendario({
         inicio: intervalo.inicio.toISOString(),
         fim: intervalo.fim.toISOString(),
       });
-      const res = await fetch(`/api/agenda?${params}`, { signal: controller.signal });
+      const res = await fetchComRetry401(`/api/agenda?${params}`, controller.signal);
       // Só aplica se esta ainda for a requisição mais recente — uma resposta
       // de uma busca já abortada não deve sobrescrever a semana atual.
-      if (res.ok && carregarSessoesController.current === controller) setSessoes(await res.json());
+      if (carregarSessoesController.current !== controller) return;
+      if (res.ok) {
+        setSessoes(await res.json());
+        setErroSessoes(false);
+      } else {
+        // Erro real (401 mesmo após retry, 500, etc.) — nunca deixar a grade
+        // parecer "semana vazia" quando na verdade a busca falhou.
+        setErroSessoes(true);
+      }
     } catch (err) {
       // AbortError (DOMException, não instância de Error) é o caso esperado
       // de uma busca superada por uma mais nova — ignora silenciosamente.
       if ((err as { name?: string })?.name === "AbortError") return;
-      throw err;
+      if (carregarSessoesController.current === controller) setErroSessoes(true);
     } finally {
       if (carregarSessoesController.current === controller) setCarregando(false);
     }
   }, [intervalo]);
 
   useEffect(() => {
-    fetch("/api/clinica/horarios")
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setHorarios);
-    fetch("/api/clinica")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(
-        (c) =>
-          c &&
-          setClinica({
-            nomeAssistente: c.nomeAssistente,
-            horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
-            templateConfirmacao: c.templateConfirmacao,
-            templateMeet: c.templateMeet,
-            permitirResizeSessao: c.permitirResizeSessao,
-            mentoriaAtivada: c.mentoriaAtivada ?? false,
-          })
-      );
-    fetch("/api/clinica/tipos-sessao")
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setTiposSessao);
+    // Mesmo padrão de falha silenciosa do carregarSessoes original — 401
+    // (perdeu a corrida de refresh de token) tenta de novo uma vez; falha
+    // definitiva vira aviso em vez de sumir sem explicação (aqui via
+    // mostrarAviso, não um bloco de erro dedicado como a grade principal,
+    // porque um horário/tipo de sessão ausente degrada a tela em vez de
+    // esvaziá-la — a agenda continua utilizável com os defaults).
+    fetchComRetry401("/api/clinica/horarios")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setHorarios)
+      .catch(() => mostrarAviso("Não foi possível carregar o expediente da clínica."));
+    fetchComRetry401("/api/clinica")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((c) =>
+        setClinica({
+          nomeAssistente: c.nomeAssistente,
+          horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
+          templateConfirmacao: c.templateConfirmacao,
+          templateMeet: c.templateMeet,
+          permitirResizeSessao: c.permitirResizeSessao,
+          mentoriaAtivada: c.mentoriaAtivada ?? false,
+        })
+      )
+      .catch(() => mostrarAviso("Não foi possível carregar os dados da clínica."));
+    fetchComRetry401("/api/clinica/tipos-sessao")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setTiposSessao)
+      .catch(() => mostrarAviso("Não foi possível carregar os tipos de sessão."));
   }, []);
 
   useEffect(() => {
@@ -660,6 +689,17 @@ export default function AgendaCalendario({
 
       {carregando && sessoes.length === 0 ? (
         <p className="text-sm text-muted">Carregando agenda...</p>
+      ) : erroSessoes ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-red/30 bg-red/10 p-8 text-center">
+          <p className="text-sm text-red">Não foi possível carregar a agenda.</p>
+          <button
+            type="button"
+            onClick={() => carregarSessoes()}
+            className="rounded-lg border border-red px-4 py-1.5 text-sm font-medium text-red hover:bg-red/10"
+          >
+            Tentar novamente
+          </button>
+        </div>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
           <div className="relative min-h-0 flex-1">
