@@ -292,7 +292,14 @@ async function processarCalendarCriar(item: LinhaFila): Promise<void> {
     include: { paciente: true, aluno: true, tipoSessao: true },
   });
   if (!agendamento) return; // sessão não existe mais — nada a fazer
-  if (agendamento.googleEventId) return; // idempotência: já sincronizado
+  if (agendamento.googleEventId) {
+    // idempotência: já sincronizado — mas se um FALHOU/PENDENTE antigo ficou
+    // preso no campo (ex.: gravado por outro caminho antes deste item rodar),
+    // esta saída não pode deixá-lo assim pra sempre (achado no caso Laura
+    // Alvarenga, sessão 12/38, 2026-08-19).
+    await prisma.agendamento.update({ where: { id: agendamento.id }, data: { googleSyncStatus: "SINCRONIZADO" } });
+    return;
+  }
 
   const clinica = await prisma.clinica.findUnique({ where: { id: item.clinicaId } });
   if (!clinica) throw new Error("clínica não encontrada");
@@ -334,7 +341,18 @@ async function processarCalendarAtualizar(item: LinhaFila): Promise<void> {
     where: { id: agendamentoId },
     include: { paciente: true, aluno: true, tipoSessao: true },
   });
-  if (!agendamento || !agendamento.googleEventId || !agendamento.googleCalendarId) return; // nada a atualizar
+  if (!agendamento) return; // sessão não existe mais — nada a fazer
+  // Decisão deliberada (2026-08-19): NÃO grava googleSyncStatus aqui, ao
+  // contrário dos outros dois handlers. "Nada a atualizar" porque NÃO HÁ
+  // evento — diferente da idempotência de processarCalendarCriar/Remover
+  // (onde o estado real bate com SINCRONIZADO), aqui SINCRONIZADO seria uma
+  // afirmação falsa (não existe googleEventId). `verificar-google-noturno`
+  // (cron/verificar-google-noturno/route.ts:61) só investiga agendamentos
+  // futuros com `googleSyncStatus != SINCRONIZADO` — gravar SINCRONIZADO
+  // aqui faria uma sessão AGENDADA/REAGENDADA sem evento nenhum sumir desse
+  // radar. Deixa o status como já estava (o handler original que o gravou —
+  // criação, cron noturno, etc. — continua sendo a fonte da verdade).
+  if (!agendamento.googleEventId || !agendamento.googleCalendarId) return;
 
   const clinica = await prisma.clinica.findUnique({ where: { id: item.clinicaId } });
   if (!clinica) throw new Error("clínica não encontrada");
@@ -376,7 +394,14 @@ async function processarCalendarAtualizar(item: LinhaFila): Promise<void> {
 async function processarCalendarRemover(item: LinhaFila): Promise<void> {
   const { agendamentoId } = item.payload as { agendamentoId: string };
   const agendamento = await prisma.agendamento.findUnique({ where: { id: agendamentoId } });
-  if (!agendamento || !agendamento.googleEventId || !agendamento.googleCalendarId) return; // já removido/nada a remover
+  if (!agendamento) return; // sessão não existe mais — nada a fazer
+  if (!agendamento.googleEventId || !agendamento.googleCalendarId) {
+    // idempotência: já removido (ou nunca existiu) — meta de "sem evento no
+    // Google" já está satisfeita, mas o campo não pode ficar num FALHOU/PENDENTE
+    // antigo preso pra sempre (mesmo motivo do fix em processarCalendarCriar).
+    await prisma.agendamento.update({ where: { id: agendamento.id }, data: { googleSyncStatus: "SINCRONIZADO" } });
+    return;
+  }
 
   const clinica = await prisma.clinica.findUnique({ where: { id: item.clinicaId } });
   if (!clinica) throw new Error("clínica não encontrada");
@@ -389,7 +414,7 @@ async function processarCalendarRemover(item: LinhaFila): Promise<void> {
 
   await prisma.agendamento.update({
     where: { id: agendamento.id },
-    data: { googleEventId: null, googleCalendarId: null, linkMeet: null },
+    data: { googleEventId: null, googleCalendarId: null, linkMeet: null, googleSyncStatus: "SINCRONIZADO" },
   });
 }
 

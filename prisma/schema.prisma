@@ -294,6 +294,7 @@ model Agendamento {
   arquivada                 Boolean                   @default(false)
   lembreteWhatsappEnviadoEm DateTime?
   criadoEm                  DateTime                  @default(now())
+  updatedAt                 DateTime                  @default(now()) @updatedAt
 
   clinica    Clinica        @relation(fields: [clinicaId], references: [id])
   pacote     Pacote?        @relation(fields: [pacoteId], references: [id], onDelete: Restrict)
