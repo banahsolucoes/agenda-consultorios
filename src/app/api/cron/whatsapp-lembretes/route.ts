@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
 import { getProvider } from "@/lib/whatsapp/provider";
 import { componentesSP, criarDataSP, formatarDataCurtaSP, formatarHoraSP } from "@/lib/timezone";
-import { removerLinhaSessaoPacote, renderizarTemplateMensagem } from "@/lib/templatesMensagem";
+import { prepararTemplateMeet, renderizarTemplateMensagem } from "@/lib/templatesMensagem";
 
 const HORA_MS = 60 * 60 * 1000;
 const JANELA_24H_MS = 24 * HORA_MS;
@@ -111,7 +111,7 @@ async function enviarMensagensDoDia(agora: Date) {
       linkMeet: { not: null },
       paciente: { telefone: { not: null } },
     },
-    include: { paciente: { include: { clinica: true } } },
+    include: { paciente: { include: { clinica: true } }, tipoSessao: { select: { ehAtendimentoUnico: true } } },
     orderBy: { inicio: "asc" },
   });
   const candidatos = candidatosBrutos.filter(
@@ -172,7 +172,10 @@ async function enviarMensagensDoDia(agora: Date) {
     // schema — mesma checagem defensiva de montarMensagemMeetCalendario,
     // pra nunca imprimir "Sessão /" se algum dia isso deixar de valer.
     const temPacote = agendamento.numeroSessao != null && agendamento.totalPacote != null;
-    const templateMeet = temPacote ? clinica.templateMeet : removerLinhaSessaoPacote(clinica.templateMeet);
+    const templateMeet = prepararTemplateMeet(clinica.templateMeet, {
+      temPacote,
+      ehAtendimentoUnico: agendamento.tipoSessao?.ehAtendimentoUnico ?? false,
+    });
     const texto = renderizarTemplateMensagem(templateMeet, {
       nome: agendamento.paciente.nome.split(" ")[0],
       data: formatarDataCurtaSP(agendamento.inicio),

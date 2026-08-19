@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TEMPLATE_CONFIRMACAO_PADRAO,
   TEMPLATE_MEET_PADRAO,
+  prepararTemplateMeet,
   removerLinhaSessaoPacote,
   renderizarTemplateMensagem,
   saudacaoAtual,
@@ -114,5 +115,65 @@ describe("removerLinhaSessaoPacote", () => {
     });
     expect(resultado).not.toMatch(/\{\w+\}/);
     expect(resultado).not.toContain("Sessão");
+  });
+});
+
+describe("prepararTemplateMeet", () => {
+  it("ehAtendimentoUnico=true: linha vira 'Avaliação', sem contador", () => {
+    const template = prepararTemplateMeet(TEMPLATE_MEET_PADRAO, {
+      temPacote: true,
+      ehAtendimentoUnico: true,
+    });
+    const resultado = renderizarTemplateMensagem(template, {
+      nome: "Débora",
+      data: "20/08",
+      hora: "11:30",
+      link: "https://meet.google.com/xyz",
+    });
+
+    expect(resultado).toContain("Avaliação");
+    expect(resultado).not.toContain("Sessão 1/1");
+    expect(resultado).not.toMatch(/\{\w+\}/);
+  });
+
+  it("ehAtendimentoUnico=false, com pacote: mantém 'Sessão {numero}/{total}' como hoje", () => {
+    const template = prepararTemplateMeet(TEMPLATE_MEET_PADRAO, {
+      temPacote: true,
+      ehAtendimentoUnico: false,
+    });
+    const resultado = renderizarTemplateMensagem(template, {
+      nome: "Débora",
+      data: "20/08",
+      hora: "11:30",
+      link: "https://meet.google.com/xyz",
+      numero: "3",
+      total: "8",
+    });
+
+    expect(resultado).toContain("Sessão 3/8");
+    expect(resultado).not.toContain("Avaliação");
+  });
+
+  it("sem pacote (reunião de mentorado): comportamento atual preservado, sem linha de contador", () => {
+    const template = prepararTemplateMeet(TEMPLATE_MEET_PADRAO, {
+      temPacote: false,
+      ehAtendimentoUnico: false,
+    });
+    const resultado = renderizarTemplateMensagem(template, {
+      nome: "Débora",
+      data: "20/08",
+      hora: "11:30",
+      link: "https://meet.google.com/xyz",
+    });
+
+    expect(resultado).toBe(renderizarTemplateMensagem(removerLinhaSessaoPacote(TEMPLATE_MEET_PADRAO), {
+      nome: "Débora",
+      data: "20/08",
+      hora: "11:30",
+      link: "https://meet.google.com/xyz",
+    }));
+    expect(resultado).not.toContain("Sessão");
+    expect(resultado).not.toContain("Avaliação");
+    expect(resultado).not.toMatch(/\{\w+\}/);
   });
 });

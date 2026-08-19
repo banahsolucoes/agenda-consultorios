@@ -183,6 +183,7 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
 - Botão **copiar** a mensagem pronta (assinada "Daiane") para o operador colar no WhatsApp. Sem abrir instância, sem link automático.
 - **Mensagem de confirmação** (véspera): texto padrão parametrizável por clínica (nome do assistente, horário-limite).
 - **Mensagem com link do Meet** (dia da sessão): botão que copia um texto **contendo o link do Meet** da sessão, para o operador enviar ao cliente. Desde 2026-07-21, o texto inclui o horário da sessão (`{hora}`), ex.: "Segue o link da sua sessão de hoje às 14:30h."
+- **Linha de contador de sessão (2026-08-19)**: o texto do Meet inclui uma linha "Sessão {numero}/{total}" — exceto quando o tipo de atendimento é de **atendimento único** (`TipoSessao.ehAtendimentoUnico`, ex.: Avaliação), caso em que a linha vira só "Avaliação", sem número (avaliação é sempre única, não tem sentido mostrar "1/1"). A decisão nunca é pelo nome do tipo (texto livre, editável pela clínica) — só pela flag `ehAtendimentoUnico`. Detalhe técnico em `ARCHITECTURE.md` §10.7.
 - *(Envio automático de mensagens — WhatsApp oficial/conversas — fica para a v2, ver seção 11.)*
 
 ### 5.9 Notificações (sino)

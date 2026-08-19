@@ -55,3 +55,24 @@ export function removerLinhaSessaoPacote(template: string): string {
     .filter((linha) => !linha.includes("{numero}") && !linha.includes("{total}"))
     .join("\n");
 }
+
+// Decide a forma da linha de contador de sessão em templateMeet — ponto
+// único usado pelos 3 lugares que renderizam essa mensagem (cron de
+// lembrete, popup da agenda, painel do paciente). Fonte da decisão é
+// TipoSessao.ehAtendimentoUnico (nunca o nome do tipo — texto livre editável
+// pela clínica, não é critério confiável): atendimento único (ex.:
+// avaliação) não tem contador, "Avaliação" é sempre a linha inteira, sem
+// número/total. Chamar ANTES de renderizarTemplateMensagem, enquanto os
+// placeholders ainda estão literais no texto.
+export function prepararTemplateMeet(
+  template: string,
+  opcoes: { temPacote: boolean; ehAtendimentoUnico: boolean }
+): string {
+  if (opcoes.ehAtendimentoUnico) {
+    return template
+      .split("\n")
+      .map((linha) => (linha.includes("{numero}") || linha.includes("{total}") ? "Avaliação" : linha))
+      .join("\n");
+  }
+  return opcoes.temPacote ? template : removerLinhaSessaoPacote(template);
+}

@@ -10,7 +10,7 @@ import {
 } from "@/lib/labels";
 import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
-import { renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import { prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import { estiloFundoTela } from "@/lib/fundo";
 import { dataEhFutura } from "@/lib/validacaoSessao";
 import AgendaCalendario from "./AgendaCalendario";
@@ -1496,10 +1496,15 @@ export default function PainelPage() {
   // Monta a mensagem com o link do Meet, pronta para copiar e colar. Sessões
   // desta lista sempre pertencem a um pacote do paciente selecionado (nunca
   // reunião de mentorado, que não passa por aqui) — numeroSessao/totalPacote
-  // sempre presentes, sem precisar de removerLinhaSessaoPacote.
+  // sempre presentes (temPacote sempre true), mas o tipo pode ser atendimento
+  // único (ex.: avaliação), daí prepararTemplateMeet.
   function montarMensagemMeet(s: Sessao) {
     if (!pacienteSelecionado || !clinica) return "";
-    return renderizarTemplateMensagem(clinica.templateMeet, {
+    const template = prepararTemplateMeet(clinica.templateMeet, {
+      temPacote: true,
+      ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
+    });
+    return renderizarTemplateMensagem(template, {
       nome: pacienteSelecionado.nome.split(" ")[0],
       data: formatarDataCurta(s.inicio),
       hora: formatarHorario(s.inicio),
