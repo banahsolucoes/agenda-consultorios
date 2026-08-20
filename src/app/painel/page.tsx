@@ -18,6 +18,7 @@ import DatePickerSP from "./DatePickerSP";
 import AnexosPaciente from "./AnexosPaciente";
 import AnamneseEditor from "./AnamneseEditor";
 import TarefaForm, { type TarefaFormValores } from "@/components/TarefaForm";
+import EmpurrarModal from "@/components/EmpurrarModal";
 import { pode, type Papel } from "@/lib/permissoes";
 import ContextoSwitcher from "../_components/ContextoSwitcher";
 
@@ -500,14 +501,10 @@ export default function PainelPage() {
   const [salvandoEditar, setSalvandoEditar] = useState(false);
   const [erroEditar, setErroEditar] = useState("");
 
-  // Modal: empurrar sessões futuras em N semanas
+  // Modal: empurrar sessões futuras em N semanas — estado interno vive em
+  // EmpurrarModal (@/components/EmpurrarModal) desde 2026-08-20, só a
+  // visibilidade fica aqui.
   const [modalEmpurrar, setModalEmpurrar] = useState(false);
-  const [semanasEmpurrar, setSemanasEmpurrar] = useState("1");
-  const [mudarDiaHorario, setMudarDiaHorario] = useState(false);
-  const [novoDiaEmpurrar, setNovoDiaEmpurrar] = useState<string>(DIAS_SEMANA[0]);
-  const [novoHorarioEmpurrar, setNovoHorarioEmpurrar] = useState("");
-  const [salvandoEmpurrar, setSalvandoEmpurrar] = useState(false);
-  const [erroEmpurrar, setErroEmpurrar] = useState("");
 
   // Modal: adiar sessões a partir de uma sessão de corte
   const [modalTrazer, setModalTrazer] = useState(false);
@@ -1146,49 +1143,11 @@ export default function PainelPage() {
     }
   }
 
-  // Empurrar todas as sessões futuras em N semanas
+  // Empurrar todas as sessões futuras em N semanas — reset dos campos do
+  // formulário agora é responsabilidade de EmpurrarModal (roda no próprio
+  // useEffect dele quando `aberto` vira true).
   function abrirModalEmpurrar() {
-    setSemanasEmpurrar("1");
-    setMudarDiaHorario(false);
-    setNovoDiaEmpurrar(DIAS_SEMANA[0]);
-    setNovoHorarioEmpurrar("");
-    setErroEmpurrar("");
     setModalEmpurrar(true);
-  }
-
-  async function handleSalvarEmpurrar(e: React.FormEvent) {
-    e.preventDefault();
-    if (!pacienteSelecionado) return;
-    setErroEmpurrar("");
-    setSalvandoEmpurrar(true);
-
-    try {
-      const body: Record<string, unknown> = { semanas: Number(semanasEmpurrar) };
-      if (mudarDiaHorario) {
-        body.novoDia = novoDiaEmpurrar;
-        body.novoHorario = novoHorarioEmpurrar;
-      }
-
-      const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}/empurrar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setErroEmpurrar(data?.erro ?? "não foi possível empurrar as sessões");
-        return;
-      }
-
-      setModalEmpurrar(false);
-      await carregarSessoes(pacienteSelecionado.id);
-      await carregarNotificacoes();
-    } catch {
-      setErroEmpurrar("não foi possível empurrar as sessões");
-    } finally {
-      setSalvandoEmpurrar(false);
-    }
   }
 
   // Adiar sessões a partir de uma sessão de corte escolhida
@@ -2907,135 +2866,18 @@ export default function PainelPage() {
         </div>
       )}
 
-      {/* Modal: empurrar sessões futuras */}
-      {modalEmpurrar && (
-        <div className="fixed inset-x-0 bottom-0 top-16 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-lg">
-            <h2 className="mb-4 font-serif text-lg font-semibold text-fg">
-              Empurrar sessões
-            </h2>
-            <form onSubmit={handleSalvarEmpurrar} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">
-                  Número de semanas (0-10)
-                </label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSemanasEmpurrar((s) => String(Math.max(0, Number(s) - 1)))}
-                    disabled={Number(semanasEmpurrar) <= 0}
-                    aria-label="Diminuir"
-                    className="h-9 w-9 rounded-lg border border-border text-lg text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    −
-                  </button>
-                  <span className="w-8 text-center text-lg font-medium text-fg">
-                    {semanasEmpurrar}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSemanasEmpurrar((s) => String(Math.min(10, Number(s) + 1)))}
-                    disabled={Number(semanasEmpurrar) >= 10}
-                    aria-label="Aumentar"
-                    className="h-9 w-9 rounded-lg border border-border text-lg text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Toggle: também trocar o dia da semana e o horário */}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-fg">
-                  Deseja mudar o dia da semana e horário?
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMudarDiaHorario(false)}
-                    className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                      !mudarDiaHorario
-                        ? "border-gold bg-gold/10 text-gold"
-                        : "border-border text-fg hover:bg-bg"
-                    }`}
-                  >
-                    Não
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMudarDiaHorario(true)}
-                    className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                      mudarDiaHorario
-                        ? "border-gold bg-gold/10 text-gold"
-                        : "border-border text-fg hover:bg-bg"
-                    }`}
-                  >
-                    Sim
-                  </button>
-                </div>
-              </div>
-
-              {mudarDiaHorario && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-fg">
-                      Novo dia
-                    </label>
-                    <select
-                      value={novoDiaEmpurrar}
-                      onChange={(e) => setNovoDiaEmpurrar(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                    >
-                      {DIAS_SEMANA.map((dia) => (
-                        <option key={dia} value={dia}>
-                          {diaSemanaLabel(dia)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-fg">
-                      Novo horário (HH:MM)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="14:00"
-                      pattern="^([01]\d|2[0-3]):[0-5]\d$"
-                      value={novoHorarioEmpurrar}
-                      onChange={(e) => setNovoHorarioEmpurrar(mascararHorario(e.target.value))}
-                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {erroEmpurrar && (
-                <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
-                  {erroEmpurrar}
-                </p>
-              )}
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setModalEmpurrar(false)}
-                  disabled={salvandoEmpurrar}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={salvandoEmpurrar}
-                  className="rounded-lg bg-green px-4 py-2 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvandoEmpurrar ? "Confirmando..." : "Confirmar"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Modal: empurrar sessões futuras — componente compartilhado com o
+          botão "Empurrar" do card da agenda (AgendaCalendario.tsx) */}
+      {pacienteSelecionado && (
+        <EmpurrarModal
+          pacienteId={pacienteSelecionado.id}
+          aberto={modalEmpurrar}
+          onFechar={() => setModalEmpurrar(false)}
+          onSucesso={() => {
+            carregarSessoes(pacienteSelecionado.id);
+            carregarNotificacoes();
+          }}
+        />
       )}
 
       {/* Modal: adiar sessões a partir de uma sessão de corte */}

@@ -17,6 +17,7 @@ import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
 import { prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import DatePickerSP from "./DatePickerSP";
 import AnamneseModal from "./AnamneseModal";
+import EmpurrarModal from "@/components/EmpurrarModal";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -268,6 +269,10 @@ export default function AgendaCalendario({
   const [aviso, setAviso] = useState("");
   const [sessaoDetalhe, setSessaoDetalhe] = useState<SessaoAgenda | null>(null);
   const [anamnesePacienteId, setAnamnesePacienteId] = useState<string | null>(null);
+  // Paciente-alvo do botão "Empurrar" do card — EmpurrarModal (componente
+  // compartilhado com painel/page.tsx) é quem controla o formulário; aqui só
+  // guarda pra quem a próxima chamada de /empurrar é.
+  const [empurrarPacienteId, setEmpurrarPacienteId] = useState<string | null>(null);
   const [modalNovo, setModalNovo] = useState(false);
   // Alvo de um drag que tem irmã futura elegível — aguarda a escolha do
   // usuário no EscopoMoveModal antes de mover qualquer coisa (nem local, nem
@@ -786,11 +791,24 @@ export default function AgendaCalendario({
             setSessaoDetalhe(null);
             setAnamnesePacienteId(pacienteId);
           }}
+          onAbrirEmpurrar={(pacienteId) => {
+            setSessaoDetalhe(null);
+            setEmpurrarPacienteId(pacienteId);
+          }}
         />
       )}
 
       {anamnesePacienteId && (
         <AnamneseModal pacienteId={anamnesePacienteId} onFechar={() => setAnamnesePacienteId(null)} />
+      )}
+
+      {empurrarPacienteId && (
+        <EmpurrarModal
+          pacienteId={empurrarPacienteId}
+          aberto={empurrarPacienteId !== null}
+          onFechar={() => setEmpurrarPacienteId(null)}
+          onSucesso={() => carregarSessoes()}
+        />
       )}
 
       {escopoPendente && (
@@ -1710,6 +1728,7 @@ function SessaoDetalheModal({
   onAviso,
   onEditarPaciente,
   onAbrirAnamnese,
+  onAbrirEmpurrar,
 }: {
   sessao: SessaoAgenda;
   tiposSessao: TipoSessaoOpcao[];
@@ -1719,6 +1738,7 @@ function SessaoDetalheModal({
   onAviso: (msg: string) => void;
   onEditarPaciente: (pacienteId: string) => void;
   onAbrirAnamnese: (pacienteId: string) => void;
+  onAbrirEmpurrar: (pacienteId: string) => void;
 }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -1766,6 +1786,27 @@ function SessaoDetalheModal({
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         setErro(data?.erro ?? "não foi possível atualizar a confirmação");
+        return;
+      }
+      onAtualizado();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function handleTrazer() {
+    if (!sessao.pacienteId) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/pacientes/${sessao.pacienteId}/adiar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessaoCorteId: sessao.id }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.erro ?? "não foi possível trazer as sessões");
         return;
       }
       onAtualizado();
@@ -1992,6 +2033,23 @@ function SessaoDetalheModal({
                   className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
                 >
                   Editar paciente
+                </button>
+              )}
+              {sessao.pacienteId && (
+                <button
+                  disabled={salvando}
+                  onClick={handleTrazer}
+                  className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Trazer
+                </button>
+              )}
+              {sessao.pacienteId && (
+                <button
+                  onClick={() => onAbrirEmpurrar(sessao.pacienteId!)}
+                  className="flex-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg hover:bg-bg"
+                >
+                  Empurrar
                 </button>
               )}
               <button
