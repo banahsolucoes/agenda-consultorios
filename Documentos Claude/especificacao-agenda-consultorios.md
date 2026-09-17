@@ -560,3 +560,81 @@ localização do `proxy.ts`) ou ainda não iniciado (validação de CPF no cadas
 recorrente, F3 — editor de perguntas), com contexto, o que falta e o bloqueio de cada item.
 Mantida atualizada — item adiado entra, item concluído sai (F2.5 — fila de envios pendentes
 saiu em 2026-08-04, entregue). Detalhe completo em `ARCHITECTURE.md` §15.
+
+---
+
+## 16. Onboarding de clínica nova por convite (2026-09-17)
+
+Resposta ao achado 1/2/9/10 de `docs/auditorias/auditoria-onboarding.md` (cadastro público
+sem convite, sem transação, e clínica nova sem `TipoSessao`). `POST /api/auth/signup` (caminho
+sem `clinicaId`, criação de clínica nova) agora exige um convite de uso único.
+
+**Model `ConviteClinica`**: `token` (único, 32 bytes aleatórios em hex, gerado com
+`crypto.randomBytes`), `email` (o convite só vale para esse e-mail, comparação
+case-insensitive), `nomeClinicaSugerido` opcional, `expiraEm`, `usadoEm`/`clinicaCriadaId`
+(gravados só quando o convite é de fato consumido).
+
+**Fluxo**: alguém da equipe roda `node scripts/gerar-convite.mjs --email=... [--clinica="..."]`
+(tem `--dry-run`), que cria a linha e imprime `{APP_URL}/cadastro?convite={token}` (válido por
+14 dias). A mentoreada abre o link e envia `POST /api/auth/signup` com
+`{ email, senha, nome, clinicaNome, convite }`. A rota: (1) rate limit por IP; (2) valida o
+convite (existe, não expirou, não foi usado, e-mail bate) — qualquer falha responde só
+"Convite inválido ou expirado", sem detalhar o motivo; (3) cria a conta no Supabase Auth; (4)
+numa única transação Prisma, cria `Clinica` + `Usuario` (ADMIN) + inicializa a clínica (§16.1) +
+marca o convite como usado (`updateMany` condicional em `usadoEm: null`, fecha a corrida entre
+duas requisições com o mesmo token). Se qualquer parte da transação falhar, a conta criada no
+Supabase Auth é removida (`admin.auth.admin.deleteUser`) — nunca fica clínica órfã nem usuário
+Supabase órfão. O caminho com `clinicaId` (ADMIN convidando colega para a própria clínica,
+`painel/configuracoes/seguranca`) não muda — continua sem convite, pois já exige sessão ADMIN
+válida.
+
+**Atualização 2026-09-17 (tela pública)**: `src/app/cadastro/page.tsx` construída — lê
+`?convite=`, valida via `GET /api/auth/convite/validar` (mesma resposta minimalista, sem
+revelar o motivo de uma falha), mostra o formulário (e-mail travado, nome da clínica editável,
+senha + confirmação com mínimo de 8 caracteres, checkbox obrigatório de aceite de Termos/
+Privacidade) e envia para `POST /api/auth/signup`. `/termos` e `/privacidade` foram construídas
+no bloco seguinte (§16.3) — os links da tela já apontam pras páginas reais.
+
+### 16.1 Inicialização de clínica nova
+
+`src/lib/clinica/inicializar.ts` (`inicializarClinica`, chamada dentro da mesma transação do
+signup) cria o mínimo para a clínica funcionar: 1 `TipoSessao` padrão ("Sessão individual",
+50min) — sem isso, `POST /api/pacientes` rejeita qualquer cadastro (campo obrigatório). Também é
+nesse momento que `emailBoasVindasAssunto`/`emailBoasVindasCorpo` são gravados com o **nome da
+clínica nova**, não o `@default` do schema (que continua assinado "Fono Pâmela Rachid" — esse
+default nunca foi alterado, e a clínica `pamela-rachid` também não). `HorarioTrabalho` fica de
+fora do mínimo: o código já trata ausência de expediente configurado como grade padrão
+08:00–19:30 (`sessoes/[id]/route.ts`), não bloqueia operação.
+
+### 16.2 Módulo Mentoria continua exclusivo da `pamela-rachid`
+
+`mentoriaAtivada` nasce `false` em toda clínica nova (default do schema, não tocado pelo
+signup). Não existe — e continua não existindo — nenhuma rota ou tela onde um ADMIN ligue essa
+flag sozinho; a única forma é update direto no banco pela equipe técnica. Ver §12.1.
+
+### 16.3 Páginas legais e WhatsApp automático só para clínica com canal configurado (2026-09-17)
+
+`src/app/termos/page.tsx` e `src/app/privacidade/page.tsx` — páginas públicas em pt-BR,
+mesmo visual do restante do sistema, com os dados de contato da Banah Digital
+(`contato@banahdigital.com.br`) e do sistema (`agenda.banahdigital.com.br`). Cobrem o exigido
+pelo consentimento OAuth do Google e pelo checkbox de `/cadastro`: dados coletados (clínica,
+equipe, e dados de pacientes incluindo dados de saúde), finalidade, base legal LGPD, papéis
+(clínica = controladora dos dados do paciente, Banah Digital = operadora), escopos do Google
+usados (Calendar/Drive/Meet) com o compromisso de uso restrito à própria clínica e nunca para
+treinar IA, subprocessadores (Supabase, Vercel, Google, Cloudflare R2), armazenamento,
+retenção, direitos do titular, cookies e pedido de exclusão / descrição do serviço, acesso só
+por convite, responsabilidades da clínica, ausência de garantia de disponibilidade contínua,
+limitação de responsabilidade, gratuidade com encerramento mediante aviso prévio, suspensão por
+uso indevido, foro em São Paulo/SP. **Ambas trazem aviso de que o texto é um modelo inicial,
+não revisado por advogado** — recomenda-se validação jurídica antes de uso definitivo. Linkadas
+no rodapé de `/login` e `/cadastro`.
+
+**Filtro de WhatsApp por clínica** (pendência do bloco de onboarding anterior): o cron
+`GET /api/cron/whatsapp-lembretes` (lembrete de confirmação ~48h antes e link do Meet do dia) e
+a rota `POST /api/integracoes/google/avisar-responsavel` passaram a só disparar mensagem
+automática para clínicas que já têm pelo menos uma `ConversaWhatsapp` gravada — sinal usado
+porque hoje não existe (e este bloco não criou) nenhuma coluna de "canal WhatsApp configurado"
+por clínica; a integração inteira depende de credenciais globais (um único número Meta Cloud
+API para o sistema todo). Confirmado que só a clínica `pamela-rachid` tem `ConversaWhatsapp`
+hoje, então o comportamento dela não muda. Webhook, wa-bridge, provider, templates e o
+respondedor por IA não foram alterados. Detalhe técnico completo em `ARCHITECTURE.md` §9.

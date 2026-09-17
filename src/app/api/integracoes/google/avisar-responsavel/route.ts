@@ -23,7 +23,24 @@ export async function POST() {
     );
   }
 
-  const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId }, select: { nome: true } });
+  const clinica = await prisma.clinica.findUnique({
+    where: { id: usuario.clinicaId },
+    select: { nome: true, conversasWhatsapp: { take: 1, select: { id: true } } },
+  });
+
+  // Clínica sem WhatsApp configurado (2026-09-17, ver
+  // docs/auditorias/auditoria-onboarding.md item 6 — mesmo critério do
+  // cron/whatsapp-lembretes: nenhuma ConversaWhatsapp gravada ainda):
+  // WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO é global, mas o número que de fato
+  // envia é o mesmo canal single-tenant — não faz sentido notificar por lá
+  // em nome de uma clínica que nunca usou WhatsApp nenhum. Sucesso
+  // silencioso (não é erro do usuário, só não há o que fazer).
+  if (!clinica || clinica.conversasWhatsapp.length === 0) {
+    console.log(
+      `[avisar-responsavel] clínica ${usuario.clinicaId} sem WhatsApp configurado — notificação não enviada`
+    );
+    return NextResponse.json({ ok: true });
+  }
 
   const texto =
     `⚠️ Conexão Google caiu\n` +

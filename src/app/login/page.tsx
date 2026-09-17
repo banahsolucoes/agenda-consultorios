@@ -112,6 +112,16 @@ export default function LoginPage() {
             {carregando ? "Entrando..." : "Entrar"}
           </button>
         </form>
+
+        <p className="mt-6 text-center text-xs text-muted">
+          <Link href="/termos" className="hover:text-gold hover:underline">
+            Termos de Uso
+          </Link>
+          {" · "}
+          <Link href="/privacidade" className="hover:text-gold hover:underline">
+            Política de Privacidade
+          </Link>
+        </p>
       </div>
     </div>
   );

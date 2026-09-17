@@ -21,6 +21,24 @@ const TIPO_MENSAGEM_DIA = "meet_dia";
 const JANELA_INICIO_H = 24;
 const JANELA_FIM_H = 72;
 
+// Critério de "clínica tem WhatsApp configurado" (2026-09-17, ver
+// docs/auditorias/auditoria-onboarding.md item 6 e ARCHITECTURE.md §9) —
+// hoje não existe nenhuma coluna/tabela de configuração de canal por
+// clínica: WhatsApp é uma integração single-tenant (um único número Meta
+// Cloud API, credenciais globais em WHATSAPP_PHONE_NUMBER_ID/
+// WHATSAPP_ACCESS_TOKEN). Sem um campo dedicado (e sem criar migration
+// nova), o sinal mais direto de "esta clínica já usa WhatsApp de verdade" é
+// já ter pelo menos uma `ConversaWhatsapp` gravada — confirmado por consulta
+// ao banco em 2026-09-17: só a clínica `pamela-rachid` tem linhas em
+// ConversaWhatsapp (53), qualquer outra (inclusive `clinica-teste`) tem
+// zero. Aplicado nas duas funções de envio automático deste cron para não
+// disparar pelo número global para pacientes de uma clínica que nunca teve
+// WhatsApp configurado. Não filtra por slug — se uma clínica nova algum dia
+// tiver uma primeira ConversaWhatsapp (hoje só possível via
+// POST /api/whatsapp/conversas, fora do escopo deste ajuste), passa a
+// contar automaticamente, sem precisar tocar aqui de novo.
+const CLINICA_TEM_WHATSAPP_CONFIGURADO = { conversasWhatsapp: { some: {} } } as const;
+
 type Falha = { agendamentoId: string; pacienteId: string | null; erro: string };
 
 async function enviarLembretes48h(agora: Date) {
@@ -38,7 +56,7 @@ async function enviarLembretes48h(agora: Date) {
       status: { not: "CANCELADA" },
       confirmada: false,
       lembreteWhatsappEnviadoEm: null,
-      paciente: { telefone: { not: null } },
+      paciente: { telefone: { not: null }, clinica: CLINICA_TEM_WHATSAPP_CONFIGURADO },
     },
     include: { paciente: true },
     orderBy: { inicio: "asc" },
@@ -109,7 +127,7 @@ async function enviarMensagensDoDia(agora: Date) {
       inicio: { gte: inicioHoje, lte: fimHoje },
       status: { not: "CANCELADA" },
       linkMeet: { not: null },
-      paciente: { telefone: { not: null } },
+      paciente: { telefone: { not: null }, clinica: CLINICA_TEM_WHATSAPP_CONFIGURADO },
     },
     include: { paciente: { include: { clinica: true } }, tipoSessao: { select: { ehAtendimentoUnico: true } } },
     orderBy: { inicio: "asc" },

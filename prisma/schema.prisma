@@ -116,6 +116,8 @@ model Clinica {
 
   sincronizacoesPendentes SincronizacaoPendente[]
 
+  convitesResgatados ConviteClinica[]
+
   updatedAt DateTime @default(now()) @updatedAt
 }
 
@@ -166,6 +168,27 @@ model Usuario {
 
   clinica Clinica        @relation(fields: [clinicaId], references: [id])
   logs    LogAuditoria[]
+}
+
+// Convite de uso único para o cadastro público de clínica nova
+// (POST /api/auth/signup) — sem um convite válido, não é possível criar
+// clínica. token é gerado com crypto (aleatório, longo) em
+// scripts/gerar-convite.mjs; o e-mail do cadastro precisa bater
+// (case-insensitive) com o e-mail do convite. usadoEm/clinicaCriadaId são
+// gravados atomicamente com a criação da Clinica, na mesma transação do
+// signup — nunca setados fora dali.
+model ConviteClinica {
+  id                  String    @id @default(uuid())
+  token               String    @unique
+  email               String
+  nomeClinicaSugerido String?
+  expiraEm            DateTime
+  usadoEm             DateTime?
+  clinicaCriadaId     String?
+  clinicaCriada       Clinica?  @relation(fields: [clinicaCriadaId], references: [id])
+  criadoEm            DateTime  @default(now())
+
+  @@index([email])
 }
 
 model Paciente {
