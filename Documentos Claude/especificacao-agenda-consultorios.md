@@ -621,7 +621,8 @@ pelo consentimento OAuth do Google e pelo checkbox de `/cadastro`: dados coletad
 equipe, e dados de pacientes incluindo dados de saúde), finalidade, base legal LGPD, papéis
 (clínica = controladora dos dados do paciente, Banah Digital = operadora), escopos do Google
 usados (Calendar/Drive/Meet) com o compromisso de uso restrito à própria clínica e nunca para
-treinar IA, subprocessadores (Supabase, Vercel, Google, Cloudflare R2), armazenamento,
+treinar IA, subprocessadores (Supabase, Vercel, Google, Meta/WhatsApp Cloud API, Mercado
+Pago), armazenamento,
 retenção, direitos do titular, cookies e pedido de exclusão / descrição do serviço, acesso só
 por convite, responsabilidades da clínica, ausência de garantia de disponibilidade contínua,
 limitação de responsabilidade, gratuidade com encerramento mediante aviso prévio, suspensão por
