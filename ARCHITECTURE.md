@@ -128,11 +128,14 @@ Toda rota exige `getUsuarioLogado()` (401 se ausente) exceto onde marcado "públ
 ### `src/app/painel/configuracoes/*/page.tsx`
 - `dados-gerais` — cadastro/fiscal da clínica.
 - `atendimento` — expediente, tipos de atendimento, config de duração/confirmação/resize (campos de clínica desabilitados para OPERADOR).
-- `identidade` — logo, fundo, cores.
+- `identidade` — logo, fundo, cores. `corPrimaria`/`corSecundaria` (2026-09-17) passaram a ser efetivamente aplicadas — ver `src/app/painel/layout.tsx` abaixo; antes disso eram só gravadas no banco e nunca lidas de volta pelo frontend.
 - `integracoes` — status Google, pasta raiz Drive, config de import (Sheets id/aba); o gatilho de import em si fica na tela de pacientes.
 - `mensagens` — templates de e-mail de boas-vindas e mensagens de copiar-colar.
 - `seguranca` — troca da própria senha (todos) + gestão de equipe (só ADMIN).
 - `layout.tsx` — casca com menu lateral, filtra itens visíveis por capacidade (espelho de UX; a segurança de verdade é em cada rota).
+
+### `src/app/painel/layout.tsx` — identidade visual por clínica (2026-09-17)
+Além do gate de assinatura (INADIMPLENTE/CANCELADA → `/assinatura/regularizar`), busca `corPrimaria`/`corSecundaria` da `Clinica` do usuário logado e envolve `{children}` num `<div style={...}>` que sobrescreve as CSS custom properties `--color-gold` (`corPrimaria`) e `--color-bg` (`corSecundaria`) só quando o valor existe no banco — `null`/vazio não entra no `style`, herdando o padrão de `globals.css:root`. Funciona por herança de CSS: como o resto do app já consome esses tokens só via classes Tailwind geradas em `@theme inline` (`bg-gold`, `bg-bg`, `text-fg`, etc. — `globals.css`), nenhum componente precisou mudar. `globals.css` continua sendo a fonte do valor padrão (paleta dourada/escura do protótipo) para clínicas sem cor customizada. Único layout autenticado hoje (`grep getUsuarioLogado **/layout.tsx` não encontrou outro) — se um novo layout de topo passar a usar `getUsuarioLogado`, precisa repetir esse mesmo padrão para não regredir a identidade visual naquela área.
 
 ### `src/app/tarefas/page.tsx`
 Página de gestão de tarefas: filtros status (Pendentes/Concluídas/Todas) e tipo (Renovação/Conta/Todos), formulário de tarefa manual, ações condicionadas ao tipo (`CONTA`: editar/concluir/excluir; `RENOVACAO`: só "Dispensar").

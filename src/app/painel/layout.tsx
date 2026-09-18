@@ -12,12 +12,21 @@ export default async function PainelLayout({ children }: { children: React.React
 
   const clinica = await prisma.clinica.findUnique({
     where: { id: usuario.clinicaId },
-    select: { statusAssinatura: true },
+    select: { statusAssinatura: true, corPrimaria: true, corSecundaria: true },
   });
 
   if (clinica && (clinica.statusAssinatura === "INADIMPLENTE" || clinica.statusAssinatura === "CANCELADA")) {
     redirect("/assinatura/regularizar");
   }
 
-  return <>{children}</>;
+  // Identidade visual por clínica: sobrescreve os tokens de cor só quando a
+  // clínica tiver salvo um valor (Configurações → Identidade visual). Sem
+  // valor, a variável fica de fora do style e o :root de globals.css decide
+  // — nunca um valor vazio/inválido aqui.
+  const estiloIdentidade: React.CSSProperties = {
+    ...(clinica?.corPrimaria ? { "--color-gold": clinica.corPrimaria } : {}),
+    ...(clinica?.corSecundaria ? { "--color-bg": clinica.corSecundaria } : {}),
+  } as React.CSSProperties;
+
+  return <div style={estiloIdentidade}>{children}</div>;
 }
