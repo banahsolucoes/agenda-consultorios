@@ -14,7 +14,7 @@ import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
 import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
-import { prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import { formatarDataConfirmacao, prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import DatePickerSP from "./DatePickerSP";
 import AnamneseModal from "./AnamneseModal";
 import EmpurrarModal from "@/components/EmpurrarModal";
@@ -209,7 +209,7 @@ function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda)
   return renderizarTemplateMensagem(clinica.templateConfirmacao, {
     saudacao: saudacaoAtual(),
     paciente: nomeDaSessao(sessao).split(" ")[0],
-    data: formatarDiaMes(inicio),
+    data: formatarDataConfirmacao(inicio),
     hora: formatarHorario(inicio),
     horarioLimite: clinica.horarioLimiteConfirmacao,
     assistente: clinica.nomeAssistente,

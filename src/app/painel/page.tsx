@@ -10,7 +10,7 @@ import {
 } from "@/lib/labels";
 import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
-import { prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import { formatarDataConfirmacao, prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
 import { estiloFundoTela } from "@/lib/fundo";
 import { dataEhFutura } from "@/lib/validacaoSessao";
 import AgendaCalendario from "./AgendaCalendario";
@@ -1445,7 +1445,7 @@ export default function PainelPage() {
     return renderizarTemplateMensagem(clinica.templateConfirmacao, {
       saudacao: saudacaoAtual(),
       paciente: pacienteSelecionado.nome.split(" ")[0],
-      data: formatarDataCurta(s.inicio),
+      data: formatarDataConfirmacao(new Date(s.inicio)),
       hora: formatarHorario(s.inicio),
       horarioLimite: clinica.horarioLimiteConfirmacao,
       assistente: clinica.nomeAssistente,

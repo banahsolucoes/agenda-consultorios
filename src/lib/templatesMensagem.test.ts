@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TEMPLATE_CONFIRMACAO_PADRAO,
   TEMPLATE_MEET_PADRAO,
+  formatarDataConfirmacao,
   prepararTemplateMeet,
   removerLinhaSessaoPacote,
   renderizarTemplateMensagem,
@@ -175,5 +176,20 @@ describe("prepararTemplateMeet", () => {
     expect(resultado).not.toContain("Sessão");
     expect(resultado).not.toContain("Avaliação");
     expect(resultado).not.toMatch(/\{\w+\}/);
+  });
+});
+
+describe("formatarDataConfirmacao", () => {
+  it("formata dia útil em negrito com dia da semana por extenso", () => {
+    expect(formatarDataConfirmacao(new Date("2026-11-06T13:00:00Z"))).toBe("*06/11 (sexta-feira)*");
+  });
+
+  it("formata fim de semana sem sufixo -feira", () => {
+    expect(formatarDataConfirmacao(new Date("2026-11-08T13:00:00Z"))).toBe("*08/11 (domingo)*");
+  });
+
+  it("usa o calendário de São Paulo na virada do dia em UTC", () => {
+    // 2026-11-07T02:30Z = 06/11 23:30 em SP
+    expect(formatarDataConfirmacao(new Date("2026-11-07T02:30:00Z"))).toBe("*06/11 (sexta-feira)*");
   });
 });

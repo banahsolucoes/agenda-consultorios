@@ -2,7 +2,7 @@
 // (confirmação de sessão e link do Meet) — módulo isomórfico (sem imports
 // server-only), usado tanto no popup da agenda quanto no painel do
 // paciente, e como valor-padrão ao criar/exibir a clínica.
-import { componentesSP } from "@/lib/timezone";
+import { TIMEZONE, componentesSP } from "@/lib/timezone";
 
 export const TEMPLATE_CONFIRMACAO_PADRAO =
   "{saudacao} {paciente}, tudo bem?! \n" +
@@ -32,6 +32,16 @@ export function saudacaoAtual(agora: Date = new Date()): string {
   if (hora < 12) return "Bom dia";
   if (hora < 18) return "Boa tarde";
   return "Boa noite";
+}
+
+// Valor de {data} na mensagem de confirmação (cópia manual): "*06/11 (sexta-feira)*"
+// — asteriscos = negrito do WhatsApp, dia da semana por extenso em pt-BR,
+// tudo no calendário de São Paulo. Só para templateConfirmacao: o Meet e o
+// template da Meta (confirmacao_agenda) seguem com dd/mm simples.
+export function formatarDataConfirmacao(date: Date): string {
+  const diaMes = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
+  const diaSemana = date.toLocaleDateString("pt-BR", { weekday: "long", timeZone: TIMEZONE }).toLowerCase();
+  return `*${diaMes} (${diaSemana})*`;
 }
 
 // Substitui cada {chave} pelo valor correspondente — split/join em vez de
