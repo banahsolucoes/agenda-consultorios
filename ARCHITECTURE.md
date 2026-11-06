@@ -474,6 +474,8 @@ Por isso o webhook exporta `maxDuration = 150` (era 60, que não cabia mais). **
 
 **Mídia kit**: `public/midia-kit-pamela-rachid.pdf`, servido estático. O `proxy.ts` só intercepta `/api/*`, então a Meta baixa o PDF sem autenticação.
 
+**Reiniciar a conversa de teste** (`scripts/reiniciar-teste-lead.mjs`, 2026-11-06): `node --env-file=.env scripts/reiniciar-teste-lead.mjs 5511993944786` apaga as `ConversaWhatsapp` com `modo = 'LEAD'` daquele telefone (qualquer canal) e as `MensagemWhatsapp` delas, numa transação, para o próximo "oi" começar o roteiro do zero (e destravar uma conversa que ficou `aguardando_humano`/`fechada`). Nunca toca em conversas `AGENDA` (o filtro `modo = 'LEAD'` está também nos próprios `DELETE`). Só aceita telefones de `WHATSAPP_LEAD_TESTE_NUMEROS`; como essa env normalmente não está no `.env` local, ela pode vir antes do comando (`WHATSAPP_LEAD_TESTE_NUMEROS=5511993944786 node ...`) ou como argumento (`... 5511993944786 WHATSAPP_LEAD_TESTE_NUMEROS=5511993944786`, útil no PowerShell). Telefone fora da lista, ou env ausente, aborta sem alterar nada. Usa a mesma `normalizarTelefoneE164` do projeto, importando `src/lib/whatsapp/telefone.ts` direto (type stripping do Node 22.18+; o aviso `MODULE_TYPELESS_PACKAGE_JSON` que o Node imprime é inofensivo). Mostra conversas e mensagens que vão sair antes de apagar, o total apagado depois e as conversas que restam no telefone por modo.
+
 ## 11. Módulo Mentoria
 
 ### 10.1 Visão geral
