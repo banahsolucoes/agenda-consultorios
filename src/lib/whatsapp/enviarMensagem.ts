@@ -9,12 +9,14 @@ export interface EnviarMensagemLivreResultado {
   erro?: string;
 }
 
-// Envia uma mensagem de texto livre (fora do fluxo de template) — só funciona
-// dentro da janela de 24h da conversa (regra da Meta), quem chama já deve ter
-// checado isso. Não persiste nada — quem chama grava a MensagemWhatsapp.
-export async function enviarMensagemLivre(
+// POST /{phone_number_id}/messages comum aos envios fora de template. Resolve
+// telefone e credenciais (sem canal ou canal AGENDA → envs; canal LEAD →
+// CanalWhatsApp) e nunca lança. Logs só levam telefone e erro da Meta, nunca
+// o token.
+async function postarMensagem(
+  rotulo: string,
   telefoneBruto: string,
-  texto: string,
+  conteudo: Record<string, unknown>,
   canal?: CanalWhatsAppResolvido
 ): Promise<EnviarMensagemLivreResultado> {
   const telefoneE164 = normalizarTelefoneE164(telefoneBruto);
@@ -22,7 +24,6 @@ export async function enviarMensagemLivre(
     return { sucesso: false, erro: `telefone fora do padrão E.164: "${telefoneBruto}"` };
   }
 
-  // Sem canal (ou canal AGENDA) → envs atuais; canal LEAD → credenciais do CanalWhatsApp.
   const credenciais = credenciaisEnvio(canal);
   if (!credenciais) {
     return { sucesso: false, erro: "WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN não configurados" };
@@ -36,12 +37,7 @@ export async function enviarMensagemLivre(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: telefoneE164,
-        type: "text",
-        text: { body: texto },
-      }),
+      body: JSON.stringify({ messaging_product: "whatsapp", to: telefoneE164, ...conteudo }),
     });
 
     const corpo = await resp.json();
@@ -49,7 +45,7 @@ export async function enviarMensagemLivre(
     if (!resp.ok) {
       const erroMeta = corpo?.error;
       console.error(
-        `[whatsapp enviarMensagemLivre] falha da API Meta (telefone ${telefoneE164}):`,
+        `[whatsapp ${rotulo}] falha da API Meta (telefone ${telefoneE164}):`,
         `code=${erroMeta?.code} message=${erroMeta?.message}`
       );
       return { sucesso: false, erro: erroMeta?.message ?? `HTTP ${resp.status}` };
@@ -57,7 +53,62 @@ export async function enviarMensagemLivre(
 
     return { sucesso: true, wamid: corpo?.messages?.[0]?.id };
   } catch (erro) {
-    console.error(`[whatsapp enviarMensagemLivre] erro de rede (telefone ${telefoneE164}):`, erro);
+    console.error(
+      `[whatsapp ${rotulo}] erro de rede (telefone ${telefoneE164}):`,
+      erro instanceof Error ? erro.message : "erro desconhecido"
+    );
     return { sucesso: false, erro: erro instanceof Error ? erro.message : "erro de rede desconhecido" };
   }
+}
+
+// Envia uma mensagem de texto livre (fora do fluxo de template) — só funciona
+// dentro da janela de 24h da conversa (regra da Meta), quem chama já deve ter
+// checado isso. Não persiste nada — quem chama grava a MensagemWhatsapp.
+export async function enviarMensagemLivre(
+  telefoneBruto: string,
+  texto: string,
+  canal?: CanalWhatsAppResolvido
+): Promise<EnviarMensagemLivreResultado> {
+  return postarMensagem("enviarMensagemLivre", telefoneBruto, { type: "text", text: { body: texto } }, canal);
+}
+
+// Mensagem com até 3 botões de resposta rápida (interactive "button"). Limites
+// da Meta: corpo até 1024 caracteres, título do botão até 20, ids únicos.
+// Quem chama já deve mandar os botões normalizados (ver ia/leadRegras.ts).
+// Mesma regra de janela de 24h do texto livre. Não persiste nada.
+export async function enviarBotoes(
+  telefoneBruto: string,
+  texto: string,
+  botoes: string[],
+  canal?: CanalWhatsAppResolvido
+): Promise<EnviarMensagemLivreResultado> {
+  return postarMensagem(
+    "enviarBotoes",
+    telefoneBruto,
+    {
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: texto },
+        action: {
+          buttons: botoes.map((titulo, i) => ({
+            type: "reply",
+            reply: { id: `btn_${i + 1}`, title: titulo },
+          })),
+        },
+      },
+    },
+    canal
+  );
+}
+
+// Documento por link público (a Meta baixa o arquivo da URL). Mesma regra de
+// janela de 24h. Não persiste nada.
+export async function enviarDocumento(
+  telefoneBruto: string,
+  link: string,
+  filename: string,
+  canal?: CanalWhatsAppResolvido
+): Promise<EnviarMensagemLivreResultado> {
+  return postarMensagem("enviarDocumento", telefoneBruto, { type: "document", document: { link, filename } }, canal);
 }

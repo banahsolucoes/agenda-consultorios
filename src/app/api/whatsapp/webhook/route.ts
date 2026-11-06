@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { responderMensagemWhatsapp } from "@/lib/ia/responderWhatsapp";
+import { responderMensagemLead } from "@/lib/ia/responderLead";
+import { iaLeadHabilitada, motivoParaNaoResponder } from "@/lib/ia/leadRegras";
 import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
 import {
   classificarCanal,
@@ -15,6 +17,11 @@ import {
 // mensagem do paciente, período em que a clínica pode responder livremente
 // (fora dela, só template aprovado).
 const JANELA_24H_MS = 24 * 60 * 60 * 1000;
+
+// A IA do modo LEAD roda em after(): espera de rajada (~4s) + chamada da IA +
+// até 4 envios com pausa de 1,5s. 60s cobre isso com folga e cabe em qualquer
+// plano da Vercel.
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const modo = req.nextUrl.searchParams.get("hub.mode");
@@ -156,7 +163,7 @@ async function gravarMensagensEntrada(clinicaId: string, telefone: string, mensa
     });
   }
 
-  const textosNovos: string[] = [];
+  const novas: { id: string; texto: string }[] = [];
   for (const mensagem of mensagens) {
     const wamid: string | undefined = mensagem.id;
 
@@ -167,7 +174,7 @@ async function gravarMensagensEntrada(clinicaId: string, telefone: string, mensa
 
     const texto = extrairTextoMensagem(mensagem);
 
-    await prisma.mensagemWhatsapp.create({
+    const criada = await prisma.mensagemWhatsapp.create({
       data: {
         conversaId: conversa.id,
         direcao: "entrada",
@@ -176,15 +183,15 @@ async function gravarMensagensEntrada(clinicaId: string, telefone: string, mensa
         wamid: wamid ?? null,
       },
     });
-    textosNovos.push(texto);
+    novas.push({ id: criada.id, texto });
   }
 
-  return { conversa, janelaAbertaAte, textosNovos };
+  return { conversa, janelaAbertaAte, novas };
 }
 
 // Modo AGENDA: comportamento de sempre (grava + IA de confirmação/handoff).
 async function processarMensagensEntrada(clinicaId: string, telefone: string, mensagens: any[]) {
-  const { conversa, janelaAbertaAte, textosNovos } = await gravarMensagensEntrada(clinicaId, telefone, mensagens, {
+  const { conversa, janelaAbertaAte, novas } = await gravarMensagensEntrada(clinicaId, telefone, mensagens, {
     modo: "AGENDA",
     canalWhatsAppId: null,
   });
@@ -203,7 +210,7 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
     ? (await prisma.paciente.findUnique({ where: { id: conversa.pacienteId! }, select: { nome: true } }))?.nome
     : null;
 
-  for (const texto of textosNovos) {
+  for (const { texto } of novas) {
     if (podeResponderPorIa && nomePaciente && texto.trim()) {
       const conversaId = conversa.id;
       const pacienteId = conversa.pacienteId!;
@@ -221,24 +228,42 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
   }
 }
 
-// Modo LEAD (esqueleto): só grava no histórico e loga. Sem IA e sem resposta
-// por enquanto. Nunca chama responderMensagemWhatsapp, então mensagem de
-// número de teste nunca passa pela lógica de confirmação de sessão.
+// Modo LEAD: grava no histórico e agenda a IA do lead (responderLead.ts) só
+// para a última mensagem nova do lote; as anteriores entram no histórico.
+// Nunca chama responderMensagemWhatsapp, então mensagem de número de teste
+// nunca passa pela lógica de confirmação de sessão.
 // Canal LEAD → conversa ligada ao CanalWhatsApp; número de teste no canal
 // AGENDA → conversa LEAD com canalWhatsAppId null (separada da conversa AGENDA).
 async function processarMensagensLead(
   clinicaId: string,
   telefone: string,
   mensagens: any[],
-  canal: CanalWhatsAppResolvido
+  canal: CanalWhatsAppResolvido,
+  nomeContato: string | null
 ) {
-  const { conversa, textosNovos } = await gravarMensagensEntrada(clinicaId, telefone, mensagens, {
+  const { conversa, novas } = await gravarMensagensEntrada(clinicaId, telefone, mensagens, {
     modo: "LEAD",
     canalWhatsAppId: canal.tipo === "LEAD" ? canal.canalId : null,
   });
-  for (let i = 0; i < textosNovos.length; i++) {
-    console.log("[lead] mensagem recebida", { conversaId: conversa.id });
+  const ultima = novas[novas.length - 1];
+  if (!ultima) return;
+  console.log("[lead] mensagem recebida", { conversaId: conversa.id, novas: novas.length });
+
+  // Checagem antecipada (flag e estado) para não agendar à toa. A regra
+  // completa, com a rajada, roda de novo dentro de responderMensagemLead.
+  const motivo = motivoParaNaoResponder({
+    iaHabilitada: iaLeadHabilitada(process.env),
+    estadoConversa: conversa.estado,
+    mensagemId: ultima.id,
+    ultimaEntradaId: ultima.id,
+  });
+  if (motivo) {
+    console.log("[lead] IA não agendada", { conversaId: conversa.id, motivo });
+    return;
   }
+
+  const conversaId = conversa.id;
+  after(() => responderMensagemLead({ conversaId, mensagemId: ultima.id, telefone, nomeContato, canal }));
 }
 
 export async function POST(req: NextRequest) {
@@ -272,7 +297,8 @@ export async function POST(req: NextRequest) {
         if (telefone) {
           const modo = decidirModo(canal, telefone, parseNumerosTeste(process.env.WHATSAPP_LEAD_TESTE_NUMEROS));
           if (modo === "LEAD") {
-            await processarMensagensLead(clinicaId, telefone, value.messages, canal);
+            const nomeContato: string | null = value.contacts?.[0]?.profile?.name?.trim() || null;
+            await processarMensagensLead(clinicaId, telefone, value.messages, canal, nomeContato);
           } else {
             await processarMensagensEntrada(clinicaId, telefone, value.messages);
           }

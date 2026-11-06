@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { formatarDataCurtaSP, formatarHoraSP } from "@/lib/timezone";
 import { getProvider } from "@/lib/whatsapp/provider";
 
-const MODELO = "claude-haiku-4-5";
+// Exportado para a IA do modo LEAD (responderLead.ts) usar o mesmo modelo.
+export const MODELO = "claude-haiku-4-5";
 const MAX_TENTATIVAS_TOOL_USE = 3;
 
 const SYSTEM_PROMPT = `Você é a assistente virtual de uma clínica, respondendo mensagens de WhatsApp de pacientes que já têm sessão marcada. Classifique a intenção da mensagem do paciente em uma destas três categorias:
@@ -187,6 +188,18 @@ async function notificarHandoffHumano(params: {
   telefone: string;
   textoRecebido: string;
 }): Promise<void> {
+  const texto =
+    `⚠️ Atendimento humano necessário\n` +
+    `Paciente: ${params.nomePaciente}\n` +
+    `Telefone: ${params.telefone}\n` +
+    `Mensagem: "${params.textoRecebido}"`;
+  await enviarNotificacaoHumano(texto);
+}
+
+// Envia um aviso de texto para WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO pelo
+// número da agenda. Usado pelo handoff do modo AGENDA (acima) e do modo LEAD
+// (responderLead.ts). Nunca lança.
+export async function enviarNotificacaoHumano(texto: string): Promise<void> {
   const numeroHumano = process.env.WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO;
   if (!numeroHumano) {
     console.error(
@@ -194,12 +207,6 @@ async function notificarHandoffHumano(params: {
     );
     return;
   }
-
-  const texto =
-    `⚠️ Atendimento humano necessário\n` +
-    `Paciente: ${params.nomePaciente}\n` +
-    `Telefone: ${params.telefone}\n` +
-    `Mensagem: "${params.textoRecebido}"`;
 
   const resultado = await getProvider().enviarMensagemLivre(numeroHumano, texto);
   if (!resultado.ok) {

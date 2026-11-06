@@ -303,7 +303,7 @@ Migration `20260724110000_add_whatsapp_conversas_mensagens` aplicada manualmente
 
 ### 10.4 Variáveis de ambiente
 
-`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_LEAD_TESTE_NUMEROS` (2026-11-06, §10.13) — chaves em `.env.example` (sem valores), `.env` real segue fora do controle de versão. Configuradas também em produção via `vercel env add ... production` (não sincronizadas automaticamente do `.env` — mesmo padrão do `CRON_SECRET`).
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_LEAD_TESTE_NUMEROS` (2026-11-06, §10.13), `WHATSAPP_IA_LEAD_ATIVA` e `APP_URL` (2026-11-06, §10.14) — chaves em `.env.example` (sem valores), `.env` real segue fora do controle de versão. Configuradas também em produção via `vercel env add ... production` (não sincronizadas automaticamente do `.env` — mesmo padrão do `CRON_SECRET`).
 
 ### 10.5 Envio de saída — lembrete de confirmação (2026-07-24)
 
@@ -390,7 +390,7 @@ Primeiro passo pra cada clínica conectar o próprio número, em vez de depender
 Dois modos de atendimento convivem no mesmo webhook:
 
 - **AGENDA**: o fluxo de sempre (§10.3, §10.6, §10.8): grava, IA de confirmação/reagendamento, handoff. Roda no número da env `WHATSAPP_PHONE_NUMBER_ID`.
-- **LEAD**: atendimento de lead. Nesta etapa é **só um esqueleto**: grava a mensagem no histórico (mesma rotina de gravação do modo AGENDA, `gravarMensagensEntrada`) e loga `[lead] mensagem recebida` (só o `conversaId`). Não chama IA nem responde. A IA desse modo entra no próximo bloco.
+- **LEAD**: atendimento de lead. Grava a mensagem no histórico (mesma rotina de gravação do modo AGENDA, `gravarMensagensEntrada`), loga `[lead] mensagem recebida` e agenda a IA do lead (§10.14). Até 2026-11-06 era só o esqueleto (gravar e logar).
 
 **Resolução do canal** (`POST /api/whatsapp/webhook`, regras puras em `src/lib/whatsapp/canal.ts`, testadas em `canal.test.ts`), pelo `value.metadata.phone_number_id` do payload:
 
@@ -417,6 +417,44 @@ Dois modos de atendimento convivem no mesmo webhook:
 Pontos ainda não tratados (fora do escopo deste bloco): o inbox (`GET /api/whatsapp/conversas`) lista conversas dos dois modos sem distinção visual, e `POST .../enviar` e `.../template` sempre enviam pelo número da agenda, mesmo numa conversa LEAD de um `CanalWhatsApp`. O filtro `CLINICA_TEM_WHATSAPP_CONFIGURADO` (§9) também conta conversas LEAD.
 
 **Não alterado**: lógica de confirmação, crons, templates, inbox, `getProvider()`. `/subscribed_apps` continua não sendo chamado para canais do Embedded Signup (§10.12), então na prática só chega mensagem de canal LEAD quando o webhook desse número for ligado.
+
+### 10.14 IA do modo LEAD (2026-11-06)
+
+Substitui o esqueleto do modo LEAD (§10.13). Mesmo cliente Anthropic, mesmo modelo (`MODELO`, exportado de `responderWhatsapp.ts`, hoje `claude-haiku-4-5`) e mesmo padrão `after()` do modo AGENDA.
+
+**Arquivos**
+
+| Arquivo | Papel |
+|---|---|
+| `src/lib/whatsapp/prompts/lead-consultorio.md` | Instruções da IA (system prompt). Editado fora do código; o código não altera o conteúdo |
+| `src/lib/ia/responderLead.ts` | `responderMensagemLead()`: espera de rajada, checagens, chamada da IA, envio, handoff/encerramento. Nunca lança |
+| `src/lib/ia/leadRegras.ts` | Regras puras, testadas em `leadRegras.test.ts`: schema e validação da saída, flags, decisão de responder, contagem de respostas, histórico e contexto |
+| `src/lib/whatsapp/enviarMensagem.ts` | Novas `enviarBotoes()` e `enviarDocumento()`, ao lado de `enviarMensagemLivre()`, todas com `canal?` e o mesmo `postarMensagem()` interno |
+| `next.config.ts` | `outputFileTracingIncludes` para o `.md` |
+
+**Instruções no build da Vercel**: o `.md` é lido com `readFileSync(path.join(process.cwd(), "src/lib/whatsapp/prompts/lead-consultorio.md"))` e guardado em cache no módulo. O tracing do Next não enxerga leitura por caminho montado em runtime, então `next.config.ts` inclui `./src/lib/whatsapp/prompts/**/*.md` na rota `/api/whatsapp/webhook`. Conferido no `next build` local: o arquivo aparece em `.next/server/app/api/whatsapp/webhook/route.js.nft.json`, que é o que a Vercel empacota. Se a leitura falhar em produção, o log é `[lead ia] não foi possível ler ...` e a IA não responde (nada é enviado). Escolhido em vez de import como texto (`turbopack.rules` com `type: "raw"`) porque funciona igual no Vitest e no build, sem config de bundler.
+
+**Fluxo** (webhook → `processarMensagensLead` → `after(responderMensagemLead)`):
+
+1. O webhook grava as mensagens (§10.13) e agenda a IA **só para a última mensagem nova do lote**, se a IA estiver ligada e a conversa não estiver `aguardando_humano`/`fechada` (checagem antecipada, para não agendar à toa). Nome do contato: `value.contacts[0].profile.name`, se vier.
+2. **Rajada**: espera 4s (`ESPERA_RAJADA_MS`). Só segue se a mensagem que disparou ainda for a última `entrada` da conversa (ordem `criadoEm desc, id desc`); se chegou outra, a chamada mais nova é que responde e as anteriores entram no histórico. Flag e estado são checados de novo aqui (`motivoParaNaoResponder`).
+3. **Teto**: se a conversa já tem 40 respostas da IA (`MAX_RESPOSTAS_IA_POR_CONVERSA`), passa para humano com resumo "limite de mensagens da IA", sem chamar a IA. Uma "resposta" é um bloco de mensagens de saída da IA seguidas (`contarRespostasIa`), contado a partir do histórico, sem coluna nova.
+4. Janela de 24h fechada → não responde (só loga).
+5. **Chamada**: system = conteúdo do `.md` + bloco de contexto (`montarContexto`): data e hora em America/Sao_Paulo, nome do contato, palavra do CTA (`null` por enquanto, virá da planilha) e origem (`"pessoa_escreveu"` por enquanto). Mensagens = últimas 30 da conversa (`montarHistorico`): entrada → `user`, saída → `assistant`, falas seguidas do mesmo lado juntadas, sempre começando por `user`. Mídia sem texto (áudio, imagem) vira o marcador `[mensagem do tipo audio, sem texto]`. Se a última fala for da clínica (humano respondeu pelo inbox durante a espera), não responde.
+6. **Saída estruturada** (`output_config.format` json_schema, `SAIDA_LEAD_SCHEMA`): `{ mensagens: [{ texto, botoes }], enviarMidiaKit, passarParaHumano: { resumo } | null, encerrar }`. `normalizarSaidaLead` valida e normaliza: no máximo 3 mensagens e 3 botões por mensagem; botões aparados, sem vazios/repetidos, cortados em 20 caracteres (por code point, sem partir emoji); texto cortado em 1024 (com botões) ou 4096 (limites da Meta); textos vazios descartados. Estrutura inválida → log `[lead ia] saída inválida do modelo` e nada é enviado.
+7. O estado é relido antes de enviar: se um humano assumiu durante a chamada, nada é enviado.
+8. **Envio**, sempre pelo canal da conversa (`canal` do §10.13), na ordem, com 1,5s entre as mensagens (`PAUSA_ENTRE_ENVIOS_MS`): texto → `enviarMensagemLivre`; texto com botões → `enviarBotoes` (`interactive.type: "button"`, reply buttons `btn_1..3`); mídia kit (depois dos textos) → `enviarDocumento` com link `${APP_URL}/midia-kit-pamela-rachid.pdf` (sem `APP_URL`: `https://agenda.banahdigital.com.br`) e filename `Midia Kit - Dra. Pamela Rachid.pdf`. Para no primeiro erro de envio. Cada mensagem enviada vira `MensagemWhatsapp` (`saida`, `respondidaPorIa: true`, `tipo` `livre`/`botoes`/`documento`; botões gravados no texto como `[Botões: A | B]`, mídia kit como `[Mídia kit enviado: ...]`, para a IA ver no histórico).
+9. **Depois do envio**: `passarParaHumano` → estado `aguardando_humano` (via `updateMany` condicional, mesmo padrão do §10.8) e, só na transição, aviso para `WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO` com nome, telefone e resumo (`enviarNotificacaoHumano`, extraída de `notificarHandoffHumano` sem mudar o aviso da agenda; sai pelo número da agenda). Senão, `encerrar` → estado `fechada` (estado que já existia, com selo "Fechada" no inbox). Nos dois estados a IA não responde mais nessa conversa.
+
+**Entrada de botões**: já tratada por `extrairTextoMensagem` desde o §10.3: `interactive` (`button_reply.title`/`list_reply.title`) e `button` (`button.text`) são gravados com o título como texto e, portanto, chegam à IA pelo histórico.
+
+**Flags**: `WHATSAPP_IA_LEAD_ATIVA` precisa ser `"true"` (ausente = desligada) e `WHATSAPP_IA_ATIVA` não pode ser `"false"` (`iaLeadHabilitada`). Com a IA desligada, a mensagem continua sendo gravada.
+
+**Tempo de execução**: o webhook exporta `maxDuration = 60` (espera de 4s + IA + até 4 envios com pausas cabem com folga). O 200 continua saindo antes; o `after()` roda depois.
+
+**Erros**: falha da Anthropic, da Meta ou de leitura do prompt é logada só com a mensagem de erro (os logs de envio levam telefone e erro da Meta, nunca o token) e nunca afeta a resposta 200 do webhook.
+
+**Mídia kit**: `public/midia-kit-pamela-rachid.pdf`, servido estático. O `proxy.ts` só intercepta `/api/*`, então a Meta baixa o PDF sem autenticação.
 
 ## 11. Módulo Mentoria
 

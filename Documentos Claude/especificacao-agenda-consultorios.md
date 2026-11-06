@@ -370,7 +370,7 @@ O webhook do WhatsApp agora olha **qual número recebeu a mensagem** antes de de
 - **Número conectado pela clínica** (§11.5) e **ativo**: **modo LEAD**, atendimento de leads da clínica dona do número.
 - **Número desconhecido, ou conectado mas inativo**: a mensagem é ignorada (só fica um registro no log).
 
-**Modo LEAD nesta etapa**: a mensagem é gravada no histórico e nada mais. Sem IA e sem resposta automática; a IA desse modo é o próximo bloco.
+**Modo LEAD**: a mensagem é gravada no histórico e respondida pela IA do lead (§11.7).
 
 **Números de teste**: enquanto a Meta não aprova o app, o modo LEAD pode ser testado no próprio número da agenda. Os telefones listados na variável `WHATSAPP_LEAD_TESTE_NUMEROS` (separados por vírgula, com DDI e sem "+", ex. `5511993944786`) são tratados em modo LEAD mesmo escrevendo para o número da agenda. Mensagem de número de teste **nunca** confirma sessão nem aciona a IA da agenda. Os demais remetentes seguem no modo AGENDA normalmente.
 
@@ -381,6 +381,19 @@ O webhook do WhatsApp agora olha **qual número recebeu a mensagem** antes de de
 **Pendências**: o inbox mostra as conversas LEAD junto com as da agenda, sem distinção, e responder uma conversa LEAD pelo inbox ainda sai pelo número da agenda.
 
 Detalhe técnico em `ARCHITECTURE.md` §10.13.
+
+### 11.7 IA do modo LEAD (2026-11-06)
+
+No modo LEAD, a Daiane virtual (assistente virtual da Dra. Pâmela) conversa com o lead pelo WhatsApp seguindo o roteiro do arquivo **`src/lib/whatsapp/prompts/lead-consultorio.md`**: apresentação, queixa, autoridade, mídia kit, como funciona a avaliação, valores, formas de pagamento, modalidade (online/presencial) e período (manhã/tarde). Para mudar o roteiro, os valores ou as promoções, basta editar esse arquivo e fazer deploy, sem mexer no código.
+
+- **O que a IA pode fazer em cada resposta**: até 3 mensagens curtas, cada uma com até 3 botões de resposta rápida (até 20 caracteres); enviar o mídia kit (PDF `public/midia-kit-pamela-rachid.pdf`, que chega como "Midia Kit - Dra. Pamela Rachid.pdf"); passar para a equipe humana com um resumo; encerrar a conversa. As mensagens chegam em ordem, com uma pequena pausa entre elas, e saem pelo mesmo número em que o lead escreveu.
+- **O que a IA sabe a cada mensagem**: data e hora de São Paulo, nome do contato no WhatsApp, as últimas 30 mensagens da conversa, a palavra do CTA do Instagram (ainda vazia, virá da planilha) e como a conversa começou (por enquanto, sempre "a pessoa escreveu").
+- **Passagem para a equipe**: a conversa fica "Aguardando humano" no inbox, a IA para de responder nela e o número de `WHATSAPP_TELEFONE_NOTIFICACAO_HUMANO` recebe um aviso com nome, telefone e resumo do lead.
+- **Encerramento**: quando o lead não quer seguir, a IA se despede e a conversa fica "Fechada"; a IA não responde mais nela.
+- **Proteções**: `WHATSAPP_IA_LEAD_ATIVA` precisa ser `true` (desligada se ausente), e `WHATSAPP_IA_ATIVA=false` também desliga. Se o lead mandar várias mensagens seguidas, a IA espera cerca de 4 segundos e responde tudo de uma vez. No máximo 40 respostas da IA por conversa; depois disso a conversa passa para a equipe com o resumo "limite de mensagens da IA". Resposta da IA fora do formato não é enviada. Erros da IA ou da Meta ficam só no log.
+- **Variáveis novas**: `WHATSAPP_IA_LEAD_ATIVA` e `APP_URL` (endereço público do sistema, usado no link do mídia kit; se ausente, `https://agenda.banahdigital.com.br`).
+
+Detalhe técnico em `ARCHITECTURE.md` §10.14.
 
 ---
 
