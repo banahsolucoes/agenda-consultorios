@@ -99,6 +99,7 @@ Toda rota exige `getUsuarioLogado()` (401 se ausente) exceto onde marcado "públ
 | GET | `/api/whatsapp/conversas/[id]/mensagens` | `whatsapp/conversas/[id]/mensagens/route.ts` | Histórico completo de uma conversa | `atenderWhatsapp` |
 | POST | `/api/whatsapp/conversas/[id]/enviar` | `whatsapp/conversas/[id]/enviar/route.ts` | Envio manual de mensagem livre pelo inbox | `atenderWhatsapp` |
 | POST | `/api/whatsapp/conversas/[id]/template` | `whatsapp/conversas/[id]/template/route.ts` | Envia o template `confirmacao_agenda` pra iniciar contato quando a janela de 24h está fechada | `atenderWhatsapp` |
+| POST | `/api/whatsapp/conectar` | `whatsapp/conectar/route.ts` | Fim do Embedded Signup da Meta (Coexistência, 2026-11-06): troca o `code` por access token e cria um `CanalWhatsApp` novo **inativo e sem webhook** para a clínica logada — ver §10.12 | `conectarWhatsapp` (só ADMIN) |
 | GET | `/api/cron/whatsapp-lembretes` | `cron/whatsapp-lembretes/route.ts` | Uma execução diária cobrindo 2 critérios: template `confirmacao_agenda` (~48h antes, Meta) + link do Meet pra sessão de hoje (texto livre, dentro da janela de 24h) — fundidos numa rota só por limite de cron do plano Vercel (2026-07-24) — ver seção 10; ambos os critérios filtram por clínica ter WhatsApp configurado (`CLINICA_TEM_WHATSAPP_CONFIGURADO`, 2026-09-17, ver §9) | `CRON_SECRET` |
 
 **Dívida conhecida**: a maioria das rotas de escrita (criar/editar paciente, mudar status de sessão, criar atendimento, importar, tarefas) não tem nenhum gate de capacidade além de "estar logado" — qualquer papel (OPERADOR incluso) pode executar. Só `excluirPaciente` (delete de paciente), `gerirUsuarios`, `gerirIntegracoes`, `gerirIdentidadeVisual`, `editarConfiguracoes`, `criarClinica` e o branch de mover sessão (`operarAgenda`) são checados via `pode()`. Isso é intencional em parte (operação do dia a dia liberada pra todo mundo) mas não está auditado — tratar como TODO.
@@ -181,7 +182,7 @@ Modal de empurrar sessões futuras em N semanas (+ opcionalmente trocar dia da s
 
 ## 7. Permissões (`src/lib/permissoes.ts`)
 
-Papéis: `ADMIN` (tudo) ⊃ `PROFISSIONAL` (tudo de OPERADOR + `excluirPaciente`, `editarConfiguracoes`, `gerirIdentidadeVisual`, `gerirIntegracoes`) ⊃ `OPERADOR` (`gerirPacientes`, `operarAgenda`, `gerirTiposAtendimento`). Só `ADMIN` tem `gerirUsuarios`, `criarClinica`, `verLog`, `gerirBilling`.
+Papéis: `ADMIN` (tudo) ⊃ `PROFISSIONAL` (tudo de OPERADOR + `excluirPaciente`, `editarConfiguracoes`, `gerirIdentidadeVisual`, `gerirIntegracoes`) ⊃ `OPERADOR` (`gerirPacientes`, `operarAgenda`, `gerirTiposAtendimento`). Só `ADMIN` tem `gerirUsuarios`, `criarClinica`, `verLog`, `gerirBilling`, `conectarWhatsapp` (2026-11-06 — Embedded Signup, §10.12).
 
 Capacidades hoje sem nenhuma rota checando (`verLog`, `gerirBilling`) ou checadas só na UI (menu de configurações), não no backend — reconferir se alguma tela nova depender delas.
 
@@ -285,6 +286,7 @@ Recepção e persistência de mensagens via WhatsApp Cloud API (Meta), app "aten
 |---|---|---|
 | `ConversaWhatsapp` | Uma conversa por (clínica, telefone) | `clinicaId`, `pacienteId?` (match por telefone, best-effort), `telefone`, `janelaAbertaAte` (24h desde a última mensagem do paciente — janela de mensagem livre da Meta), `estado` (`aberta`/`aguardando_humano`/`fechada`) |
 | `MensagemWhatsapp` | Uma mensagem dentro de uma conversa | `conversaId`, `direcao` (`entrada`/`saida`), `texto`, `tipo` (tipo bruto da Meta: `text`/`button`/`interactive`/...), `wamid` (único — idempotência de retry do webhook), `respondidaPorIa` |
+| `CanalWhatsApp` | Número conectado pela própria clínica via Embedded Signup (2026-11-06, §10.12). **Ainda não lido por nenhum envio nem pelo webhook** | `clinicaId`, `wabaId`, `phoneNumberId` (único), `accessToken` (texto puro, como os tokens Google em `Clinica`), `ativo` (nasce `false`) |
 
 Migration `20260724110000_add_whatsapp_conversas_mensagens` aplicada manualmente via `prisma db execute` + `migrate resolve --applied` (não por `migrate dev`) por causa do drift pré-existente descrito na seção 2 — mesmo padrão já usado antes neste projeto.
 
@@ -370,6 +372,18 @@ Introduzido um ponto único de indireção entre os 4 call sites de envio (cron 
 - **`src/lib/whatsapp/provider/cloudApi.ts`** — `cloudApiProvider`, implementação que só delega para `enviarConfirmacaoAgenda()`/`enviarMensagemLivre()` já existentes (nenhuma lógica de envio reescrita) e traduz o resultado pro formato `ResultadoEnvio`. `suportaTemplate = true`, `suportaJanela24h = true` (Cloud API oficial da Meta suporta os dois).
 - **`src/lib/whatsapp/provider/index.ts`** — `getProvider()`, ponto único de indireção. **Nesta fase, sempre retorna `cloudApiProvider`** — não existe seleção dinâmica por clínica ainda; é só o ponto de extensão preparado para receber uma segunda implementação (ex.: o canal não-oficial `wa-bridge`, ver §12) no futuro.
 - Call sites trocaram a chamada direta (`enviarConfirmacaoAgenda(...)`/`enviarMensagemLivre(...)`) por `getProvider().enviarTemplate(...)`/`getProvider().enviarMensagemLivre(...)`, com o ajuste mecânico de nome de campo no resultado (`resultado.sucesso` → `resultado.ok`, `resultado.wamid` → `resultado.externalId`) — nenhuma outra alteração de lógica nesses 4 arquivos.
+
+### 10.12 Conexão de número via Embedded Signup — Coexistência (2026-11-06)
+
+Primeiro passo pra cada clínica conectar o próprio número, em vez de depender só das credenciais globais `WHATSAPP_*` (§10.4). **Só grava o canal: não liga envio nem webhook.**
+
+- **Página `/painel/whatsapp/conectar`** (`src/app/painel/whatsapp/conectar/page.tsx`, client, só ADMIN — espelho de UX via `GET /api/auth/usuario`; a checagem que vale é a da rota). Carrega o Facebook JS SDK (`FB.init` com o App ID e `v25.0`, mesma versão de `enviarMensagem.ts`/`enviarTemplate.ts`). O botão "Conectar WhatsApp" chama `FB.login` com `config_id`, `response_type: "code"`, `override_default_response_type: true`, `extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" }`. Escuta `window` `message` (só origem `facebook.com`/`*.facebook.com`) com `type: "WA_EMBEDDED_SIGNUP"`: eventos `FINISH*` trazem `waba_id`/`phone_number_id`, e `CANCEL`/`ERROR` viram mensagem clara na tela. O `code` (callback do `FB.login`) e a sessão (evento) chegam em qualquer ordem: o POST só sai quando os dois existem, com 15s de espera pela sessão depois do `code`.
+- **Constantes** em `src/lib/whatsapp/embeddedSignup.ts`: App ID `27563363136688889`, Config ID `2264260030820779`, `featureType`, versão da Graph API. Nenhuma é segredo.
+- **`POST /api/whatsapp/conectar`** (`{ code, wabaId, phoneNumberId }`, capacidade `conectarWhatsapp`): valida os IDs (numéricos), recusa com 409 se o `phoneNumberId` já existir (checado antes de gastar o `code`, que é de uso único). Troca o `code` em `GET /oauth/access_token` (`client_id` = App ID, `client_secret` = `WHATSAPP_APP_SECRET`) e cria o `CanalWhatsApp` com `ativo: false`. Registra `LogAuditoria` `CONECTAR_CANAL_WHATSAPP` e devolve `{ id, wabaId, phoneNumberId, ativo }`, **nunca o token**. Os logs de erro só levam status/código/mensagem da Meta, ou o código/nome do erro Prisma, porque a mensagem de erro do Prisma pode ecoar o `accessToken`.
+- **Deliberadamente fora**: `POST /{phone_number_id}/register` (número em Coexistência já está registrado no app WhatsApp Business) e `POST /{waba_id}/subscribed_apps` (webhook fica desligado até o modo lead ficar pronto). O canal atual da agenda (env `WHATSAPP_*`), o webhook (§10.3), o `getProvider()` (§10.11) e o filtro `CLINICA_TEM_WHATSAPP_CONFIGURADO` do cron (§9, baseado em `ConversaWhatsapp`, não nesta tabela) **não foram alterados**.
+- **Migration** `20261106120000_canal_whatsapp_embedded_signup`: só `CREATE TABLE "CanalWhatsApp"` + índices + FK para `Clinica`, sem tocar em tabela existente.
+- **Colisão de nome com `feat/wa-bridge` (§12.7)**: aquele branch modela um `CanalWhatsApp` **diferente** (`provider`, `identificador`, `credencialRef` com o nome da env var, `padrao`, relação com conversas/mensagens), nunca migrado. O modelo desta seção é o que existe no banco. Quem retomar o `feat/wa-bridge` precisa conciliar com este, não aplicar aquele por cima.
+- **Pré-requisitos do lado da Meta (fora do código)**: o domínio do app precisa estar nos "Allowed domains" do Login do Facebook para JS SDK, e a página precisa estar em HTTPS.
 
 ## 11. Módulo Mentoria
 
@@ -531,6 +545,7 @@ migrado nem aplicado no banco de produção**. Isolado do trabalho ativo e movid
   multi-canal (CanalWhatsApp, ProviderWhatsApp) — sem migration aplicada"*). Contém **só** o
   diff de `prisma/schema.prisma` — nenhum código do app (rotas, libs) foi escrito contra esse
   schema ainda.
+- **⚠️ 2026-11-06**: a `main` passou a ter um `model CanalWhatsApp` próprio, com outro desenho e migration própria (Embedded Signup, §10.12). O item "Estado na `main`" abaixo vale só até essa data. O modelo descrito abaixo é o do branch e conflita em nome com ele.
 - **Conteúdo da modelagem**: `model CanalWhatsApp` (novo — um número/sessão de WhatsApp
   configurado por clínica), `enum ProviderWhatsApp { CLOUD_API, BRIDGE }`, coluna `canalId`
   nullable em `ConversaWhatsapp` e em `MensagemWhatsapp`, coluna `externalId` nullable em

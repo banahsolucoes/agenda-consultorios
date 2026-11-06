@@ -16,7 +16,8 @@ export type Capacidade =
   | "criarClinica"
   | "verLog"
   | "gerirBilling"
-  | "atenderWhatsapp";
+  | "atenderWhatsapp"
+  | "conectarWhatsapp";
 
 /**
  * Papel do usuário no sistema.
@@ -31,6 +32,7 @@ export type Papel = "ADMIN" | "PROFISSIONAL" | "OPERADOR";
  * gerirIdentidadeVisual, gerirIntegracoes = true; gerirUsuarios, criarClinica,
  * verLog, gerirBilling = false.
  * OPERADOR: gerirPacientes, operarAgenda, gerirTiposAtendimento = true; restante false.
+ * conectarWhatsapp (Embedded Signup, 2026-11-06): só ADMIN.
  */
 export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
   ADMIN: {
@@ -47,6 +49,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     verLog: true,
     gerirBilling: true,
     atenderWhatsapp: true,
+    conectarWhatsapp: true,
   },
   PROFISSIONAL: {
     gerirPacientes: true,
@@ -62,6 +65,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     verLog: false,
     gerirBilling: false,
     atenderWhatsapp: true,
+    conectarWhatsapp: false,
   },
   OPERADOR: {
     gerirPacientes: true,
@@ -77,6 +81,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     verLog: false,
     gerirBilling: false,
     atenderWhatsapp: true,
+    conectarWhatsapp: false,
   },
 };
 

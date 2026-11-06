@@ -95,6 +95,7 @@ model Clinica {
   anexos              Anexo[]
   tarefas             Tarefa[]
   conversasWhatsapp   ConversaWhatsapp[]
+  canaisWhatsapp      CanalWhatsApp[]
   formulariosAnamnese FormularioAnamnese[]
   enviosFormulario    EnvioFormulario[]
   agendamentos        Agendamento[]
@@ -374,6 +375,29 @@ model ConversaWhatsapp {
   @@index([clinicaId])
   @@index([pacienteId])
   @@index([clinicaId, telefone])
+}
+
+// Número de WhatsApp conectado pela própria clínica via Embedded Signup da Meta
+// (modo Coexistência, 2026-11-06) — POST /api/whatsapp/conectar. Diferente do
+// canal atual da agenda (credenciais globais em env: WHATSAPP_ACCESS_TOKEN /
+// WHATSAPP_PHONE_NUMBER_ID), que NÃO passa por esta tabela. Nenhum código de
+// envio nem o webhook leem esta tabela ainda: o canal nasce ativo=false e sem
+// /subscribed_apps chamado (webhook desligado até o modo lead ficar pronto).
+// accessToken fica em texto puro na coluna, igual aos tokens Google em Clinica
+// — nunca logar nem devolver ao front.
+model CanalWhatsApp {
+  id            String   @id @default(cuid())
+  clinicaId     String
+  wabaId        String
+  phoneNumberId String   @unique
+  accessToken   String
+  ativo         Boolean  @default(false)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @default(now()) @updatedAt
+
+  clinica Clinica @relation(fields: [clinicaId], references: [id])
+
+  @@index([clinicaId])
 }
 
 model MensagemWhatsapp {

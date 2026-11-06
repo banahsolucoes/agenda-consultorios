@@ -348,6 +348,20 @@ em `wa-bridge/README.md`.
 
 **Modelagem multi-canal — PAUSADA (2026-08-04)**: existe um trabalho modelado (não implementado, não migrado) pra suportar múltiplos canais de WhatsApp por clínica — Cloud API oficial e `wa-bridge` selecionáveis por clínica, com uma tabela `CanalWhatsApp` nova. Isolado em branch (`feat/wa-bridge`, commit `5bae2cb`) e removido da `main` — a `main` não tem nenhum código nem coluna de banco dessa feature hoje. Detalhe técnico completo (conteúdo da modelagem, armadilha de nomenclatura pra quem retomar) em `ARCHITECTURE.md` §12.7.
 
+**Atualização 2026-11-06**: a `main` ganhou uma tabela `CanalWhatsApp` própria e mais simples, a do §11.5. Ela não é a do branch `feat/wa-bridge`: as duas têm o mesmo nome e desenhos diferentes, e precisam ser conciliadas antes de retomar o branch.
+
+### 11.5 Conectar número pela própria clínica — Embedded Signup, Coexistência (2026-11-06)
+
+O ADMIN da clínica abre **`/painel/whatsapp/conectar`** e clica em "Conectar WhatsApp". Abre-se a janela oficial da Meta (Embedded Signup), onde ele escolhe a conta e o número do WhatsApp Business. No modo **Coexistência**, o número continua funcionando no aplicativo WhatsApp Business do celular. Ao terminar, a tela mostra o `phone_number_id` conectado. Se a pessoa cancelar ou a Meta devolver erro, a tela explica o que aconteceu e nada é gravado.
+
+- **Quem pode**: só ADMIN (capacidade nova `conectarWhatsapp`). PROFISSIONAL e OPERADOR veem "sem permissão".
+- **O que é gravado**: um registro novo em `CanalWhatsApp` para a clínica do usuário logado, com a conta (`waba_id`), o número (`phone_number_id`) e o token de acesso devolvido pela Meta (guardado no banco, nunca exibido nem logado). A rota que faz isso é `POST /api/whatsapp/conectar`.
+- **O canal novo entra desligado**: inativo e **sem webhook**. O sistema não chama `/subscribed_apps` (não recebe mensagens desse número) nem `/register` (desnecessário em Coexistência). Nenhum envio automático usa esse número ainda. O webhook vai ser ligado quando o modo lead estiver pronto.
+- **Nada muda no número atual da agenda**: lembretes, mensagem do dia, inbox e IA continuam no número de sempre (credenciais globais) e no webhook de sempre.
+- Um mesmo número não pode ser conectado duas vezes: a segunda tentativa recebe "este número já está conectado".
+
+Detalhe técnico em `ARCHITECTURE.md` §10.12.
+
 ---
 
 ## 12. Módulo Mentoria
