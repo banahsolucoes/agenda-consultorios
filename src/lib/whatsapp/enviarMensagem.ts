@@ -102,6 +102,55 @@ export async function enviarBotoes(
   );
 }
 
+// Marca a mensagem de entrada como lida e mostra "digitando..." para o
+// contato (some sozinho ao enviar a próxima mensagem ou em ~25s). Usa as
+// credenciais do canal (sem canal = envs). Só loga em caso de falha; quem
+// chama não depende do resultado. Timeout de 5s para uma Meta lenta não
+// atrasar a resposta.
+const DIGITANDO_TIMEOUT_MS = 5000;
+
+export async function enviarDigitando(
+  canal: CanalWhatsAppResolvido | undefined,
+  messageIdEntrada: string
+): Promise<void> {
+  const credenciais = credenciaisEnvio(canal);
+  if (!credenciais) {
+    console.error("[whatsapp enviarDigitando] WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN não configurados");
+    return;
+  }
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/${META_API_VERSION}/${credenciais.phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${credenciais.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: messageIdEntrada,
+          typing_indicator: { type: "text" },
+        }),
+        signal: AbortSignal.timeout(DIGITANDO_TIMEOUT_MS),
+      }
+    );
+    if (!resp.ok) {
+      const erroMeta = (await resp.json().catch(() => null))?.error;
+      console.error(
+        "[whatsapp enviarDigitando] falha da API Meta:",
+        `status=${resp.status} code=${erroMeta?.code} message=${erroMeta?.message}`
+      );
+    }
+  } catch (erro) {
+    console.error(
+      "[whatsapp enviarDigitando] erro de rede:",
+      erro instanceof Error ? erro.message : "erro desconhecido"
+    );
+  }
+}
+
 // Documento por link público (a Meta baixa o arquivo da URL). Mesma regra de
 // janela de 24h. Não persiste nada.
 export async function enviarDocumento(

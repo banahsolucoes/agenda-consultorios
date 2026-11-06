@@ -7,17 +7,24 @@ import {
   montarHistorico,
   motivoParaNaoResponder,
   normalizarSaidaLead,
+  planejarEnvios,
+  tempoDigitacaoMs,
   truncar,
 } from "./leadRegras";
 
-const base = { mensagens: [], enviarMidiaKit: false, passarParaHumano: null, encerrar: false };
+const base = { mensagens: [], passarParaHumano: null, encerrar: false };
+const msgs = (n: number) => Array.from({ length: n }, (_, i) => ({ texto: `m${i + 1}`, botoes: [] as string[] }));
 
 describe("normalizarSaidaLead", () => {
   it("aceita JSON válido em string", () => {
     const saida = normalizarSaidaLead(
       JSON.stringify({ ...base, mensagens: [{ texto: "Oi!", botoes: ["QUERO", "AGORA NÃO"] }] })
     );
-    expect(saida).toEqual({ ...base, mensagens: [{ texto: "Oi!", botoes: ["QUERO", "AGORA NÃO"] }] });
+    expect(saida).toEqual({
+      ...base,
+      posicaoMidiaKit: null,
+      mensagens: [{ texto: "Oi!", botoes: ["QUERO", "AGORA NÃO"] }],
+    });
   });
 
   it("JSON inválido → null", () => {
@@ -33,6 +40,8 @@ describe("normalizarSaidaLead", () => {
     expect(normalizarSaidaLead({ ...base, mensagens: [{ texto: 1 }] })).toBeNull();
     expect(normalizarSaidaLead({ ...base, mensagens: [{ texto: "a", botoes: [1] }] })).toBeNull();
     expect(normalizarSaidaLead({ ...base, passarParaHumano: { resumo: 3 } })).toBeNull();
+    expect(normalizarSaidaLead({ ...base, enviarMidiaKit: "sim" })).toBeNull();
+    expect(normalizarSaidaLead({ ...base, mensagens: [{ texto: "a", enviarMidiaKitDepois: "sim" }] })).toBeNull();
   });
 
   it("botões: corta em 20 caracteres, no máximo 3, sem vazios nem repetidos", () => {
@@ -53,13 +62,17 @@ describe("normalizarSaidaLead", () => {
     expect(truncar("😊".repeat(25), 20)).toBe("😊".repeat(20));
   });
 
-  it("no máximo 3 mensagens, descartando textos vazios", () => {
+  it("no máximo 5 mensagens, descartando textos vazios", () => {
     const saida = normalizarSaidaLead({
       ...base,
-      mensagens: [{ texto: " " }, { texto: "1" }, { texto: "2" }, { texto: "3" }, { texto: "4" }],
+      mensagens: [{ texto: " " }, ...msgs(7)],
     });
-    expect(saida?.mensagens.map((m) => m.texto)).toEqual(["1", "2", "3"]);
+    expect(saida?.mensagens.map((m) => m.texto)).toEqual(["m1", "m2", "m3", "m4", "m5"]);
     expect(saida?.mensagens[0].botoes).toEqual([]);
+  });
+
+  it("aceita exatamente 5 mensagens", () => {
+    expect(normalizarSaidaLead({ ...base, mensagens: msgs(5) })?.mensagens).toHaveLength(5);
   });
 
   it("corpo de mensagem com botões cortado em 1024", () => {
@@ -70,11 +83,86 @@ describe("normalizarSaidaLead", () => {
   it("mantém ações", () => {
     const saida = normalizarSaidaLead({
       ...base,
-      enviarMidiaKit: true,
+      encerrar: true,
       passarParaHumano: { resumo: " Maria, online, tarde " },
     });
-    expect(saida?.enviarMidiaKit).toBe(true);
+    expect(saida?.encerrar).toBe(true);
     expect(saida?.passarParaHumano).toEqual({ resumo: "Maria, online, tarde" });
+    expect(saida?.posicaoMidiaKit).toBeNull();
+  });
+});
+
+describe("posição do mídia kit", () => {
+  const tipos = (saida: ReturnType<typeof normalizarSaidaLead>) =>
+    planejarEnvios(saida!).map((e) => (e.tipo === "documento" ? "PDF" : e.texto));
+
+  it("logo depois da mensagem marcada", () => {
+    const m = msgs(4);
+    const saida = normalizarSaidaLead({ ...base, mensagens: [m[0], m[1], { ...m[2], enviarMidiaKitDepois: true }, m[3]] });
+    expect(saida?.posicaoMidiaKit).toBe(3);
+    expect(tipos(saida)).toEqual(["m1", "m2", "m3", "PDF", "m4"]);
+  });
+
+  it("marcada na última mensagem → PDF no fim", () => {
+    const m = msgs(2);
+    const saida = normalizarSaidaLead({ ...base, mensagens: [m[0], { ...m[1], enviarMidiaKitDepois: true }] });
+    expect(tipos(saida)).toEqual(["m1", "m2", "PDF"]);
+  });
+
+  it("várias marcas → vale a primeira, um PDF só", () => {
+    const m = msgs(3);
+    const saida = normalizarSaidaLead({
+      ...base,
+      mensagens: [{ ...m[0], enviarMidiaKitDepois: true }, { ...m[1], enviarMidiaKitDepois: true }, m[2]],
+    });
+    expect(tipos(saida)).toEqual(["m1", "PDF", "m2", "m3"]);
+  });
+
+  it("formato antigo (enviarMidiaKit sem posição) → antes da última mensagem", () => {
+    expect(tipos(normalizarSaidaLead({ ...base, enviarMidiaKit: true, mensagens: msgs(3) }))).toEqual([
+      "m1",
+      "m2",
+      "PDF",
+      "m3",
+    ]);
+    expect(tipos(normalizarSaidaLead({ ...base, enviarMidiaKit: true, mensagens: msgs(1) }))).toEqual(["PDF", "m1"]);
+    expect(tipos(normalizarSaidaLead({ ...base, enviarMidiaKit: true, mensagens: [] }))).toEqual(["PDF"]);
+  });
+
+  it("marca numa mensagem descartada (vazia ou além da 5ª) → antes da última", () => {
+    const m = msgs(6);
+    const vazia = normalizarSaidaLead({ ...base, mensagens: [m[0], { texto: " ", enviarMidiaKitDepois: true }, m[1]] });
+    expect(tipos(vazia)).toEqual(["m1", "PDF", "m2"]);
+    const alem = normalizarSaidaLead({ ...base, mensagens: [...m.slice(0, 5), { ...m[5], enviarMidiaKitDepois: true }] });
+    expect(tipos(alem)).toEqual(["m1", "m2", "m3", "m4", "PDF", "m5"]);
+  });
+
+  it("enviarMidiaKit false e sem marca → sem PDF; botões viram envio de botões", () => {
+    const saida = normalizarSaidaLead({
+      ...base,
+      enviarMidiaKit: false,
+      mensagens: [{ texto: "Escolha", botoes: ["SIM", "NÃO"] }],
+    });
+    expect(planejarEnvios(saida!)).toEqual([{ tipo: "botoes", texto: "Escolha", botoes: ["SIM", "NÃO"] }]);
+  });
+});
+
+describe("tempoDigitacaoMs", () => {
+  it("45 ms por caractere", () => {
+    expect(tempoDigitacaoMs({ tipo: "livre", texto: "a".repeat(100) })).toBe(4500);
+  });
+  it("mínimo 2 s", () => {
+    expect(tempoDigitacaoMs({ tipo: "livre", texto: "Oi" })).toBe(2000);
+    expect(tempoDigitacaoMs({ tipo: "botoes", texto: "a".repeat(44), botoes: ["SIM"] })).toBe(2000);
+  });
+  it("máximo 7 s", () => {
+    expect(tempoDigitacaoMs({ tipo: "livre", texto: "a".repeat(1000) })).toBe(7000);
+  });
+  it("conta emoji como 1 caractere", () => {
+    expect(tempoDigitacaoMs({ tipo: "livre", texto: "😊".repeat(100) })).toBe(4500);
+  });
+  it("documento: 3 s fixos", () => {
+    expect(tempoDigitacaoMs({ tipo: "documento" })).toBe(3000);
   });
 });
 

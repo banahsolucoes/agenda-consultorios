@@ -18,10 +18,13 @@ import {
 // (fora dela, só template aprovado).
 const JANELA_24H_MS = 24 * 60 * 60 * 1000;
 
-// A IA do modo LEAD roda em after(): espera de rajada (~4s) + chamada da IA +
-// até 4 envios com pausa de 1,5s. 60s cobre isso com folga e cabe em qualquer
-// plano da Vercel.
-export const maxDuration = 60;
+// A IA do modo LEAD roda em after(), na mesma função. Pior caso estimado
+// (ARCHITECTURE.md §10.14): "digitando" inicial + rajada 4s + IA até ~41s
+// (timeout 20s, 1 retry) + 5 mensagens x 7s + documento 3s, cada envio com
+// "digitando" e chamada à Meta ≈ 96s; com todas as chamadas de "digitando"
+// esgotando o timeout de 5s ≈ 126s. 150s dá folga. Exige Fluid Compute na
+// Vercel (sem ele, o Hobby limita a 60s e o deploy recusa este valor).
+export const maxDuration = 150;
 
 export async function GET(req: NextRequest) {
   const modo = req.nextUrl.searchParams.get("hub.mode");
@@ -163,7 +166,7 @@ async function gravarMensagensEntrada(clinicaId: string, telefone: string, mensa
     });
   }
 
-  const novas: { id: string; texto: string }[] = [];
+  const novas: { id: string; texto: string; wamid: string | null }[] = [];
   for (const mensagem of mensagens) {
     const wamid: string | undefined = mensagem.id;
 
@@ -183,7 +186,7 @@ async function gravarMensagensEntrada(clinicaId: string, telefone: string, mensa
         wamid: wamid ?? null,
       },
     });
-    novas.push({ id: criada.id, texto });
+    novas.push({ id: criada.id, texto, wamid: wamid ?? null });
   }
 
   return { conversa, janelaAbertaAte, novas };
@@ -263,7 +266,16 @@ async function processarMensagensLead(
   }
 
   const conversaId = conversa.id;
-  after(() => responderMensagemLead({ conversaId, mensagemId: ultima.id, telefone, nomeContato, canal }));
+  after(() =>
+    responderMensagemLead({
+      conversaId,
+      mensagemId: ultima.id,
+      wamidEntrada: ultima.wamid,
+      telefone,
+      nomeContato,
+      canal,
+    })
+  );
 }
 
 export async function POST(req: NextRequest) {

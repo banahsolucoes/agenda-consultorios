@@ -9,7 +9,6 @@ import {
   ESTADO_ENCERRADA,
   HISTORICO_MAX_MENSAGENS,
   MAX_RESPOSTAS_IA_POR_CONVERSA,
-  PAUSA_ENTRE_ENVIOS_MS,
   RESUMO_LIMITE_IA,
   SAIDA_LEAD_SCHEMA,
   contarRespostasIa,
@@ -18,9 +17,16 @@ import {
   montarHistorico,
   motivoParaNaoResponder,
   normalizarSaidaLead,
+  planejarEnvios,
+  tempoDigitacaoMs,
   type SaidaLead,
 } from "@/lib/ia/leadRegras";
-import { enviarBotoes, enviarDocumento, enviarMensagemLivre } from "@/lib/whatsapp/enviarMensagem";
+import {
+  enviarBotoes,
+  enviarDigitando,
+  enviarDocumento,
+  enviarMensagemLivre,
+} from "@/lib/whatsapp/enviarMensagem";
 import type { CanalWhatsAppResolvido } from "@/lib/whatsapp/canal";
 
 // IA do modo LEAD (ARCHITECTURE.md §10.14). Chamada pelo webhook via after(),
@@ -56,6 +62,8 @@ export function urlMidiaKit(): string {
   return `${base}${CAMINHO_PUBLICO_MIDIA_KIT}`;
 }
 
+const ANTHROPIC_TIMEOUT_MS = 20_000;
+
 const esperar = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function mensagemDeErro(erro: unknown): string {
@@ -65,6 +73,7 @@ function mensagemDeErro(erro: unknown): string {
 export interface ResponderLeadParams {
   conversaId: string;
   mensagemId: string; // MensagemWhatsapp de entrada que disparou a chamada
+  wamidEntrada: string | null; // wamid dessa mensagem, para o "digitando..."
   telefone: string;
   nomeContato: string | null;
   canal: CanalWhatsAppResolvido;
@@ -86,7 +95,10 @@ async function estadoAtual(conversaId: string) {
 }
 
 async function responder(params: ResponderLeadParams): Promise<void> {
-  const { conversaId, mensagemId, telefone, nomeContato, canal } = params;
+  const { conversaId, mensagemId, wamidEntrada, telefone, nomeContato, canal } = params;
+
+  // "digitando..." já na chegada, antes da espera da rajada e da IA.
+  if (wamidEntrada) await enviarDigitando(canal, wamidEntrada);
 
   // Rajada: espera e só segue se esta ainda for a última mensagem de entrada.
   await esperar(ESPERA_RAJADA_MS);
@@ -146,7 +158,9 @@ async function responder(params: ResponderLeadParams): Promise<void> {
 
   let saida: SaidaLead | null;
   try {
-    const client = new Anthropic();
+    // Timeout e 1 retry limitam o pior caso da chamada a ~40s, para caber no
+    // maxDuration do webhook junto com a rajada e os envios (ver §10.14).
+    const client = new Anthropic({ timeout: ANTHROPIC_TIMEOUT_MS, maxRetries: 1 });
     const response = await client.messages.create({
       model: MODELO,
       max_tokens: 2048,
@@ -175,7 +189,7 @@ async function responder(params: ResponderLeadParams): Promise<void> {
     return;
   }
 
-  await enviarSaida(conversaId, telefone, canal, saida);
+  await enviarSaida(conversaId, telefone, canal, wamidEntrada, saida);
 
   if (saida.passarParaHumano) {
     await passarParaHumano({ conversaId, telefone, nomeContato, resumo: saida.passarParaHumano.resumo });
@@ -187,28 +201,20 @@ async function responder(params: ResponderLeadParams): Promise<void> {
   }
 }
 
-type Envio =
-  | { tipo: "livre"; texto: string }
-  | { tipo: "botoes"; texto: string; botoes: string[] }
-  | { tipo: "documento" };
-
-// Envia na ordem, com pausa entre as mensagens, sempre pelo canal da conversa.
-// Para no primeiro erro (o resto ficaria fora de ordem). Grava cada mensagem
-// enviada como saída da IA.
+// Envia na ordem (mídia kit na posição pedida, ver planejarEnvios), sempre pelo
+// canal da conversa. Antes de cada envio mostra "digitando..." e espera um
+// tempo proporcional ao texto (tempoDigitacaoMs). Para no primeiro erro (o
+// resto ficaria fora de ordem). Grava cada mensagem enviada como saída da IA.
 async function enviarSaida(
   conversaId: string,
   telefone: string,
   canal: CanalWhatsAppResolvido,
+  wamidEntrada: string | null,
   saida: SaidaLead
 ): Promise<void> {
-  const envios: Envio[] = saida.mensagens.map((m) =>
-    m.botoes.length > 0 ? { tipo: "botoes", texto: m.texto, botoes: m.botoes } : { tipo: "livre", texto: m.texto }
-  );
-  if (saida.enviarMidiaKit) envios.push({ tipo: "documento" });
-
-  for (let i = 0; i < envios.length; i++) {
-    if (i > 0) await esperar(PAUSA_ENTRE_ENVIOS_MS);
-    const envio = envios[i];
+  for (const envio of planejarEnvios(saida)) {
+    if (wamidEntrada) await enviarDigitando(canal, wamidEntrada);
+    await esperar(tempoDigitacaoMs(envio));
 
     let resultado;
     let textoGravado: string;

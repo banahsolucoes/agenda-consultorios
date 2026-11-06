@@ -2,7 +2,7 @@
 // saída do modelo, decisão de chamar ou não a IA, contagem de respostas e
 // montagem do histórico. Sem Prisma nem rede, para testar sem dependências.
 
-export const MAX_MENSAGENS_POR_RESPOSTA = 3;
+export const MAX_MENSAGENS_POR_RESPOSTA = 5;
 export const MAX_BOTOES_POR_MENSAGEM = 3;
 export const MAX_CARACTERES_BOTAO = 20;
 export const MAX_CARACTERES_CORPO_BOTOES = 1024; // limite da Meta p/ body de interactive
@@ -10,8 +10,13 @@ export const MAX_CARACTERES_TEXTO = 4096; // limite da Meta p/ text.body
 export const MAX_RESPOSTAS_IA_POR_CONVERSA = 40;
 export const HISTORICO_MAX_MENSAGENS = 30;
 export const ESPERA_RAJADA_MS = 4000;
-export const PAUSA_ENTRE_ENVIOS_MS = 1500;
 export const RESUMO_LIMITE_IA = "limite de mensagens da IA";
+
+// "digitando..." antes de cada envio: tempo proporcional ao texto.
+export const DIGITACAO_MS_POR_CARACTERE = 45;
+export const DIGITACAO_MIN_MS = 2000;
+export const DIGITACAO_MAX_MS = 7000;
+export const DIGITACAO_DOCUMENTO_MS = 3000;
 
 // Estados em que a IA do modo LEAD não responde mais.
 export const ESTADO_AGUARDANDO_HUMANO = "aguardando_humano";
@@ -24,7 +29,9 @@ export interface MensagemLead {
 
 export interface SaidaLead {
   mensagens: MensagemLead[];
-  enviarMidiaKit: boolean;
+  // Quantas mensagens saem antes do PDF do mídia kit (0..mensagens.length);
+  // null = sem mídia kit nesta resposta.
+  posicaoMidiaKit: number | null;
   passarParaHumano: { resumo: string } | null;
   encerrar: boolean;
 }
@@ -36,7 +43,7 @@ export const SAIDA_LEAD_SCHEMA = {
   properties: {
     mensagens: {
       type: "array",
-      description: "De 0 a 3 mensagens, enviadas nesta ordem. Cada uma curta (até 3 ou 4 linhas).",
+      description: "De 0 a 5 mensagens, enviadas nesta ordem. Cada uma curta (até 3 ou 4 linhas).",
       items: {
         type: "object",
         properties: {
@@ -46,12 +53,16 @@ export const SAIDA_LEAD_SCHEMA = {
             description: "Até 3 botões de resposta rápida, cada um com no máximo 20 caracteres. Vazio se não houver.",
             items: { type: "string" },
           },
+          enviarMidiaKitDepois: {
+            type: "boolean",
+            description:
+              "true só na mensagem logo antes do PDF do mídia kit (ação ENVIAR_MIDIA_KIT). O PDF é enviado logo depois desta mensagem. No máximo uma mensagem por resposta.",
+          },
         },
         required: ["texto", "botoes"],
         additionalProperties: false,
       },
     },
-    enviarMidiaKit: { type: "boolean", description: "true para enviar o PDF do mídia kit depois das mensagens" },
     passarParaHumano: {
       anyOf: [
         {
@@ -65,7 +76,7 @@ export const SAIDA_LEAD_SCHEMA = {
     },
     encerrar: { type: "boolean" },
   },
-  required: ["mensagens", "enviarMidiaKit", "passarParaHumano", "encerrar"],
+  required: ["mensagens", "passarParaHumano", "encerrar"],
   additionalProperties: false,
 } as const;
 
@@ -77,9 +88,12 @@ export function truncar(texto: string, max: number): string {
 
 // Valida e normaliza a saída bruta do modelo (string JSON ou objeto). Devolve
 // null se a estrutura for inválida: quem chama loga e não envia nada.
-// Normalizações: no máximo 3 mensagens e 3 botões por mensagem; botões
+// Normalizações: no máximo 5 mensagens e 3 botões por mensagem; botões
 // aparados, sem vazios, sem repetidos e cortados em 20 caracteres; textos
 // vazios descartados; texto cortado no limite da Meta.
+// Mídia kit: o PDF sai logo depois da primeira mensagem (mantida) marcada com
+// enviarMidiaKitDepois. Sem marca válida, mas com o enviarMidiaKit antigo de
+// topo (ou com a marca numa mensagem descartada), sai antes da última.
 export function normalizarSaidaLead(bruto: unknown): SaidaLead | null {
   let dado: unknown = bruto;
   if (typeof bruto === "string") {
@@ -93,7 +107,7 @@ export function normalizarSaidaLead(bruto: unknown): SaidaLead | null {
   const obj = dado as Record<string, unknown>;
 
   if (!Array.isArray(obj.mensagens)) return null;
-  if (typeof obj.enviarMidiaKit !== "boolean") return null;
+  if (obj.enviarMidiaKit !== undefined && typeof obj.enviarMidiaKit !== "boolean") return null;
   if (typeof obj.encerrar !== "boolean") return null;
 
   let passarParaHumano: SaidaLead["passarParaHumano"] = null;
@@ -104,11 +118,20 @@ export function normalizarSaidaLead(bruto: unknown): SaidaLead | null {
   }
 
   const mensagens: MensagemLead[] = [];
+  let posicaoMidiaKit: number | null = null;
+  // Olha todas as mensagens (inclusive as que serão cortadas) para não perder
+  // o pedido de mídia kit feito numa mensagem descartada.
+  const midiaKitPedido =
+    obj.enviarMidiaKit === true ||
+    obj.mensagens.some(
+      (item) => Boolean(item) && typeof item === "object" && (item as Record<string, unknown>).enviarMidiaKitDepois === true
+    );
   for (const item of obj.mensagens) {
     if (!item || typeof item !== "object") return null;
     const m = item as Record<string, unknown>;
     if (typeof m.texto !== "string") return null;
     if (m.botoes !== undefined && m.botoes !== null && !Array.isArray(m.botoes)) return null;
+    if (m.enviarMidiaKitDepois !== undefined && typeof m.enviarMidiaKitDepois !== "boolean") return null;
 
     const botoes: string[] = [];
     for (const b of (m.botoes as unknown[] | undefined) ?? []) {
@@ -122,10 +145,39 @@ export function normalizarSaidaLead(bruto: unknown): SaidaLead | null {
     if (!texto) continue;
     const limite = botoes.length > 0 ? MAX_CARACTERES_CORPO_BOTOES : MAX_CARACTERES_TEXTO;
     mensagens.push({ texto: truncar(texto, limite), botoes });
+    if (m.enviarMidiaKitDepois === true && posicaoMidiaKit === null) posicaoMidiaKit = mensagens.length;
     if (mensagens.length === MAX_MENSAGENS_POR_RESPOSTA) break;
   }
 
-  return { mensagens, enviarMidiaKit: obj.enviarMidiaKit, passarParaHumano, encerrar: obj.encerrar };
+  if (midiaKitPedido && posicaoMidiaKit === null) {
+    posicaoMidiaKit = Math.max(mensagens.length - 1, 0); // antes da última
+  }
+
+  return { mensagens, posicaoMidiaKit, passarParaHumano, encerrar: obj.encerrar };
+}
+
+export type Envio =
+  | { tipo: "livre"; texto: string }
+  | { tipo: "botoes"; texto: string; botoes: string[] }
+  | { tipo: "documento" };
+
+// Ordem final dos envios de uma resposta, com o mídia kit na posição certa.
+export function planejarEnvios(saida: SaidaLead): Envio[] {
+  const envios: Envio[] = saida.mensagens.map((m) =>
+    m.botoes.length > 0 ? { tipo: "botoes", texto: m.texto, botoes: m.botoes } : { tipo: "livre", texto: m.texto }
+  );
+  if (saida.posicaoMidiaKit !== null) {
+    envios.splice(Math.min(saida.posicaoMidiaKit, envios.length), 0, { tipo: "documento" });
+  }
+  return envios;
+}
+
+// Tempo de "digitando..." antes de um envio: 45 ms por caractere, entre 2 s e
+// 7 s; documento, 3 s fixos.
+export function tempoDigitacaoMs(envio: Envio): number {
+  if (envio.tipo === "documento") return DIGITACAO_DOCUMENTO_MS;
+  const ms = Array.from(envio.texto).length * DIGITACAO_MS_POR_CARACTERE;
+  return Math.min(DIGITACAO_MAX_MS, Math.max(DIGITACAO_MIN_MS, ms));
 }
 
 // Flags: WHATSAPP_IA_LEAD_ATIVA precisa ser "true" (ausente = desligada) e o
@@ -230,6 +282,10 @@ export function montarContexto(ctx: ContextoLead): string {
     `- Origem da conversa: ${ctx.origem === "pessoa_escreveu" ? "a própria pessoa escreveu primeiro" : "modelo enviado pela planilha"}`,
     "",
     "## Formato da resposta",
-    "Responda só no formato estruturado pedido: `mensagens` (até 3, cada uma com `texto` e `botoes`, até 3 botões de no máximo 20 caracteres), `enviarMidiaKit` (ação ENVIAR_MIDIA_KIT), `passarParaHumano` ({ resumo } ou null, ação PASSAR_PARA_HUMANO) e `encerrar` (ação ENCERRAR).",
+    "Responda só no formato estruturado pedido:",
+    "- `mensagens`: até 5, enviadas nesta ordem. Cada uma tem `texto` e `botoes` (até 3 botões de no máximo 20 caracteres; lista vazia se não houver).",
+    "- Ação ENVIAR_MIDIA_KIT: marque `enviarMidiaKitDepois: true` na mensagem que deve vir logo antes do PDF (a frase \"Esse é o material de apresentação da Dra. Pâmela Rachid.\"). O PDF é enviado logo depois dela e antes das mensagens seguintes. Marque no máximo uma mensagem.",
+    "- `passarParaHumano`: { resumo } ou null (ação PASSAR_PARA_HUMANO).",
+    "- `encerrar`: true para a ação ENCERRAR.",
   ].join("\n");
 }
