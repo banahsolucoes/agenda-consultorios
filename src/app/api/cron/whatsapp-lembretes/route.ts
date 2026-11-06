@@ -158,7 +158,10 @@ async function enviarMensagensDoDia(agora: Date) {
     const clinica = agendamento.paciente.clinica;
     const clinicaId = agendamento.paciente.clinicaId;
 
-    let conversa = await prisma.conversaWhatsapp.findFirst({ where: { clinicaId, telefone: telefoneE164 } });
+    // Só a conversa AGENDA do número da agenda (§10.13).
+    let conversa = await prisma.conversaWhatsapp.findFirst({
+      where: { clinicaId, telefone: telefoneE164, modo: "AGENDA", canalWhatsAppId: null },
+    });
     if (!conversa) {
       conversa = await prisma.conversaWhatsapp.create({
         data: {
@@ -167,6 +170,8 @@ async function enviarMensagensDoDia(agora: Date) {
           telefone: telefoneE164,
           janelaAbertaAte: null,
           ultimaMensagemEm: agora,
+          modo: "AGENDA",
+          canalWhatsAppId: null,
         },
       });
     }

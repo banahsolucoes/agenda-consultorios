@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
+import { credenciaisEnvio, type CanalWhatsAppResolvido } from "@/lib/whatsapp/canal";
 
 const JANELA_24H_MS = 24 * 60 * 60 * 1000;
 const META_API_VERSION = "v25.0";
@@ -11,6 +12,7 @@ export interface EnviarConfirmacaoAgendaParams {
   nome: string;
   data: string;
   hora: string;
+  canal?: CanalWhatsAppResolvido; // opcional: sem canal = envs atuais (canal AGENDA)
 }
 
 export interface EnviarConfirmacaoAgendaResultado {
@@ -28,18 +30,19 @@ export interface EnviarConfirmacaoAgendaResultado {
 export async function enviarConfirmacaoAgenda(
   params: EnviarConfirmacaoAgendaParams
 ): Promise<EnviarConfirmacaoAgendaResultado> {
-  const { clinicaId, pacienteId, telefone, nome, data, hora } = params;
+  const { clinicaId, pacienteId, telefone, nome, data, hora, canal } = params;
 
   const telefoneE164 = normalizarTelefoneE164(telefone);
   if (!telefoneE164) {
     return { sucesso: false, erro: `telefone fora do padrão E.164: "${telefone}"` };
   }
 
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
+  // Sem canal (ou canal AGENDA) → envs atuais; canal LEAD → credenciais do CanalWhatsApp.
+  const credenciais = credenciaisEnvio(canal);
+  if (!credenciais) {
     return { sucesso: false, erro: "WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN não configurados" };
   }
+  const { phoneNumberId, accessToken } = credenciais;
 
   let wamid: string | undefined;
   try {
@@ -92,8 +95,11 @@ export async function enviarConfirmacaoAgenda(
 
   try {
     const agora = new Date();
+    // Só a conversa AGENDA do número da agenda (§10.13). Mesmo com canal LEAD
+    // informado no envio, o histórico deste template continua sendo AGENDA:
+    // confirmação de sessão é sempre fluxo de agenda.
     let conversa = await prisma.conversaWhatsapp.findFirst({
-      where: { clinicaId, telefone: telefoneE164 },
+      where: { clinicaId, telefone: telefoneE164, modo: "AGENDA", canalWhatsAppId: null },
     });
 
     if (!conversa) {
@@ -104,6 +110,8 @@ export async function enviarConfirmacaoAgenda(
           telefone: telefoneE164,
           janelaAbertaAte: new Date(agora.getTime() + JANELA_24H_MS),
           ultimaMensagemEm: agora,
+          modo: "AGENDA",
+          canalWhatsAppId: null,
         },
       });
     } else {

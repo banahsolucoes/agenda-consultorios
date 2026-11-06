@@ -21,8 +21,8 @@ export const cloudApiProvider: WhatsAppProvider = {
     return paraResultadoEnvio(resultado);
   },
 
-  async enviarMensagemLivre(telefoneBruto, texto) {
-    const resultado = await enviarMensagemLivre(telefoneBruto, texto);
+  async enviarMensagemLivre(telefoneBruto, texto, canal) {
+    const resultado = await enviarMensagemLivre(telefoneBruto, texto, canal);
     return paraResultadoEnvio(resultado);
   },
 };

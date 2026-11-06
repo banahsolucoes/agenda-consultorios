@@ -3,6 +3,13 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { responderMensagemWhatsapp } from "@/lib/ia/responderWhatsapp";
 import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
+import {
+  classificarCanal,
+  decidirModo,
+  parseNumerosTeste,
+  type CanalWhatsAppResolvido,
+  type ModoAtendimento,
+} from "@/lib/whatsapp/canal";
 
 // Janela de conversação do WhatsApp Business: 24h a partir da última
 // mensagem do paciente, período em que a clínica pode responder livremente
@@ -97,9 +104,32 @@ async function buscarPacientePorTelefone(clinicaId: string, telefoneMeta: string
   return match?.id ?? null;
 }
 
-async function processarMensagensEntrada(clinicaId: string, telefone: string, mensagens: any[]) {
+// Resolve o canal pelo phone_number_id do payload (value.metadata), ver
+// whatsapp/canal.ts. null = número desconhecido ou CanalWhatsApp inativo.
+async function resolverCanal(phoneNumberId: string): Promise<CanalWhatsAppResolvido | null> {
+  const envPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (envPhoneNumberId && phoneNumberId === envPhoneNumberId) return { tipo: "AGENDA" };
+  const registro = await prisma.canalWhatsApp.findUnique({
+    where: { phoneNumberId },
+    select: { id: true, clinicaId: true, phoneNumberId: true, accessToken: true, ativo: true },
+  });
+  return classificarCanal(phoneNumberId, envPhoneNumberId, registro);
+}
+
+// Conversa é separada por modo e canal de origem (§10.13): o mesmo telefone
+// tem uma conversa AGENDA no número da agenda e outra LEAD por canal.
+// canalWhatsAppId null = número da agenda (envs).
+interface ChaveConversa {
+  modo: ModoAtendimento;
+  canalWhatsAppId: string | null;
+}
+
+// Grava conversa (busca/cria por clinicaId+telefone+modo+canal, renova a
+// janela de 24h) e as mensagens de entrada, pulando wamid duplicado. Devolve
+// os textos das mensagens efetivamente gravadas agora. Comum aos dois modos.
+async function gravarMensagensEntrada(clinicaId: string, telefone: string, mensagens: any[], chave: ChaveConversa) {
   let conversa = await prisma.conversaWhatsapp.findFirst({
-    where: { clinicaId, telefone },
+    where: { clinicaId, telefone, modo: chave.modo, canalWhatsAppId: chave.canalWhatsAppId },
   });
 
   const agora = new Date();
@@ -109,7 +139,15 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
     const pacienteId = await buscarPacientePorTelefone(clinicaId, telefone);
 
     conversa = await prisma.conversaWhatsapp.create({
-      data: { clinicaId, telefone, pacienteId, janelaAbertaAte, ultimaMensagemEm: agora },
+      data: {
+        clinicaId,
+        telefone,
+        pacienteId,
+        janelaAbertaAte,
+        ultimaMensagemEm: agora,
+        modo: chave.modo,
+        canalWhatsAppId: chave.canalWhatsAppId,
+      },
     });
   } else {
     conversa = await prisma.conversaWhatsapp.update({
@@ -118,20 +156,7 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
     });
   }
 
-  // Resposta automática por IA só faz sentido pra conversa já ligada a um
-  // paciente cadastrado, e só enquanto nenhum humano assumiu a conversa
-  // (estado "aguardando_humano" — setado pela própria IA ao detectar pedido
-  // de reagendamento — trava qualquer resposta automática até alguém tratar).
-  // Kill switch: WHATSAPP_IA_ATIVA="false" desliga a IA sem reverter código —
-  // mensagem continua sendo gravada normalmente, só não gera resposta nem
-  // custo de IA. Qualquer outro valor (ou ausente) mantém a IA ativa.
-  const iaAtiva = process.env.WHATSAPP_IA_ATIVA !== "false";
-  const podeResponderPorIa =
-    iaAtiva && Boolean(conversa.pacienteId) && conversa.estado !== "aguardando_humano";
-  const nomePaciente = podeResponderPorIa
-    ? (await prisma.paciente.findUnique({ where: { id: conversa.pacienteId! }, select: { nome: true } }))?.nome
-    : null;
-
+  const textosNovos: string[] = [];
   for (const mensagem of mensagens) {
     const wamid: string | undefined = mensagem.id;
 
@@ -151,7 +176,34 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
         wamid: wamid ?? null,
       },
     });
+    textosNovos.push(texto);
+  }
 
+  return { conversa, janelaAbertaAte, textosNovos };
+}
+
+// Modo AGENDA: comportamento de sempre (grava + IA de confirmação/handoff).
+async function processarMensagensEntrada(clinicaId: string, telefone: string, mensagens: any[]) {
+  const { conversa, janelaAbertaAte, textosNovos } = await gravarMensagensEntrada(clinicaId, telefone, mensagens, {
+    modo: "AGENDA",
+    canalWhatsAppId: null,
+  });
+
+  // Resposta automática por IA só faz sentido pra conversa já ligada a um
+  // paciente cadastrado, e só enquanto nenhum humano assumiu a conversa
+  // (estado "aguardando_humano" — setado pela própria IA ao detectar pedido
+  // de reagendamento — trava qualquer resposta automática até alguém tratar).
+  // Kill switch: WHATSAPP_IA_ATIVA="false" desliga a IA sem reverter código —
+  // mensagem continua sendo gravada normalmente, só não gera resposta nem
+  // custo de IA. Qualquer outro valor (ou ausente) mantém a IA ativa.
+  const iaAtiva = process.env.WHATSAPP_IA_ATIVA !== "false";
+  const podeResponderPorIa =
+    iaAtiva && Boolean(conversa.pacienteId) && conversa.estado !== "aguardando_humano";
+  const nomePaciente = podeResponderPorIa
+    ? (await prisma.paciente.findUnique({ where: { id: conversa.pacienteId! }, select: { nome: true } }))?.nome
+    : null;
+
+  for (const texto of textosNovos) {
     if (podeResponderPorIa && nomePaciente && texto.trim()) {
       const conversaId = conversa.id;
       const pacienteId = conversa.pacienteId!;
@@ -169,6 +221,26 @@ async function processarMensagensEntrada(clinicaId: string, telefone: string, me
   }
 }
 
+// Modo LEAD (esqueleto): só grava no histórico e loga. Sem IA e sem resposta
+// por enquanto. Nunca chama responderMensagemWhatsapp, então mensagem de
+// número de teste nunca passa pela lógica de confirmação de sessão.
+// Canal LEAD → conversa ligada ao CanalWhatsApp; número de teste no canal
+// AGENDA → conversa LEAD com canalWhatsAppId null (separada da conversa AGENDA).
+async function processarMensagensLead(
+  clinicaId: string,
+  telefone: string,
+  mensagens: any[],
+  canal: CanalWhatsAppResolvido
+) {
+  const { conversa, textosNovos } = await gravarMensagensEntrada(clinicaId, telefone, mensagens, {
+    modo: "LEAD",
+    canalWhatsAppId: canal.tipo === "LEAD" ? canal.canalId : null,
+  });
+  for (let i = 0; i < textosNovos.length; i++) {
+    console.log("[lead] mensagem recebida", { conversaId: conversa.id });
+  }
+}
+
 export async function POST(req: NextRequest) {
   const corpoBruto = await req.text();
 
@@ -181,14 +253,29 @@ export async function POST(req: NextRequest) {
     const payload = JSON.parse(corpoBruto);
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
 
+    // Roteamento por número: sem metadata → canal AGENDA (comportamento antigo).
+    const phoneNumberId: string | undefined = value?.metadata?.phone_number_id;
+    const canal: CanalWhatsAppResolvido | null = phoneNumberId
+      ? await resolverCanal(phoneNumberId)
+      : { tipo: "AGENDA" };
+    if (!canal) {
+      console.log("[whatsapp-webhook] canal desconhecido ou inativo", { phoneNumberId });
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
     if (value?.messages) {
-      const clinicaId = await resolverClinicaId();
+      const clinicaId = canal.tipo === "LEAD" ? canal.clinicaId : await resolverClinicaId();
       if (!clinicaId) {
         console.error("[whatsapp webhook] nenhuma clínica encontrada para associar a conversa");
       } else {
         const telefone: string = value.messages[0]?.from ?? value.contacts?.[0]?.wa_id ?? "";
         if (telefone) {
-          await processarMensagensEntrada(clinicaId, telefone, value.messages);
+          const modo = decidirModo(canal, telefone, parseNumerosTeste(process.env.WHATSAPP_LEAD_TESTE_NUMEROS));
+          if (modo === "LEAD") {
+            await processarMensagensLead(clinicaId, telefone, value.messages, canal);
+          } else {
+            await processarMensagensEntrada(clinicaId, telefone, value.messages);
+          }
         }
       }
     }

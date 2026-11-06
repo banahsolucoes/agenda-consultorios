@@ -1,4 +1,5 @@
 import type { EnviarConfirmacaoAgendaParams } from "@/lib/whatsapp/enviarTemplate";
+import type { CanalWhatsAppResolvido } from "@/lib/whatsapp/canal";
 
 export type ResultadoEnvio = { ok: true; externalId: string } | { ok: false; erro: string };
 
@@ -11,5 +12,6 @@ export interface WhatsAppProvider {
   readonly suportaTemplate: boolean;
   readonly suportaJanela24h: boolean;
   enviarTemplate(params: EnviarConfirmacaoAgendaParams): Promise<ResultadoEnvio>;
-  enviarMensagemLivre(telefoneBruto: string, texto: string): Promise<ResultadoEnvio>;
+  // canal opcional: sem canal = envs atuais (canal AGENDA), ver whatsapp/canal.ts
+  enviarMensagemLivre(telefoneBruto: string, texto: string, canal?: CanalWhatsAppResolvido): Promise<ResultadoEnvio>;
 }

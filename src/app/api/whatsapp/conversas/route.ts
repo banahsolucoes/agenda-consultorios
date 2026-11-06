@@ -71,8 +71,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Só a conversa AGENDA do número da agenda (§10.13): é por ela que o inbox
+  // envia (envs WHATSAPP_*). Conversa LEAD do mesmo paciente não é reaproveitada.
   const existente = await prisma.conversaWhatsapp.findFirst({
-    where: { clinicaId: usuario.clinicaId, pacienteId },
+    where: { clinicaId: usuario.clinicaId, pacienteId, modo: "AGENDA", canalWhatsAppId: null },
   });
   if (existente) return NextResponse.json(existente);
 
@@ -85,6 +87,8 @@ export async function POST(req: NextRequest) {
       janelaAbertaAte: null,
       estado: "aberta",
       ultimaMensagemEm: agora,
+      modo: "AGENDA",
+      canalWhatsAppId: null,
     },
   });
 

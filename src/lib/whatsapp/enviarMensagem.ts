@@ -1,4 +1,5 @@
 import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
+import { credenciaisEnvio, type CanalWhatsAppResolvido } from "@/lib/whatsapp/canal";
 
 const META_API_VERSION = "v25.0";
 
@@ -13,18 +14,20 @@ export interface EnviarMensagemLivreResultado {
 // checado isso. Não persiste nada — quem chama grava a MensagemWhatsapp.
 export async function enviarMensagemLivre(
   telefoneBruto: string,
-  texto: string
+  texto: string,
+  canal?: CanalWhatsAppResolvido
 ): Promise<EnviarMensagemLivreResultado> {
   const telefoneE164 = normalizarTelefoneE164(telefoneBruto);
   if (!telefoneE164) {
     return { sucesso: false, erro: `telefone fora do padrão E.164: "${telefoneBruto}"` };
   }
 
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
+  // Sem canal (ou canal AGENDA) → envs atuais; canal LEAD → credenciais do CanalWhatsApp.
+  const credenciais = credenciaisEnvio(canal);
+  if (!credenciais) {
     return { sucesso: false, erro: "WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN não configurados" };
   }
+  const { phoneNumberId, accessToken } = credenciais;
 
   try {
     const resp = await fetch(`https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}/messages`, {

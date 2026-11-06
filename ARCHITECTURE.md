@@ -284,9 +284,9 @@ Recepção e persistência de mensagens via WhatsApp Cloud API (Meta), app "aten
 
 | Model | Papel | Campos-chave |
 |---|---|---|
-| `ConversaWhatsapp` | Uma conversa por (clínica, telefone) | `clinicaId`, `pacienteId?` (match por telefone, best-effort), `telefone`, `janelaAbertaAte` (24h desde a última mensagem do paciente — janela de mensagem livre da Meta), `estado` (`aberta`/`aguardando_humano`/`fechada`) |
+| `ConversaWhatsapp` | Uma conversa por (clínica, telefone, modo, canal) — antes de 2026-11-06 era por (clínica, telefone), ver §10.13 | `modo` (`AGENDA`/`LEAD`, default `AGENDA`), `canalWhatsAppId?` (FK `CanalWhatsApp`, `null` = número da agenda, `ON DELETE SET NULL`), `clinicaId`, `pacienteId?` (match por telefone, best-effort), `telefone`, `janelaAbertaAte` (24h desde a última mensagem do paciente — janela de mensagem livre da Meta), `estado` (`aberta`/`aguardando_humano`/`fechada`) |
 | `MensagemWhatsapp` | Uma mensagem dentro de uma conversa | `conversaId`, `direcao` (`entrada`/`saida`), `texto`, `tipo` (tipo bruto da Meta: `text`/`button`/`interactive`/...), `wamid` (único — idempotência de retry do webhook), `respondidaPorIa` |
-| `CanalWhatsApp` | Número conectado pela própria clínica via Embedded Signup (2026-11-06, §10.12). **Ainda não lido por nenhum envio nem pelo webhook** | `clinicaId`, `wabaId`, `phoneNumberId` (único), `accessToken` (texto puro, como os tokens Google em `Clinica`), `ativo` (nasce `false`) |
+| `CanalWhatsApp` | Número conectado pela própria clínica via Embedded Signup (2026-11-06, §10.12) | `clinicaId`, `wabaId`, `phoneNumberId` (único), `accessToken` (texto puro, como os tokens Google em `Clinica`), `ativo` (nasce `false`). Lido pelo webhook desde 2026-11-06 (§10.13): só canal `ativo = true` é processado |
 
 Migration `20260724110000_add_whatsapp_conversas_mensagens` aplicada manualmente via `prisma db execute` + `migrate resolve --applied` (não por `migrate dev`) por causa do drift pré-existente descrito na seção 2 — mesmo padrão já usado antes neste projeto.
 
@@ -303,7 +303,7 @@ Migration `20260724110000_add_whatsapp_conversas_mensagens` aplicada manualmente
 
 ### 10.4 Variáveis de ambiente
 
-`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` — chaves em `.env.example` (sem valores), `.env` real segue fora do controle de versão. Configuradas também em produção via `vercel env add ... production` (não sincronizadas automaticamente do `.env` — mesmo padrão do `CRON_SECRET`).
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_LEAD_TESTE_NUMEROS` (2026-11-06, §10.13) — chaves em `.env.example` (sem valores), `.env` real segue fora do controle de versão. Configuradas também em produção via `vercel env add ... production` (não sincronizadas automaticamente do `.env` — mesmo padrão do `CRON_SECRET`).
 
 ### 10.5 Envio de saída — lembrete de confirmação (2026-07-24)
 
@@ -384,6 +384,39 @@ Primeiro passo pra cada clínica conectar o próprio número, em vez de depender
 - **Migration** `20261106120000_canal_whatsapp_embedded_signup`: só `CREATE TABLE "CanalWhatsApp"` + índices + FK para `Clinica`, sem tocar em tabela existente.
 - **Colisão de nome com `feat/wa-bridge` (§12.7)**: aquele branch modela um `CanalWhatsApp` **diferente** (`provider`, `identificador`, `credencialRef` com o nome da env var, `padrao`, relação com conversas/mensagens), nunca migrado. O modelo desta seção é o que existe no banco. Quem retomar o `feat/wa-bridge` precisa conciliar com este, não aplicar aquele por cima.
 - **Pré-requisitos do lado da Meta (fora do código)**: o domínio do app precisa estar nos "Allowed domains" do Login do Facebook para JS SDK, e a página precisa estar em HTTPS.
+
+### 10.13 Roteamento do webhook por número — modos AGENDA e LEAD (2026-11-06)
+
+Dois modos de atendimento convivem no mesmo webhook:
+
+- **AGENDA**: o fluxo de sempre (§10.3, §10.6, §10.8): grava, IA de confirmação/reagendamento, handoff. Roda no número da env `WHATSAPP_PHONE_NUMBER_ID`.
+- **LEAD**: atendimento de lead. Nesta etapa é **só um esqueleto**: grava a mensagem no histórico (mesma rotina de gravação do modo AGENDA, `gravarMensagensEntrada`) e loga `[lead] mensagem recebida` (só o `conversaId`). Não chama IA nem responde. A IA desse modo entra no próximo bloco.
+
+**Resolução do canal** (`POST /api/whatsapp/webhook`, regras puras em `src/lib/whatsapp/canal.ts`, testadas em `canal.test.ts`), pelo `value.metadata.phone_number_id` do payload:
+
+| `phone_number_id` | Canal | Clínica |
+|---|---|---|
+| igual a `WHATSAPP_PHONE_NUMBER_ID` (tem prioridade sobre a tabela) | AGENDA | `resolverClinicaId()` (slug fixo, como antes) |
+| `CanalWhatsApp.phoneNumberId` com `ativo = true` | LEAD | `CanalWhatsApp.clinicaId` |
+| qualquer outro, ou `CanalWhatsApp` com `ativo = false` | — | loga `[whatsapp-webhook] canal desconhecido ou inativo` e responde 200 sem processar nada (nem `statuses`) |
+| payload sem `metadata` | AGENDA | comportamento anterior, sem mudança |
+
+**Modo**: canal LEAD → sempre modo LEAD. Canal AGENDA → modo AGENDA, exceto quando o remetente está em **`WHATSAPP_LEAD_TESTE_NUMEROS`** (lista separada por vírgula, E.164 sem "+", ex. `5511993944786`). Os dois lados passam por `normalizarTelefoneE164()`, e itens inválidos da lista são ignorados. Serve para testar o modo LEAD no próprio número da agenda enquanto a Meta não aprova o app. Mensagem de número de teste vai para `processarMensagensLead`, que nunca chama `responderMensagemWhatsapp`, ou seja, **nunca passa pela lógica de confirmação de sessão**, mesmo que o número seja de um paciente cadastrado. Env ausente/vazia = nenhum número de teste.
+
+**Envio por canal**: `enviarMensagemLivre(telefone, texto, canal?)`, `enviarConfirmacaoAgenda({ ..., canal? })` e os métodos equivalentes do `WhatsAppProvider` (§10.11) aceitam um `CanalWhatsAppResolvido` opcional. Sem canal ou canal AGENDA → envs atuais (comportamento de antes). Canal LEAD → `phoneNumberId`/`accessToken` do próprio `CanalWhatsApp` (`credenciaisEnvio()`). Nenhum call site existente passa canal ainda, então nada muda no envio da agenda.
+
+**Histórico separado por modo e canal** (migration `20261106180000_conversa_whatsapp_modo_canal`): `ConversaWhatsapp` ganhou `modo` (`AGENDA`/`LEAD`, default `AGENDA`) e `canalWhatsAppId` (FK opcional para `CanalWhatsApp`, `null` = número da agenda, `ON DELETE SET NULL`). O índice `(clinicaId, telefone)` virou `(clinicaId, telefone, modo, canalWhatsAppId)`. Linhas existentes ficaram `AGENDA`/`null` pelo default (conferido após aplicar: 69 de 69), sem backfill. `MensagemWhatsapp` não mudou: herda modo e canal pela conversa. Aplicada pelo padrão manual (`prisma db execute` + `migrate resolve --applied`), depois de conferir com `migrate diff` que o banco não tinha drift em relação ao schema.
+
+| Onde | Chave da conversa |
+|---|---|
+| Webhook, modo AGENDA | `clinicaId + telefone + modo AGENDA + canalWhatsAppId null` |
+| Webhook, número de teste no canal AGENDA | `... + modo LEAD + canalWhatsAppId null` |
+| Webhook, canal LEAD | `... + modo LEAD + canalWhatsAppId = CanalWhatsApp.id` |
+| `enviarConfirmacaoAgenda`, cron (mensagem do dia), `POST /api/whatsapp/conversas` | só `modo AGENDA + canalWhatsAppId null` (buscam e criam assim) |
+
+Pontos ainda não tratados (fora do escopo deste bloco): o inbox (`GET /api/whatsapp/conversas`) lista conversas dos dois modos sem distinção visual, e `POST .../enviar` e `.../template` sempre enviam pelo número da agenda, mesmo numa conversa LEAD de um `CanalWhatsApp`. O filtro `CLINICA_TEM_WHATSAPP_CONFIGURADO` (§9) também conta conversas LEAD.
+
+**Não alterado**: lógica de confirmação, crons, templates, inbox, `getProvider()`. `/subscribed_apps` continua não sendo chamado para canais do Embedded Signup (§10.12), então na prática só chega mensagem de canal LEAD quando o webhook desse número for ligado.
 
 ## 11. Módulo Mentoria
 

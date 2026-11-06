@@ -367,21 +367,27 @@ model ConversaWhatsapp {
   estado           String    @default("aberta") // aberta | aguardando_humano | fechada
   ultimaMensagemEm DateTime  @default(now())
   criadoEm         DateTime  @default(now())
+  // Roteamento por canal (2026-11-06, ARCHITECTURE.md §10.13): o mesmo telefone
+  // tem conversas separadas por modo e por canal de origem.
+  modo             String    @default("AGENDA") // AGENDA | LEAD
+  canalWhatsAppId  String? // null = número da agenda (envs WHATSAPP_*)
 
-  clinica   Clinica            @relation(fields: [clinicaId], references: [id])
-  paciente  Paciente?          @relation(fields: [pacienteId], references: [id])
-  mensagens MensagemWhatsapp[]
+  clinica       Clinica            @relation(fields: [clinicaId], references: [id])
+  paciente      Paciente?          @relation(fields: [pacienteId], references: [id])
+  canalWhatsApp CanalWhatsApp?     @relation(fields: [canalWhatsAppId], references: [id], onDelete: SetNull)
+  mensagens     MensagemWhatsapp[]
 
   @@index([clinicaId])
   @@index([pacienteId])
-  @@index([clinicaId, telefone])
+  @@index([clinicaId, telefone, modo, canalWhatsAppId])
 }
 
 // Número de WhatsApp conectado pela própria clínica via Embedded Signup da Meta
 // (modo Coexistência, 2026-11-06) — POST /api/whatsapp/conectar. Diferente do
 // canal atual da agenda (credenciais globais em env: WHATSAPP_ACCESS_TOKEN /
-// WHATSAPP_PHONE_NUMBER_ID), que NÃO passa por esta tabela. Nenhum código de
-// envio nem o webhook leem esta tabela ainda: o canal nasce ativo=false e sem
+// WHATSAPP_PHONE_NUMBER_ID), que NÃO passa por esta tabela. O webhook lê esta
+// tabela desde 2026-11-06 (roteamento por canal, ARCHITECTURE.md §10.13): só
+// canal ativo=true é processado, em modo LEAD. O canal nasce ativo=false e sem
 // /subscribed_apps chamado (webhook desligado até o modo lead ficar pronto).
 // accessToken fica em texto puro na coluna, igual aos tokens Google em Clinica
 // — nunca logar nem devolver ao front.
@@ -395,7 +401,8 @@ model CanalWhatsApp {
   criadoEm      DateTime @default(now())
   atualizadoEm  DateTime @default(now()) @updatedAt
 
-  clinica Clinica @relation(fields: [clinicaId], references: [id])
+  clinica   Clinica            @relation(fields: [clinicaId], references: [id])
+  conversas ConversaWhatsapp[]
 
   @@index([clinicaId])
 }

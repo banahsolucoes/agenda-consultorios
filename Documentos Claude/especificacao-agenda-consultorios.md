@@ -362,6 +362,26 @@ O ADMIN da clínica abre **`/painel/whatsapp/conectar`** e clica em "Conectar Wh
 
 Detalhe técnico em `ARCHITECTURE.md` §10.12.
 
+### 11.6 Roteamento por número — modos AGENDA e LEAD (2026-11-06)
+
+O webhook do WhatsApp agora olha **qual número recebeu a mensagem** antes de decidir o que fazer:
+
+- **Número da agenda** (o de sempre, das credenciais globais): **modo AGENDA**, o atendimento que já existia (confirmação de sessão, IA, handoff para a Daiane).
+- **Número conectado pela clínica** (§11.5) e **ativo**: **modo LEAD**, atendimento de leads da clínica dona do número.
+- **Número desconhecido, ou conectado mas inativo**: a mensagem é ignorada (só fica um registro no log).
+
+**Modo LEAD nesta etapa**: a mensagem é gravada no histórico e nada mais. Sem IA e sem resposta automática; a IA desse modo é o próximo bloco.
+
+**Números de teste**: enquanto a Meta não aprova o app, o modo LEAD pode ser testado no próprio número da agenda. Os telefones listados na variável `WHATSAPP_LEAD_TESTE_NUMEROS` (separados por vírgula, com DDI e sem "+", ex. `5511993944786`) são tratados em modo LEAD mesmo escrevendo para o número da agenda. Mensagem de número de teste **nunca** confirma sessão nem aciona a IA da agenda. Os demais remetentes seguem no modo AGENDA normalmente.
+
+**Envio**: as funções de envio aceitam escolher o número de saída (o da agenda ou o de um canal conectado). Nada que já existe mudou de número.
+
+**Histórico separado**: cada conversa guarda o modo (AGENDA ou LEAD) e o número por onde entrou. O mesmo telefone falando com a agenda e com o modo LEAD fica em duas conversas diferentes. Lembretes, mensagem do dia e "Nova conversa" do inbox usam sempre a conversa AGENDA do número da agenda. As conversas que já existiam viraram AGENDA.
+
+**Pendências**: o inbox mostra as conversas LEAD junto com as da agenda, sem distinção, e responder uma conversa LEAD pelo inbox ainda sai pelo número da agenda.
+
+Detalhe técnico em `ARCHITECTURE.md` §10.13.
+
 ---
 
 ## 12. Módulo Mentoria
