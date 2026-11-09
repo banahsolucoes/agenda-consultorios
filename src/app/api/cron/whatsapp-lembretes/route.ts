@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizarTelefoneE164 } from "@/lib/whatsapp/telefone";
 import { getProvider } from "@/lib/whatsapp/provider";
 import { componentesSP, criarDataSP, formatarDataCurtaSP, formatarHoraSP } from "@/lib/timezone";
-import { prepararTemplateMeet, renderizarTemplateMensagem } from "@/lib/templatesMensagem";
+import { prepararTemplateMeet, primeiroNome, renderizarTemplateMensagem } from "@/lib/templatesMensagem";
 
 const HORA_MS = 60 * 60 * 1000;
 const JANELA_24H_MS = 24 * HORA_MS;
@@ -200,7 +200,7 @@ async function enviarMensagensDoDia(agora: Date) {
       ehAtendimentoUnico: agendamento.tipoSessao?.ehAtendimentoUnico ?? false,
     });
     const texto = renderizarTemplateMensagem(templateMeet, {
-      nome: agendamento.paciente.nome.split(" ")[0],
+      nome: primeiroNome(agendamento.paciente.nome),
       data: formatarDataCurtaSP(agendamento.inicio),
       hora: formatarHoraSP(agendamento.inicio),
       link: agendamento.linkMeet ?? "",

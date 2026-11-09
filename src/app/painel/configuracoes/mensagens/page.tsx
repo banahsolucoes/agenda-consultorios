@@ -10,6 +10,7 @@ interface Mensagens {
   emailBoasVindasCorpo: string;
   templateConfirmacao: string;
   templateMeet: string;
+  templateLembrete2h: string;
 }
 
 // E-mail de boas-vindas (ao compartilhar a pasta do paciente) e templates de
@@ -59,6 +60,7 @@ export default function MensagensPage() {
           emailBoasVindasCorpo: dados.emailBoasVindasCorpo,
           templateConfirmacao: dados.templateConfirmacao,
           templateMeet: dados.templateMeet,
+          templateLembrete2h: dados.templateLembrete2h,
         });
       } catch {
         setErroCarregar(true);
@@ -126,6 +128,7 @@ export default function MensagensPage() {
         body: JSON.stringify({
           templateConfirmacao: form.templateConfirmacao,
           templateMeet: form.templateMeet,
+          templateLembrete2h: form.templateLembrete2h,
         }),
       });
 
@@ -136,7 +139,14 @@ export default function MensagensPage() {
       }
 
       setForm((f) =>
-        f ? { ...f, templateConfirmacao: dados.templateConfirmacao, templateMeet: dados.templateMeet } : f
+        f
+          ? {
+              ...f,
+              templateConfirmacao: dados.templateConfirmacao,
+              templateMeet: dados.templateMeet,
+              templateLembrete2h: dados.templateLembrete2h,
+            }
+          : f
       );
       setSucessoTemplates(true);
     } catch {
@@ -213,8 +223,8 @@ export default function MensagensPage() {
           <section className="rounded-xl border border-border bg-surface p-6">
             <h3 className="mb-1 font-serif text-base font-semibold text-fg">Mensagens de copiar-colar</h3>
             <p className="mb-4 text-sm text-muted">
-              Textos usados nos botões &quot;Copiar confirmação&quot; e &quot;Copiar link do Meet&quot;, na agenda e
-              no painel do paciente.
+              Textos usados nos botões &quot;Copiar confirmação&quot;, &quot;Copiar link do Meet&quot; e &quot;Copiar
+              lembrete 2h&quot;, na agenda e no painel do paciente.
             </p>
 
             <form onSubmit={handleSalvarTemplatesMensagem} className="space-y-4">
@@ -222,7 +232,8 @@ export default function MensagensPage() {
                 <label className="mb-1 block text-sm font-medium text-fg">Texto de confirmação</label>
                 <p className="mb-1 text-xs text-muted">
                   Variáveis: <strong>{"{saudacao}"}</strong> (Bom dia/Boa tarde/Boa noite),{" "}
-                  <strong>{"{paciente}"}</strong> (primeiro nome), <strong>{"{data}"}</strong> (dd/mm),{" "}
+                  <strong>{"{paciente}"}</strong> (primeiro nome), <strong>{"{data}"}</strong> (dd/mm com dia da semana,
+                  em negrito),{" "}
                   <strong>{"{hora}"}</strong> (HH:MM), <strong>{"{horarioLimite}"}</strong> (limite de confirmação da
                   clínica) e <strong>{"{assistente}"}</strong> (nome do assistente).
                 </p>
@@ -250,6 +261,22 @@ export default function MensagensPage() {
                   onChange={handleChange}
                   required
                   rows={8}
+                  className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-fg">Lembrete 2h antes</label>
+                <p className="mb-1 text-xs text-muted">
+                  Variáveis: <strong>{"{nome}"}</strong> (primeiro nome), <strong>{"{hora}"}</strong> (HH:MM) e{" "}
+                  <strong>{"{link}"}</strong> (link da sessão).
+                </p>
+                <textarea
+                  name="templateLembrete2h"
+                  value={form.templateLembrete2h}
+                  onChange={handleChange}
+                  required
+                  rows={12}
                   className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-fg outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
               </div>

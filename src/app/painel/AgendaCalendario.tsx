@@ -14,7 +14,14 @@ import { diaSemanaLabel, statusLabel } from "@/lib/labels";
 import { TIMEZONE, componentesSP, criarDataSP } from "@/lib/timezone";
 import { calcularLayoutColunas, type LayoutColuna } from "./overlapLayout";
 import { textoLinhaBlocoAgenda } from "@/lib/blocoAgenda";
-import { formatarDataConfirmacao, prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import {
+  formatarDataConfirmacao,
+  montarMensagemLembrete2h,
+  prepararTemplateMeet,
+  primeiroNome,
+  renderizarTemplateMensagem,
+  saudacaoAtual,
+} from "@/lib/templatesMensagem";
 import DatePickerSP from "./DatePickerSP";
 import AnamneseModal from "./AnamneseModal";
 import EmpurrarModal from "@/components/EmpurrarModal";
@@ -91,6 +98,7 @@ interface ClinicaAgenda {
   horarioLimiteConfirmacao: string;
   templateConfirmacao: string;
   templateMeet: string;
+  templateLembrete2h: string;
   permitirResizeSessao: boolean;
   mentoriaAtivada: boolean;
 }
@@ -208,7 +216,7 @@ function montarMensagemConfirmacao(sessao: SessaoAgenda, clinica: ClinicaAgenda)
   const inicio = new Date(sessao.inicio);
   return renderizarTemplateMensagem(clinica.templateConfirmacao, {
     saudacao: saudacaoAtual(),
-    paciente: nomeDaSessao(sessao).split(" ")[0],
+    paciente: primeiroNome(nomeDaSessao(sessao)),
     data: formatarDataConfirmacao(inicio),
     hora: formatarHorario(inicio),
     horarioLimite: clinica.horarioLimiteConfirmacao,
@@ -229,11 +237,22 @@ function montarMensagemMeetCalendario(sessao: SessaoAgenda, clinica: ClinicaAgen
     ehAtendimentoUnico: sessao.tipoSessao?.ehAtendimentoUnico ?? false,
   });
   return renderizarTemplateMensagem(template, {
-    nome: nomeDaSessao(sessao).split(" ")[0],
+    nome: primeiroNome(nomeDaSessao(sessao)),
     data: formatarDiaMes(new Date(sessao.inicio)),
     hora: formatarHorario(new Date(sessao.inicio)),
     link: sessao.linkMeet ?? "",
     ...(temPacote ? { numero: String(sessao.numeroSessao), total: String(sessao.totalPacote) } : {}),
+  });
+}
+
+// Lembrete ~2h antes — só é chamado quando sessao.linkMeet existe (botões
+// desabilitados sem link). A montagem fica em montarMensagemLembrete2h
+// (src/lib/templatesMensagem.ts), a mesma que o bot vai usar no futuro.
+function montarMensagemLembrete2hCalendario(sessao: SessaoAgenda, clinica: ClinicaAgenda) {
+  return montarMensagemLembrete2h(clinica.templateLembrete2h, {
+    nomePaciente: nomeDaSessao(sessao),
+    inicio: new Date(sessao.inicio),
+    linkMeet: sessao.linkMeet,
   });
 }
 
@@ -386,6 +405,7 @@ export default function AgendaCalendario({
           horarioLimiteConfirmacao: c.horarioLimiteConfirmacao,
           templateConfirmacao: c.templateConfirmacao,
           templateMeet: c.templateMeet,
+          templateLembrete2h: c.templateLembrete2h,
           permitirResizeSessao: c.permitirResizeSessao,
           mentoriaAtivada: c.mentoriaAtivada ?? false,
         })
@@ -1004,7 +1024,7 @@ function BlocoSessao({
     disabled: travada,
   });
 
-  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const [copiado, setCopiado] = useState<"conf" | "meet" | "lembrete" | null>(null);
   const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const inicio = new Date(sessao.inicio);
@@ -1045,7 +1065,7 @@ function BlocoSessao({
       : {}),
   };
 
-  function mostrarCopiado(tipo: "conf" | "meet") {
+  function mostrarCopiado(tipo: "conf" | "meet" | "lembrete") {
     setCopiado(tipo);
     if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
     copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
@@ -1061,6 +1081,12 @@ function BlocoSessao({
     e.stopPropagation();
     if (!sessao.linkMeet || !clinica) return;
     if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  async function handleCopiarLembrete(e: React.SyntheticEvent) {
+    e.stopPropagation();
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemLembrete2hCalendario(sessao, clinica))) mostrarCopiado("lembrete");
   }
 
   // Redimensiona a duração arrastando a borda inferior do bloco. Evento
@@ -1146,10 +1172,11 @@ function BlocoSessao({
           </p>
         )}
       </div>
-      {/* Coluna direita — os 3 botões, centralizados verticalmente pelo
+      {/* Coluna direita — os 4 botões, centralizados verticalmente pelo
           items-center da raiz, sem disputar espaço com o texto (que trunca
-          na coluna esquerda via min-w-0/flex-1). */}
-      <div className="flex shrink-0 items-center gap-1">
+          na coluna esquerda via min-w-0/flex-1). gap-0.5 (não gap-1) desde
+          o 4º botão (lembrete 2h), pra caber em card sobreposto. */}
+      <div className="flex shrink-0 items-center gap-0.5">
         <button
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
@@ -1184,6 +1211,17 @@ function BlocoSessao({
           className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
         >
           <IconMeet className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          disabled={!sessao.linkMeet}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleCopiarLembrete}
+          title="Copiar lembrete 2h antes"
+          aria-label="Copiar lembrete 2h antes"
+          className="rounded-full bg-white/25 p-1 shadow-sm backdrop-blur-[1px] hover:bg-white/40 disabled:cursor-not-allowed disabled:bg-white/10 disabled:opacity-40 disabled:shadow-none disabled:hover:bg-white/10"
+        >
+          <IconRelogio className="h-3 w-3" />
         </button>
       </div>
 
@@ -1225,6 +1263,16 @@ function IconMeet({ className }: { className?: string }) {
     <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
       <rect x="2.5" y="5.5" width="10" height="9" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
       <path d="M12.5 9.2 17 6.3v7.4l-4.5-2.9" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Ícone de relógio, usado no botão de copiar o lembrete 2h antes
+function IconRelogio({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M10 6v4l2.6 1.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -1752,13 +1800,13 @@ function SessaoDetalheModal({
   const [novoTipoId, setNovoTipoId] = useState(sessao.tipoSessaoId ?? "");
   const [alterandoDuracao, setAlterandoDuracao] = useState(false);
   const [novaDuracao, setNovaDuracao] = useState(sessao.duracaoMin);
-  const [copiado, setCopiado] = useState<"conf" | "meet" | null>(null);
+  const [copiado, setCopiado] = useState<"conf" | "meet" | "lembrete" | null>(null);
   const copiadoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const travada = STATUS_TRAVADOS.includes(sessao.status);
   const inicio = new Date(sessao.inicio);
 
-  function mostrarCopiado(tipo: "conf" | "meet") {
+  function mostrarCopiado(tipo: "conf" | "meet" | "lembrete") {
     setCopiado(tipo);
     if (copiadoTimeout.current) clearTimeout(copiadoTimeout.current);
     copiadoTimeout.current = setTimeout(() => setCopiado(null), 1500);
@@ -1772,6 +1820,11 @@ function SessaoDetalheModal({
   async function handleCopiarMeet() {
     if (!sessao.linkMeet || !clinica) return;
     if (await copiarParaClipboard(montarMensagemMeetCalendario(sessao, clinica))) mostrarCopiado("meet");
+  }
+
+  async function handleCopiarLembrete() {
+    if (!sessao.linkMeet || !clinica) return;
+    if (await copiarParaClipboard(montarMensagemLembrete2hCalendario(sessao, clinica))) mostrarCopiado("lembrete");
   }
 
   async function alternarConfirmacao() {
@@ -2078,6 +2131,14 @@ function SessaoDetalheModal({
                 className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 {copiado === "meet" ? "Copiado!" : "Copiar link Meet"}
+              </button>
+              <button
+                onClick={handleCopiarLembrete}
+                disabled={!sessao.linkMeet}
+                title={!sessao.linkMeet ? "Sessão sem link do Meet" : undefined}
+                className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                {copiado === "lembrete" ? "Copiado!" : "Copiar lembrete 2h"}
               </button>
               {sessao.pacienteId && (
                 <button

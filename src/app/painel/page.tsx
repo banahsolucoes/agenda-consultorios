@@ -10,7 +10,14 @@ import {
 } from "@/lib/labels";
 import { TIMEZONE, componentesSP } from "@/lib/timezone";
 import { renderizarAssuntoBoasVindas, renderizarTemplateBoasVindas } from "@/lib/emailBoasVindas";
-import { formatarDataConfirmacao, prepararTemplateMeet, renderizarTemplateMensagem, saudacaoAtual } from "@/lib/templatesMensagem";
+import {
+  formatarDataConfirmacao,
+  montarMensagemLembrete2h,
+  prepararTemplateMeet,
+  primeiroNome,
+  renderizarTemplateMensagem,
+  saudacaoAtual,
+} from "@/lib/templatesMensagem";
 import { estiloFundoTela } from "@/lib/fundo";
 import { dataEhFutura } from "@/lib/validacaoSessao";
 import AgendaCalendario from "./AgendaCalendario";
@@ -163,6 +170,7 @@ interface Clinica {
   emailBoasVindasCorpo: string;
   templateConfirmacao: string;
   templateMeet: string;
+  templateLembrete2h: string;
   sheetsPlanilhaId: string | null;
   mentoriaAtivada: boolean;
 }
@@ -1444,7 +1452,7 @@ export default function PainelPage() {
     if (!pacienteSelecionado || !clinica) return "";
     return renderizarTemplateMensagem(clinica.templateConfirmacao, {
       saudacao: saudacaoAtual(),
-      paciente: pacienteSelecionado.nome.split(" ")[0],
+      paciente: primeiroNome(pacienteSelecionado.nome),
       data: formatarDataConfirmacao(new Date(s.inicio)),
       hora: formatarHorario(s.inicio),
       horarioLimite: clinica.horarioLimiteConfirmacao,
@@ -1464,12 +1472,23 @@ export default function PainelPage() {
       ehAtendimentoUnico: s.tipoSessao?.ehAtendimentoUnico ?? false,
     });
     return renderizarTemplateMensagem(template, {
-      nome: pacienteSelecionado.nome.split(" ")[0],
+      nome: primeiroNome(pacienteSelecionado.nome),
       data: formatarDataCurta(s.inicio),
       hora: formatarHorario(s.inicio),
       link: s.linkMeet ?? (s.googleSyncStatus === "PENDENTE" ? "(sincronizando com o Google — tente novamente em instantes)" : "(link ainda não gerado)"),
       numero: String(s.numeroSessao),
       total: String(s.totalPacote),
+    });
+  }
+
+  // Lembrete ~2h antes — mesma montagem da agenda e do bot futuro
+  // (montarMensagemLembrete2h). Botão fica desabilitado sem linkMeet.
+  function montarMensagemLembrete(s: Sessao) {
+    if (!pacienteSelecionado || !clinica) return "";
+    return montarMensagemLembrete2h(clinica.templateLembrete2h, {
+      nomePaciente: pacienteSelecionado.nome,
+      inicio: new Date(s.inicio),
+      linkMeet: s.linkMeet,
     });
   }
 
@@ -2379,6 +2398,14 @@ export default function PainelPage() {
                         className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
                       >
                         {copiadoId === `${s.id}-meet` ? "Copiado!" : "Copiar link Meet"}
+                      </button>
+                      <button
+                        onClick={() => copiar(montarMensagemLembrete(s), `${s.id}-lembrete`)}
+                        disabled={travada || !s.linkMeet}
+                        title={travada ? "Sessão consumida — somente leitura" : !s.linkMeet ? "Sessão sem link do Meet" : undefined}
+                        className="rounded-lg border border-whatsapp px-2 py-1 text-sm text-whatsapp hover:bg-whatsapp/10 disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:opacity-40 disabled:hover:bg-transparent"
+                      >
+                        {copiadoId === `${s.id}-lembrete` ? "Copiado!" : "Copiar lembrete 2h"}
                       </button>
                     </div>
                   </li>

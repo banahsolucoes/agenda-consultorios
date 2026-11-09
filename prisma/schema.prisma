@@ -86,6 +86,11 @@ model Clinica {
   // src/lib/templatesMensagem.ts (removerLinhaSessaoPacote).
   templateConfirmacao String @default("{saudacao} {paciente}, tudo bem?! \n🌸 Passando para confirmar sua sessão no dia {data} às {hora}hr. 🗓\n👉 Podemos confirmar? ✅\n⸻\n⚠️ Importante\nCaso não haja confirmação até hoje, às {horarioLimite}hr, o horário será automaticamente cancelado.\nUm abraço\n\n{assistente} 🥰")
   templateMeet        String @default("Olá {nome}!!!\nEsse será o link para sua sessão no dia {data}, às {hora}hr.\n🔗 {link} 🔗\nSessão {numero}/{total}\nQualquer coisa, estou por aqui.\n\nDai 🥰")
+  // Lembrete ~2h antes da sessão (2026-11-09) — {nome} (primeiro nome),
+  // {hora} (HH:MM em São Paulo), {link} (Agendamento.linkMeet). Hoje só no
+  // botão de copiar-colar; o envio automático pelo bot é futuro e deve usar
+  // a mesma montagem (montarMensagemLembrete2h em src/lib/templatesMensagem.ts).
+  templateLembrete2h  String @default("⏰ Oiê {nome}! Já já é a sua sessão! 💜\nPassando para lembrar que daqui a pouquinho tem o nosso encontro:\n🕐 Horário: {hora}\n💻 Online (link 👉 {link})\nPara aproveitar ao máximo, faça este checklist rapidinho ✅\n🔇 Separe um lugar silencioso, sem interrupções\n📶 Confira se a internet está boa\n🎧 Se tiver, use um fone de ouvido\n💧 Deixe uma aguinha por perto\nFique de olho no relógio para entrar no horário e não perder nenhum minutinho! 😉\nTenha uma excelente sessão! ✨")
 
   usuarios            Usuario[]
   pacientes           Paciente[]

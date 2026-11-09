@@ -25,6 +25,7 @@ const CAMPOS_EDITAVEIS = [
   "emailBoasVindasCorpo",
   "templateConfirmacao",
   "templateMeet",
+  "templateLembrete2h",
  "fundoOpacidade",
   "fundoAjuste",
   "sheetsPlanilhaId",
@@ -65,6 +66,7 @@ const SELECT_CLINICA = {
   emailBoasVindasCorpo: true,
   templateConfirmacao: true,
   templateMeet: true,
+  templateLembrete2h: true,
   sheetsPlanilhaId: true,
   sheetsAba: true,
   razaoSocial: true,
@@ -179,6 +181,9 @@ export async function PATCH(req: NextRequest) {
   }
   if (data.templateMeet !== undefined && !data.templateMeet) {
     return NextResponse.json({ erro: "templateMeet não pode ser vazio" }, { status: 400 });
+  }
+  if (data.templateLembrete2h !== undefined && !data.templateLembrete2h) {
+    return NextResponse.json({ erro: "templateLembrete2h não pode ser vazio" }, { status: 400 });
   }
 
   // Aceita o operador colar tanto um link do Drive quanto já o próprio ID da

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   TEMPLATE_CONFIRMACAO_PADRAO,
+  TEMPLATE_LEMBRETE_2H_PADRAO,
   TEMPLATE_MEET_PADRAO,
   formatarDataConfirmacao,
+  montarMensagemLembrete2h,
   prepararTemplateMeet,
+  primeiroNome,
   removerLinhaSessaoPacote,
   renderizarTemplateMensagem,
   saudacaoAtual,
@@ -191,5 +194,32 @@ describe("formatarDataConfirmacao", () => {
   it("usa o calendário de São Paulo na virada do dia em UTC", () => {
     // 2026-11-07T02:30Z = 06/11 23:30 em SP
     expect(formatarDataConfirmacao(new Date("2026-11-07T02:30:00Z"))).toBe("*06/11 (sexta-feira)*");
+  });
+});
+
+describe("primeiroNome", () => {
+  it("ignora espaços extras e devolve só o primeiro nome", () => {
+    expect(primeiroNome("  Maria  Clara Souza ")).toBe("Maria");
+  });
+});
+
+describe("montarMensagemLembrete2h", () => {
+  const dados = {
+    nomePaciente: "Maria Clara Souza",
+    inicio: new Date("2026-11-10T13:00:00Z"),
+    linkMeet: "https://meet.google.com/abc-defg-hij",
+  };
+
+  it("substitui {nome}, {hora} e {link}", () => {
+    const resultado = montarMensagemLembrete2h(TEMPLATE_LEMBRETE_2H_PADRAO, dados);
+    expect(resultado).toContain("Oiê Maria!");
+    expect(resultado).toContain("🕐 Horário: 10:00");
+    expect(resultado).toContain("link 👉 https://meet.google.com/abc-defg-hij)");
+    expect(resultado).not.toMatch(/\{\w+\}/);
+  });
+
+  it("formata a hora no fuso de São Paulo", () => {
+    // 2026-11-10T13:00Z = 10:00 em SP
+    expect(montarMensagemLembrete2h("{hora}", dados)).toBe("10:00");
   });
 });

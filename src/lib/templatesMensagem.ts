@@ -2,7 +2,7 @@
 // (confirmação de sessão e link do Meet) — módulo isomórfico (sem imports
 // server-only), usado tanto no popup da agenda quanto no painel do
 // paciente, e como valor-padrão ao criar/exibir a clínica.
-import { TIMEZONE, componentesSP } from "@/lib/timezone";
+import { TIMEZONE, componentesSP, formatarHoraSP } from "@/lib/timezone";
 
 export const TEMPLATE_CONFIRMACAO_PADRAO =
   "{saudacao} {paciente}, tudo bem?! \n" +
@@ -23,6 +23,25 @@ export const TEMPLATE_MEET_PADRAO =
   "Qualquer coisa, estou por aqui.\n" +
   "\n" +
   "Dai 🥰";
+
+export const TEMPLATE_LEMBRETE_2H_PADRAO =
+  "⏰ Oiê {nome}! Já já é a sua sessão! 💜\n" +
+  "Passando para lembrar que daqui a pouquinho tem o nosso encontro:\n" +
+  "🕐 Horário: {hora}\n" +
+  "💻 Online (link 👉 {link})\n" +
+  "Para aproveitar ao máximo, faça este checklist rapidinho ✅\n" +
+  "🔇 Separe um lugar silencioso, sem interrupções\n" +
+  "📶 Confira se a internet está boa\n" +
+  "🎧 Se tiver, use um fone de ouvido\n" +
+  "💧 Deixe uma aguinha por perto\n" +
+  "Fique de olho no relógio para entrar no horário e não perder nenhum minutinho! 😉\n" +
+  "Tenha uma excelente sessão! ✨";
+
+// Primeiro nome de um nome completo — valor de {paciente}/{nome} em todas as
+// mensagens de copiar-colar e do bot. Tolera espaços extras/duplos.
+export function primeiroNome(nomeCompleto: string): string {
+  return nomeCompleto.trim().split(/\s+/)[0] ?? "";
+}
 
 // "Bom dia" (00h–11h59) / "Boa tarde" (12h–17h59) / "Boa noite" (18h–23h59),
 // sempre pelo horário atual de São Paulo — independe do fuso do processo
@@ -85,4 +104,20 @@ export function prepararTemplateMeet(
       .join("\n");
   }
   return opcoes.temPacote ? template : removerLinhaSessaoPacote(template);
+}
+
+// Lembrete ~2h antes da sessão (Clinica.templateLembrete2h). Pura e
+// isomórfica — usada hoje pelos botões de copiar-colar (agenda, popup,
+// painel do paciente) e, no futuro, pelo envio automático do bot, pra o
+// texto nunca divergir entre os dois. Só chamar com linkMeet preenchido
+// (os botões ficam desabilitados sem link).
+export function montarMensagemLembrete2h(
+  template: string,
+  dados: { nomePaciente: string; inicio: Date; linkMeet: string | null }
+): string {
+  return renderizarTemplateMensagem(template, {
+    nome: primeiroNome(dados.nomePaciente),
+    hora: formatarHoraSP(dados.inicio),
+    link: dados.linkMeet ?? "",
+  });
 }
