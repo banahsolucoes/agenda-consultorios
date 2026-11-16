@@ -105,8 +105,11 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
 | pacienteId | uuid (FK) | |
 | tipo | enum | AVULSA, MENSAL, BIMESTRAL, TRIMESTRAL, PERSONALIZADO |
 | totalSessoes | int | Avulsa=1, Mensal=4, Bimestral=8, Trimestral=12, Personalizado=livre |
-| dataInicial | date | |
+| dataInicial | date | dia e horário da 1ª sessão (= "slot 1" da semana) |
 | status | enum | ATIVO, CANCELADO, FINALIZADO |
+| frequenciaSemanal | int | 1 (padrão) ou 2 sessões por semana — 2026-11-16, ver §5.11 |
+| diaSemana2 | enum DiaSemana, opcional | 2º dia da semana ("slot 2") — só com frequência 2 |
+| horario2 | text HH:MM, opcional | horário do slot 2 — só com frequência 2 |
 
 ### Agendamento (Sessão)
 | Campo | Tipo | Notas |
@@ -146,7 +149,8 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
 ### 5.1 Pacotes
 - **Fixos:** Avulsa (1), Mensal (4), Bimestral (8), Trimestral (12).
 - **Personalizado:** número livre de sessões.
-- Ao cadastrar, o sistema gera N sessões **semanais** a partir da data inicial, sempre no `diaPreferido` e `horarioFixo`.
+- Ao cadastrar, o sistema gera N sessões **semanais** a partir da data e do horário informados para a 1ª sessão (1x por semana: uma por semana, mesmo dia e horário).
+- **2x por semana (2026-11-16):** as sessões alternam entre o dia/horário da 1ª sessão e um 2º dia/horário, semana a semana. Regras completas em §5.11.
 
 ### 5.2 Status da sessão
 `AGENDADA → REAGENDADA → REALIZADA / NAO_REALIZADA / CANCELADA`
@@ -160,15 +164,18 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
   - Semanas=0 + Sim → só muda dia/horário, sem avançar semana.
   - Semanas=0 + Não → nada.
 - **Validação tudo-ou-nada:** se qualquer sessão cairia antes de hoje, **bloqueia toda a operação** (nada é movido).
+- **Cadência semanal (2026-11-16):** nenhuma sessão movida pode violar a frequência do atendimento (§5.11) — nem contra as sessões que ficam, nem entre as próprias sessões movidas. Paciente com atendimento 2x por semana **não pode** trocar dia/horário pelo Empurrar (só empurrar semanas).
 
 ### 5.4 Adiar (mover para trás)
 - Seleciona-se uma **sessão de corte**; ela e **todas as seguintes** (por número) voltam 7 dias.
 - Sessões anteriores ao corte não são tocadas.
 - Duplicação de datas é aceitável (repõe-se depois).
+- **Atualização 2026-11-16:** "Trazer" mexe só nas sessões do **mesmo atendimento** da sessão de corte (não mistura atendimentos de uma renovação) e passa a respeitar a cadência semanal (§5.11) para todas as sessões movidas.
 
 ### 5.5 Editar sessão pontual
 - Novo dia + novo horário para **uma** sessão.
 - **Trava:** o novo dia deve cair na **mesma semana** (segunda a domingo) da sessão original — evita duas sessões na mesma semana ou invasão de outra.
+- **Atualização 2026-11-16:** a trava passou a ser a cadência semanal do §5.11 (1x: nenhuma outra sessão do paciente na semana; 2x: até duas, com intervalo mínimo).
 - Horário dentro da agenda (08:00–19:30).
 - Validação no backend (não confiar só no front).
 
@@ -193,6 +200,41 @@ Execução real autorizada e concluída contra `pamela-rachid`: fase `vazios` gr
 
 ### 5.10 Busca de paciente
 - Insensível a maiúsculas/minúsculas **e acentos** (normalização NFD).
+
+### 5.11 Frequência semanal e trava de cadência (2026-11-16)
+
+**O que é.** Cada atendimento (pacote) tem uma frequência: **1x por semana** (padrão — tudo que existia antes ficou assim) ou **2x por semana**. A frequência **não muda o total de sessões**: um atendimento de 12 sessões 2x por semana dura 6 semanas.
+
+**Semana** = segunda 00:00 a domingo 23:59, no horário de São Paulo.
+
+**A trava (vale para criar, mover, empurrar, trazer e reativar sessão):**
+1. Conta todas as sessões **não canceladas do paciente** naquela semana — de **todos** os atendimentos dele, não só do atendimento da sessão.
+2. O limite é a frequência do atendimento da sessão que está sendo criada ou movida.
+3. **1x por semana:** se já existe qualquer outra sessão do paciente na semana, bloqueia (igual a antes).
+4. **2x por semana:** no máximo 2 sessões na semana; **nunca duas no mesmo dia**; e entre as duas precisa haver **pelo menos 2 dias de calendário** de diferença — terça e quinta pode, segunda e terça não pode. Não existe regra entre semanas diferentes: domingo e a segunda seguinte pode.
+5. Sessão cancelada não conta. Reativar uma sessão cancelada faz ela voltar a contar, então a reativação também passa pela trava.
+
+**Criar atendimento 2x por semana.**
+- Informa-se o dia/horário da 1ª sessão (slot 1) e um 2º dia + 2º horário (slot 2).
+- O 2º dia precisa estar **na mesma semana** do 1º e **pelo menos 2 dias depois** dele (ex.: 1ª na terça → 2º na quinta, sexta, sábado ou domingo). Se não, o sistema recusa.
+- As sessões alternam: slot 1, slot 2, slot 1 da semana seguinte, slot 2… Total ímpar: a última semana fica só com a sessão do slot 1.
+- Avulsa / atendimento único (ex.: avaliação) não aceita 2x.
+- Ao criar qualquer atendimento (1x ou 2x), cada data gerada é conferida contra as sessões que o paciente já tem. Se alguma violar a trava, nada é criado e o sistema lista as datas em conflito.
+
+**Mover sessões de um atendimento 2x.**
+- **Editar / arrastar só esta sessão:** pode ir para qualquer data e horário do expediente, desde que respeite a trava.
+- **"Esta e as futuras":** todas as sessões seguintes andam **o mesmo tanto** que a sessão arrastada (ex.: arrastou de terça para quarta → todas andam 1 dia), mantendo os dois dias da semana. No atendimento 1x continua como antes (todas realinhadas para o novo dia/horário, uma por semana).
+- **Empurrar:** continua em **semanas** (cada semana empurrada leva as duas sessões da semana juntas). A opção "mudar dia da semana e horário" fica indisponível para paciente com atendimento 2x ativo — ela jogaria as duas sessões da semana no mesmo dia. Para trocar os dias, edite as sessões.
+- **Trazer:** continua voltando 7 dias, só no atendimento da sessão escolhida, e mantém os dois dias.
+
+**Exceção do administrador.**
+- Quando a trava bloqueia, um usuário **ADMIN** vê a opção **"Forçar mesmo assim"** e precisa escrever um **motivo** (mínimo 10 caracteres). PROFISSIONAL e OPERADOR só veem a mensagem do bloqueio.
+- A exceção vale **só para aquela operação** (não libera a semana para operações futuras).
+- Toda exceção fica no log de auditoria (ação `EXCECAO_CADENCIA`) com o motivo, o paciente, as sessões e as datas. O registro do log e a mudança acontecem juntos: se o log não puder ser gravado, a mudança também não é feita.
+
+**Concorrência.** Duas pessoas mexendo na agenda do mesmo paciente ao mesmo tempo não conseguem furar a trava: as operações do mesmo paciente são processadas uma de cada vez.
+
+**Não mudou.** Reunião de mentorado continua como era (sem atendimento/pacote, trava de 1 por semana só ao mover). Lembretes e mensagens de WhatsApp não foram alterados.
 
 ---
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { diaSemanaLabel } from "@/lib/labels";
+import { useForcarCadencia } from "@/components/ForcarCadenciaModal";
 
 // Mesma ordem dos enums do Prisma (DiaSemana) — duplicado aqui como em
 // AgendaCalendario.tsx (mascararHorarioAgenda) porque são helpers de UI
@@ -33,6 +34,9 @@ interface EmpurrarModalProps {
   // nenhuma "carregarSessoes" diretamente — evita depender de uma função
   // homônima com significado diferente em cada tela.
   onSucesso: () => void;
+  // Paciente com pacote 2x/semana: a API recusa trocar dia/horário (D4), então
+  // a opção some daqui e fica só o empurrar em semanas.
+  bloquearTrocaDiaHorario?: boolean;
 }
 
 // Modal de empurrar sessões futuras em N semanas (+ opcionalmente trocar dia
@@ -43,7 +47,14 @@ interface EmpurrarModalProps {
 // POST /api/pacientes/[id]/adiar, "Trazer", tem). Nenhuma regra de negócio
 // aqui: validação de semanas/conflito de semana/sync Google continuam
 // inteiramente na rota.
-export default function EmpurrarModal({ pacienteId, aberto, onFechar, onSucesso }: EmpurrarModalProps) {
+export default function EmpurrarModal({
+  pacienteId,
+  aberto,
+  onFechar,
+  onSucesso,
+  bloquearTrocaDiaHorario = false,
+}: EmpurrarModalProps) {
+  const { enviarComCadencia, modalForcarCadencia } = useForcarCadencia();
   const [semanas, setSemanas] = useState("1");
   const [mudarDiaHorario, setMudarDiaHorario] = useState(false);
   const [novoDia, setNovoDia] = useState<string>(DIAS_SEMANA[0]);
@@ -72,16 +83,12 @@ export default function EmpurrarModal({ pacienteId, aberto, onFechar, onSucesso 
 
     try {
       const body: Record<string, unknown> = { semanas: Number(semanas) };
-      if (mudarDiaHorario) {
+      if (mudarDiaHorario && !bloquearTrocaDiaHorario) {
         body.novoDia = novoDia;
         body.novoHorario = novoHorario;
       }
 
-      const res = await fetch(`/api/pacientes/${pacienteId}/empurrar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await enviarComCadencia(`/api/pacientes/${pacienteId}/empurrar`, "POST", body);
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -134,7 +141,15 @@ export default function EmpurrarModal({ pacienteId, aberto, onFechar, onSucesso 
             </div>
           </div>
 
-          {/* Toggle: também trocar o dia da semana e o horário */}
+          {/* Toggle: também trocar o dia da semana e o horário — escondido
+              com pacote 2x/semana (D4: as duas sessões da semana iriam
+              para o mesmo dia). */}
+          {bloquearTrocaDiaHorario ? (
+            <p className="rounded-lg bg-bg px-3 py-2 text-sm text-muted">
+              Atendimento 2x por semana: o Empurrar move as sessões em semanas inteiras, mantendo os dois dias.
+              Para trocar dia ou horário, edite as sessões individualmente.
+            </p>
+          ) : (
           <div>
             <label className="mb-1 block text-sm font-medium text-fg">
               Deseja mudar o dia da semana e horário?
@@ -165,7 +180,9 @@ export default function EmpurrarModal({ pacienteId, aberto, onFechar, onSucesso 
             </div>
           </div>
 
-          {mudarDiaHorario && (
+          )}
+
+          {mudarDiaHorario && !bloquearTrocaDiaHorario && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-fg">
@@ -225,6 +242,7 @@ export default function EmpurrarModal({ pacienteId, aberto, onFechar, onSucesso 
           </div>
         </form>
       </div>
+      {modalForcarCadencia}
     </div>
   );
 }

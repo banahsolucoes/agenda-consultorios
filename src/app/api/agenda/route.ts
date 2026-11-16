@@ -37,6 +37,9 @@ export async function GET(req: NextRequest) {
       paciente: { select: { id: true, nome: true } },
       aluno: { select: { id: true, nomeCompleto: true } },
       tipoSessao: { select: { id: true, nome: true, cor: true, ehAtendimentoUnico: true } },
+      // Frequência do pacote: exibe "2x/semana" e esconde a troca de
+      // dia/horário do Empurrar (D4) no card da agenda.
+      pacote: { select: { frequenciaSemanal: true } },
     },
     orderBy: { inicio: "asc" },
   });

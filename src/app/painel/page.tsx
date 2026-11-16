@@ -26,6 +26,8 @@ import AnexosPaciente from "./AnexosPaciente";
 import AnamneseEditor from "./AnamneseEditor";
 import TarefaForm, { type TarefaFormValores } from "@/components/TarefaForm";
 import EmpurrarModal from "@/components/EmpurrarModal";
+import { useForcarCadencia } from "@/components/ForcarCadenciaModal";
+import FrequenciaPacoteCampos, { validarSlot2Pacote } from "@/components/FrequenciaPacoteCampos";
 import { pode, type Papel } from "@/lib/permissoes";
 import ContextoSwitcher from "../_components/ContextoSwitcher";
 
@@ -155,6 +157,12 @@ interface Sessao {
   motivoCancelamento: string | null;
   tipoSessao: { nome: string; ehAtendimentoUnico: boolean } | null;
   googleSyncStatus: string;
+  pacote?: { frequenciaSemanal: number; status: string } | null;
+}
+
+// Sufixo "· 2x/semana" no rótulo da sessão quando o pacote é 2x.
+function sufixoFrequencia(s: { pacote?: { frequenciaSemanal: number } | null }) {
+  return s.pacote?.frequenciaSemanal === 2 ? " · 2x/semana" : "";
 }
 
 interface Clinica {
@@ -500,7 +508,12 @@ export default function PainelPage() {
   const [dataInicialPacote, setDataInicialPacote] = useState("");
   const [horarioPacote, setHorarioPacote] = useState("");
   const [tipoSessaoPacote, setTipoSessaoPacote] = useState("");
+  const [frequenciaPacote, setFrequenciaPacote] = useState<1 | 2>(1);
+  const [diaSemana2Pacote, setDiaSemana2Pacote] = useState("");
+  const [horario2Pacote, setHorario2Pacote] = useState("");
   const [salvandoPacote, setSalvandoPacote] = useState(false);
+  // Diálogo "Forçar mesmo assim" (ADMIN) nas respostas 409 de cadência.
+  const { enviarComCadencia, modalForcarCadencia } = useForcarCadencia();
   const [erroPacote, setErroPacote] = useState("");
 
   // Modal: editar sessão pontual (nova data completa + novo horário)
@@ -1009,6 +1022,9 @@ export default function PainelPage() {
     setTotalPacote("");
     setDataInicialPacote("");
     setHorarioPacote("");
+    setFrequenciaPacote(1);
+    setDiaSemana2Pacote("");
+    setHorario2Pacote("");
     // Pré-seleciona o tipo de atendimento cadastrado no paciente — o operador pode trocar
     setTipoSessaoPacote(pacienteSelecionado?.tipoSessaoId ?? tiposSessao[0]?.id ?? "");
     setErroPacote("");
@@ -1036,6 +1052,16 @@ export default function PainelPage() {
       setErroPacote("informe o tipo de atendimento");
       return;
     }
+    // 2x não se aplica a Avulsa/atendimento único (o seletor desabilita, mas
+    // pode ter ficado marcado antes da troca de recorrência).
+    const frequenciaEfetiva = tipoPacote === "AVULSA" || tipoSessaoPacoteEhUnico ? 1 : frequenciaPacote;
+    if (frequenciaEfetiva === 2) {
+      const erroSlot2 = validarSlot2Pacote(dataInicialPacote, diaSemana2Pacote, horario2Pacote);
+      if (erroSlot2) {
+        setErroPacote(erroSlot2);
+        return;
+      }
+    }
     setErroPacote("");
     setSalvandoPacote(true);
 
@@ -1050,12 +1076,13 @@ export default function PainelPage() {
       if (tipoPacote === "PERSONALIZADO") {
         body.totalSessoes = Number(totalPacote);
       }
+      if (frequenciaEfetiva === 2) {
+        body.frequenciaSemanal = 2;
+        body.diaSemana2 = diaSemana2Pacote;
+        body.horario2 = horario2Pacote;
+      }
 
-      const res = await fetch("/api/pacotes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await enviarComCadencia("/api/pacotes", "POST", body);
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -1079,11 +1106,7 @@ export default function PainelPage() {
     if (!pacienteSelecionado) return;
     setStatusSalvandoId(sessaoId);
     try {
-      const res = await fetch(`/api/sessoes/${sessaoId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: novoStatus }),
-      });
+      const res = await enviarComCadencia(`/api/sessoes/${sessaoId}`, "PATCH", { status: novoStatus });
       if (res.ok) {
         await carregarSessoes(pacienteSelecionado.id);
         await recarregarPacienteSelecionado();
@@ -1129,11 +1152,7 @@ export default function PainelPage() {
     setSalvandoEditar(true);
 
     try {
-      const res = await fetch(`/api/sessoes/${sessaoEditando.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formEditar),
-      });
+      const res = await enviarComCadencia(`/api/sessoes/${sessaoEditando.id}`, "PATCH", formEditar);
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -1173,11 +1192,7 @@ export default function PainelPage() {
     setSalvandoAdiar(true);
 
     try {
-      const res = await fetch(`/api/pacientes/${pacienteSelecionado.id}/adiar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessaoCorteId }),
-      });
+      const res = await enviarComCadencia(`/api/pacientes/${pacienteSelecionado.id}/adiar`, "POST", { sessaoCorteId });
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -2323,7 +2338,7 @@ export default function PainelPage() {
                           <p className="text-sm font-medium text-fg">
                             {s.tipoSessao?.ehAtendimentoUnico && s.tipoSessao.nome
                               ? s.tipoSessao.nome
-                              : `Sessão ${s.numeroSessao}/${s.totalPacote}`}
+                              : `Sessão ${s.numeroSessao}/${s.totalPacote}${sufixoFrequencia(s)}`}
                           </p>
                           <p className="text-sm text-muted">
                             {formatarDataHora(s.inicio)}
@@ -2512,6 +2527,16 @@ export default function PainelPage() {
                 </div>
               </div>
 
+              <FrequenciaPacoteCampos
+                frequencia={frequenciaPacote}
+                onFrequencia={setFrequenciaPacote}
+                diaSemana2={diaSemana2Pacote}
+                onDiaSemana2={setDiaSemana2Pacote}
+                horario2={horario2Pacote}
+                onHorario2={setHorario2Pacote}
+                desabilitado2x={tipoPacote === "AVULSA" || tipoSessaoPacoteEhUnico}
+              />
+
               {erroPacote && (
                 <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">
                   {erroPacote}
@@ -2588,7 +2613,7 @@ export default function PainelPage() {
                 />
               </div>
               <p className="text-xs text-muted">
-                A sessão pode ir para qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente.
+                A sessão pode ir para qualquer data e horário (08:00–19:30), respeitando a frequência do atendimento: 1x por semana não permite outra sessão do paciente na mesma semana; 2x por semana permite até 2, em dias com pelo menos 2 dias de intervalo (ex.: terça e quinta).
               </p>
 
               {erroEditar && (
@@ -2904,8 +2929,14 @@ export default function PainelPage() {
             carregarSessoes(pacienteSelecionado.id);
             carregarNotificacoes();
           }}
+          bloquearTrocaDiaHorario={sessoes.some(
+            (s) => s.pacote?.frequenciaSemanal === 2 && s.pacote.status === "ATIVO"
+          )}
         />
       )}
+
+      {/* Diálogo "Forçar mesmo assim" da cadência semanal (só ADMIN) */}
+      {modalForcarCadencia}
 
       {/* Modal: adiar sessões a partir de uma sessão de corte */}
       {modalTrazer && (
@@ -2928,7 +2959,7 @@ export default function PainelPage() {
                     <option key={s.id} value={s.id} disabled={STATUS_TRAVADOS.includes(s.status)}>
                       {s.tipoSessao?.ehAtendimentoUnico && s.tipoSessao.nome
                         ? s.tipoSessao.nome
-                        : `Sessão ${s.numeroSessao}/${s.totalPacote}`}{" "}
+                        : `Sessão ${s.numeroSessao}/${s.totalPacote}${sufixoFrequencia(s)}`}{" "}
                       — {formatarDataHora(s.inicio)}
                       {STATUS_TRAVADOS.includes(s.status) ? ` (${statusLabel(s.status)})` : ""}
                     </option>

@@ -20,7 +20,12 @@ export async function GET(req: NextRequest) {
     // Sessão arquivada some do cadastro do paciente — continua no banco
     // para histórico/auditoria, só não é mais exibida.
     where: { pacienteId, arquivada: false },
-    include: { tipoSessao: { select: { nome: true, ehAtendimentoUnico: true } } },
+    include: {
+      tipoSessao: { select: { nome: true, ehAtendimentoUnico: true } },
+      // Frequência do pacote: exibe "2x/semana" e esconde a troca de
+      // dia/horário do Empurrar (D4) na tela do paciente.
+      pacote: { select: { frequenciaSemanal: true, status: true } },
+    },
     orderBy: { numeroSessao: "asc" },
   });
   return NextResponse.json(sessoes);

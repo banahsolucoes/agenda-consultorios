@@ -295,6 +295,13 @@ model Pacote {
   dataInicial  DateTime
   status       StatusPacote @default(ATIVO)
   criadoEm     DateTime     @default(now())
+  // Sessões por semana: 1 (padrão) ou 2 — CHECK IN (1,2) na migration
+  // (Prisma não expressa CHECK). Com 2, o slot 1 é dia/hora de dataInicial
+  // e o slot 2 é diaSemana2/horario2 (HH:MM, mesmo formato de
+  // Paciente.horarioFixo); com 1, diaSemana2/horario2 ficam nulos.
+  frequenciaSemanal Int        @default(1)
+  diaSemana2        DiaSemana?
+  horario2          String?
 
   paciente     Paciente      @relation(fields: [pacienteId], references: [id])
   agendamentos Agendamento[]

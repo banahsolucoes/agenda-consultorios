@@ -5,7 +5,15 @@ import { verificarFinalizacao } from "@/lib/finalizacao";
 import { enfileirar, enfileirarRemocaoDeAgendamento } from "@/lib/sincronizacao";
 import { nomeSessao } from "@/lib/blocoAgenda";
 import { componentesSP, criarDataSP, formatarDataHoraSP } from "@/lib/timezone";
-import { existeConflitoDeSemana } from "@/lib/conflitoSemana";
+import { validarCadenciaLote, type ConflitoCadencia } from "@/lib/conflitoSemana";
+import {
+  ErroCadencia,
+  lerForcarCadencia,
+  OPCOES_TRANSACAO_CADENCIA,
+  registrarExcecaoCadencia,
+  respostaCadencia,
+  travarPaciente,
+} from "@/lib/excecaoCadencia";
 import { registrarLog } from "@/lib/auditoria";
 import { statusLabel } from "@/lib/labels";
 import { pode } from "@/lib/permissoes";
@@ -55,13 +63,32 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const sessao = await prisma.agendamento.findUnique({
     where: { id },
-    include: { paciente: true, aluno: true, tipoSessao: true },
+    include: { paciente: true, aluno: true, tipoSessao: true, pacote: { select: { frequenciaSemanal: true } } },
   });
   if (!sessao || sessao.clinicaId !== usuario.clinicaId) {
     return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
   }
 
   const body = await req.json();
+
+  // Cadência semanal (D1): limite = frequenciaSemanal do pacote desta sessão
+  // (reunião de mentorado, sem pacote, fica em 1 — comportamento histórico).
+  // forcarCadencia só vale para ADMIN (D8); lido aqui uma vez e usado pelos
+  // ramos que mexem em data ou reativam sessão cancelada.
+  const limiteCadencia = sessao.pacote?.frequenciaSemanal ?? 1;
+  const leituraForcar = lerForcarCadencia(body, usuario.papel);
+  if (!leituraForcar.ok) return NextResponse.json({ erro: leituraForcar.erro }, { status: 400 });
+  const forcar = leituraForcar.forcar;
+  // Chave do lock D9: o paciente (ou, numa reunião de mentorado, o mentorado
+  // — a trava semanal do PATCH também vale para ele).
+  const chaveLock = sessao.pacienteId ?? sessao.alunoId ?? sessao.id;
+  const ajustarQuem = (conflitos: ConflitoCadencia[]) =>
+    sessao.alunoId
+      ? conflitos.map((c) => ({
+          ...c,
+          mensagem: c.mensagem.replace("deste paciente", "deste mentorado").replace("este paciente", "este mentorado"),
+        }))
+      : conflitos;
 
   if (body.status) {
     const validos = ["AGENDADA", "REAGENDADA", "REALIZADA", "NAO_REALIZADA", "CANCELADA"];
@@ -104,9 +131,56 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ erro: validacaoStatus.erro }, { status: 400 });
     }
 
-    let atualizada = await prisma.agendamento.update({
-      where: { id }, data: { status: body.status },
-    });
+    // Reativação: uma sessão CANCELADA não conta na cadência; voltar para
+    // qualquer outro status faz ela contar de novo — então passa pela mesma
+    // validação (com lock D9 e exceção ADMIN D8).
+    let atualizada;
+    if (sessao.status === "CANCELADA") {
+      try {
+        atualizada = await prisma.$transaction(async (tx) => {
+          await travarPaciente(tx, chaveLock);
+          const outras = await tx.agendamento.findMany({
+            where: sessao.alunoId
+              ? { alunoId: sessao.alunoId, id: { not: sessao.id } }
+              : { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
+            select: { id: true, inicio: true, status: true },
+          });
+          const conflitos = ajustarQuem(
+            validarCadenciaLote(
+              [
+                {
+                  id: sessao.id,
+                  novaData: sessao.inicio,
+                  limite: limiteCadencia,
+                  rotulo: sessao.numeroSessao ? `sessão ${sessao.numeroSessao}` : undefined,
+                },
+              ],
+              outras
+            )
+          );
+          if (conflitos.length > 0 && !forcar) throw new ErroCadencia(conflitos);
+          const r = await tx.agendamento.update({ where: { id }, data: { status: body.status } });
+          if (conflitos.length > 0 && forcar) {
+            await registrarExcecaoCadencia(tx, {
+              clinicaId: usuario.clinicaId,
+              usuarioId: usuario.id,
+              pacienteId: chaveLock,
+              operacao: "a reativação de sessão cancelada",
+              motivo: forcar.motivo,
+              conflitos,
+            });
+          }
+          return r;
+        }, OPCOES_TRANSACAO_CADENCIA);
+      } catch (err) {
+        if (err instanceof ErroCadencia) return respostaCadencia(err, usuario.papel, "Não é possível reativar a sessão");
+        throw err;
+      }
+    } else {
+      atualizada = await prisma.agendamento.update({
+        where: { id }, data: { status: body.status },
+      });
+    }
     await registrarLog(
       usuario.clinicaId,
       usuario.id,
@@ -207,7 +281,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         return NextResponse.json({ erro: "sessão não encontrada" }, { status: 404 });
       }
 
-      // TODO: cadência semanal fixa; parametrizar quando pacote suportar quinzenal/múltiplas por semana.
+      // Cadência do realinhamento (D6): pacote 1x mantém a regra histórica
+      // (nova data da âncora + 7 dias × diferença de numeroSessao), que
+      // também "conserta" sessões que tinham saído da cadência. Pacote 2x não
+      // pode usar 7 dias × Δn (são duas sessões por semana): aplica o MESMO
+      // delta (novaData − início atual da âncora) a todas as sessões
+      // movidas, preservando o padrão de dois dias da semana.
+      const deltaMs = novaData.getTime() - sessao.inicio.getTime();
+      const novoInicioIrma = (irma: { inicio: Date; numeroSessao: number | null }) =>
+        limiteCadencia === 2
+          ? new Date(irma.inicio.getTime() + deltaMs)
+          : new Date(novaData.getTime() + ((irma.numeroSessao ?? 0) - (sessao.numeroSessao ?? 0)) * 7 * DIA_MS);
       const movimentos = [
         {
           id: sessao.id,
@@ -220,7 +304,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         ...irmas.map((irma) => ({
           id: irma.id,
           numeroSessao: irma.numeroSessao,
-          novoInicio: new Date(novaData.getTime() + ((irma.numeroSessao ?? 0) - (sessao.numeroSessao ?? 0)) * 7 * DIA_MS),
+          novoInicio: novoInicioIrma(irma),
           duracaoMin: irma.duracaoMin,
           googleEventId: irma.googleEventId,
           googleCalendarId: irma.googleCalendarId ?? irma.tipoSessao?.googleCalendarId ?? null,
@@ -228,14 +312,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       ];
 
       const idsConjunto = movimentos.map((mov) => mov.id);
-
-      // Conflito de semana contra sessões do paciente que NÃO fazem parte do
-      // conjunto em movimento — mesmo padrão de "colisão contra as não
-      // movidas" usado em pacientes/[id]/empurrar/route.ts.
-      const outrasSessoesForaDoConjunto = await prisma.agendamento.findMany({
-        where: { pacienteId: sessao.pacienteId, id: { notIn: idsConjunto } },
-        select: { id: true, inicio: true, status: true },
-      });
 
       for (const mov of movimentos) {
         if (mov.novoInicio.getTime() < Date.now()) {
@@ -256,25 +332,53 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           );
         }
 
-        if (existeConflitoDeSemana(mov.novoInicio, outrasSessoesForaDoConjunto)) {
-          return NextResponse.json(
-            { erro: `Não é possível: já existe uma sessão deste paciente na semana da sessão ${mov.numeroSessao} (${formatarDataHoraSP(mov.novoInicio)}).` },
-            { status: 409 }
-          );
-        }
       }
 
-      await prisma.$transaction(
-        movimentos.map((mov) =>
-          prisma.agendamento.update({
-            where: { id: mov.id },
-            data:
-              mov.id === sessao.id
-                ? { inicio: mov.novoInicio, status: "AGENDADA" }
-                : { inicio: mov.novoInicio },
-          })
-        )
-      );
+      // Cadência (D1/D3) sob lock do paciente (D9): cada sessão movida contra
+      // as sessões do paciente que NÃO fazem parte do conjunto e contra as
+      // outras sessões movidas (já nas novas datas).
+      try {
+        await prisma.$transaction(async (tx) => {
+          await travarPaciente(tx, chaveLock);
+          const outrasSessoesForaDoConjunto = await tx.agendamento.findMany({
+            where: { pacienteId: sessao.pacienteId, id: { notIn: idsConjunto } },
+            select: { id: true, inicio: true, status: true },
+          });
+          const conflitos = validarCadenciaLote(
+            movimentos.map((mov) => ({
+              id: mov.id,
+              novaData: mov.novoInicio,
+              limite: limiteCadencia,
+              rotulo: `sessão ${mov.numeroSessao}`,
+            })),
+            outrasSessoesForaDoConjunto
+          );
+          if (conflitos.length > 0 && !forcar) throw new ErroCadencia(conflitos);
+
+          for (const mov of movimentos) {
+            await tx.agendamento.update({
+              where: { id: mov.id },
+              data:
+                mov.id === sessao.id
+                  ? { inicio: mov.novoInicio, status: "AGENDADA" }
+                  : { inicio: mov.novoInicio },
+            });
+          }
+          if (conflitos.length > 0 && forcar) {
+            await registrarExcecaoCadencia(tx, {
+              clinicaId: usuario.clinicaId,
+              usuarioId: usuario.id,
+              pacienteId: chaveLock,
+              operacao: "a edição de sessão (esta e as futuras)",
+              motivo: forcar.motivo,
+              conflitos,
+            });
+          }
+        }, OPCOES_TRANSACAO_CADENCIA);
+      } catch (err) {
+        if (err instanceof ErroCadencia) return respostaCadencia(err, usuario.papel);
+        throw err;
+      }
 
       await registrarLog(
         usuario.clinicaId,
@@ -306,30 +410,57 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       });
     }
 
-    // Conflito de semana: nenhuma outra sessão (não cancelada) desta mesma
-    // pessoa — paciente ou mentorado — pode cair na mesma semana (segunda a
-    // domingo, calendário de São Paulo) da nova data. Validado aqui no
-    // backend — não confiamos apenas na checagem já feita no front.
-    // `pacienteId: sessao.pacienteId` sozinho quebraria pra mentorado
+    // Cadência semanal (D1/D3): as outras sessões (não canceladas) desta
+    // mesma pessoa — paciente ou mentorado — na semana SP da nova data,
+    // contra o limite do pacote desta sessão (1x: nenhuma outra; 2x: no
+    // máximo uma, com 2+ dias de intervalo). Validado no backend, sob lock
+    // (D9). `pacienteId: sessao.pacienteId` sozinho quebraria pra mentorado
     // (pacienteId null casaria com todo agendamento sem paciente, de
     // qualquer clínica) — por isso o filtro é sempre por quem é dono desta
     // sessão especificamente.
-    const outrasSessoesMesmaPessoa = await prisma.agendamento.findMany({
-      where: sessao.alunoId
-        ? { alunoId: sessao.alunoId, id: { not: sessao.id } }
-        : { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
-      select: { id: true, inicio: true, status: true },
-    });
-    if (existeConflitoDeSemana(novaData, outrasSessoesMesmaPessoa)) {
-      return NextResponse.json(
-        { erro: `Não é possível: já existe uma sessão deste${sessao.alunoId ? " mentorado" : " paciente"} nesta semana.` },
-        { status: 409 }
-      );
+    let atualizada;
+    try {
+      atualizada = await prisma.$transaction(async (tx) => {
+        await travarPaciente(tx, chaveLock);
+        const outrasSessoesMesmaPessoa = await tx.agendamento.findMany({
+          where: sessao.alunoId
+            ? { alunoId: sessao.alunoId, id: { not: sessao.id } }
+            : { pacienteId: sessao.pacienteId, id: { not: sessao.id } },
+          select: { id: true, inicio: true, status: true },
+        });
+        const conflitos = ajustarQuem(
+          validarCadenciaLote(
+            [
+              {
+                id: sessao.id,
+                novaData,
+                limite: limiteCadencia,
+                rotulo: sessao.numeroSessao ? `sessão ${sessao.numeroSessao}` : undefined,
+              },
+            ],
+            outrasSessoesMesmaPessoa
+          )
+        );
+        if (conflitos.length > 0 && !forcar) throw new ErroCadencia(conflitos);
+        const upd = await tx.agendamento.update({
+          where: { id }, data: { inicio: novaData, status: "AGENDADA" },
+        });
+        if (conflitos.length > 0 && forcar) {
+          await registrarExcecaoCadencia(tx, {
+            clinicaId: usuario.clinicaId,
+            usuarioId: usuario.id,
+            pacienteId: chaveLock,
+            operacao: "a edição de sessão",
+            motivo: forcar.motivo,
+            conflitos,
+          });
+        }
+        return upd;
+      }, OPCOES_TRANSACAO_CADENCIA);
+    } catch (err) {
+      if (err instanceof ErroCadencia) return respostaCadencia(err, usuario.papel);
+      throw err;
     }
-
-    const atualizada = await prisma.agendamento.update({
-      where: { id }, data: { inicio: novaData, status: "AGENDADA" },
-    });
 
     await registrarLog(
       usuario.clinicaId,

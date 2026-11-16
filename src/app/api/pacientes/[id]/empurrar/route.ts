@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { componentesSP, criarDataSP } from "@/lib/timezone";
+import { componentesSP, criarDataSP, inicioSemanaSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { enfileirar } from "@/lib/sincronizacao";
+import { validarCadenciaLote } from "@/lib/conflitoSemana";
+import {
+  ErroCadencia,
+  lerForcarCadencia,
+  OPCOES_TRANSACAO_CADENCIA,
+  registrarExcecaoCadencia,
+  respostaCadencia,
+  travarPaciente,
+} from "@/lib/excecaoCadencia";
 
 // Offset em dias a partir da segunda-feira (0) de cada dia da semana
 const DIA_OFFSET: Record<string, number> = {
@@ -19,13 +28,12 @@ const DIA_OFFSET: Record<string, number> = {
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DIA_MS = 24 * 60 * 60 * 1000;
 
-// Marcador (meia-noite UTC do dia de calendário) da segunda-feira da semana
-// que contém `data`, calculado no calendário de São Paulo — usado só para
-// achar o dia de calendário alvo, nunca exposto como instante real.
-function inicioDaSemana(data: Date): Date {
-  const c = componentesSP(data);
-  const distSeg = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
-  return new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - distSeg * DIA_MS);
+// Erro de validação simples lançado dentro da $transaction (rollback) e
+// convertido em resposta pela rota.
+class ErroEmpurrar extends Error {
+  constructor(public status: number, mensagem: string) {
+    super(mensagem);
+  }
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -66,78 +74,129 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ erro: "informe semanas entre 1 e 10" }, { status: 400 });
   }
 
+  // D4: com pacote 2x/semana ativo, trocar dia/horário jogaria as duas
+  // sessões de cada semana no mesmo dia — recusado. Empurrar só em semanas
+  // (+7 dias × N) preserva o padrão dos dois dias e continua permitido.
+  if (diaAlvo !== null) {
+    const pacote2x = await prisma.pacote.findFirst({
+      where: { pacienteId, status: "ATIVO", frequenciaSemanal: 2 },
+      select: { id: true },
+    });
+    if (pacote2x) {
+      return NextResponse.json(
+        {
+          erro: "Este paciente tem atendimento 2x por semana: não é possível trocar o dia/horário pelo Empurrar. Empurre só em semanas, ou edite as sessões individualmente.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  const leituraForcar = lerForcarCadencia(body, usuario.papel);
+  if (!leituraForcar.ok) return NextResponse.json({ erro: leituraForcar.erro }, { status: 400 });
+  const forcar = leituraForcar.forcar;
+
   const agora = new Date();
   const hojeSP = componentesSP(agora);
   const hojeZero = criarDataSP(hojeSP.ano, hojeSP.mes, hojeSP.dia, 0, 0, 0);
 
-  const sessoes = await prisma.agendamento.findMany({
-    where: { pacienteId, status: { notIn: ["CANCELADA"] } },
-    orderBy: { numeroSessao: "asc" },
-  });
-
   const movimentos: {
     id: string;
+    numeroSessao: number | null;
     novaData: Date;
     googleEventId: string | null;
+    limite: number;
   }[] = [];
-  for (const s of sessoes) {
-    if (s.inicio < agora) continue;
-    let novaData = new Date(s.inicio.getTime() + semanas * 7 * DIA_MS);
 
-    if (diaAlvo !== null && horaAlvo) {
-      const semana = inicioDaSemana(novaData);
-      const diaCalendario = new Date(semana.getTime() + diaAlvo * DIA_MS);
-      novaData = criarDataSP(
-        diaCalendario.getUTCFullYear(),
-        diaCalendario.getUTCMonth() + 1,
-        diaCalendario.getUTCDate(),
-        horaAlvo.h,
-        horaAlvo.m
+  // Leitura, validação e escrita na mesma transação, sob o lock do paciente
+  // (D9) — tudo ou nada.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await travarPaciente(tx, pacienteId);
+
+      const sessoes = await tx.agendamento.findMany({
+        where: { pacienteId, status: { notIn: ["CANCELADA"] } },
+        orderBy: { numeroSessao: "asc" },
+        include: { pacote: { select: { frequenciaSemanal: true } } },
+      });
+
+      for (const s of sessoes) {
+        if (s.inicio < agora) continue;
+        let novaData = new Date(s.inicio.getTime() + semanas * 7 * DIA_MS);
+
+        if (diaAlvo !== null && horaAlvo) {
+          // inicioSemanaSP é segunda 00:00 SP como instante real (03:00 UTC):
+          // somar dias e ler os componentes UTC dá o dia de calendário certo.
+          const semana = inicioSemanaSP(novaData);
+          const diaCalendario = new Date(semana.getTime() + diaAlvo * DIA_MS);
+          novaData = criarDataSP(
+            diaCalendario.getUTCFullYear(),
+            diaCalendario.getUTCMonth() + 1,
+            diaCalendario.getUTCDate(),
+            horaAlvo.h,
+            horaAlvo.m
+          );
+        }
+
+        if (novaData < hojeZero) {
+          throw new ErroEmpurrar(
+            400,
+            `Operação bloqueada: sessão ${s.numeroSessao} cairia antes de hoje. Nada foi movido.`
+          );
+        }
+        movimentos.push({
+          id: s.id,
+          numeroSessao: s.numeroSessao,
+          novaData,
+          googleEventId: s.googleEventId,
+          limite: s.pacote?.frequenciaSemanal ?? 1,
+        });
+      }
+
+      if (movimentos.length === 0) {
+        throw new ErroEmpurrar(400, "nenhuma sessão futura para mover");
+      }
+
+      // Cadência: cada sessão movida contra as que ficam (passadas) e contra
+      // as outras movidas — em ordem cronológica, com o limite do pacote de
+      // cada uma (D1).
+      const naoMovidas = sessoes.filter((s) => s.inicio < agora);
+      const conflitos = validarCadenciaLote(
+        [...movimentos]
+          .sort((a, b) => a.novaData.getTime() - b.novaData.getTime())
+          .map((mov) => ({ id: mov.id, novaData: mov.novaData, limite: mov.limite, rotulo: `sessão ${mov.numeroSessao}` })),
+        naoMovidas
       );
-    }
+      if (conflitos.length > 0 && !forcar) throw new ErroCadencia(conflitos);
 
-    if (novaData < hojeZero) {
-      return NextResponse.json(
-        { erro: `Operação bloqueada: sessão ${s.numeroSessao} cairia antes de hoje. Nada foi movido.` },
-        { status: 400 }
-      );
-    }
-    movimentos.push({ id: s.id, novaData, googleEventId: s.googleEventId });
+      for (const mov of movimentos) {
+        await tx.agendamento.update({
+          where: { id: mov.id },
+          data: { inicio: mov.novaData, status: "AGENDADA" },
+        });
+      }
+      if (body.novoDia && body.novoHorario) {
+        await tx.paciente.update({
+          where: { id: pacienteId },
+          data: { diaPreferido: body.novoDia, horarioFixo: body.novoHorario },
+        });
+      }
+      if (conflitos.length > 0 && forcar) {
+        await registrarExcecaoCadencia(tx, {
+          clinicaId: usuario.clinicaId,
+          usuarioId: usuario.id,
+          pacienteId,
+          operacao: `o empurrar de ${semanas} semana(s)`,
+          motivo: forcar.motivo,
+          conflitos,
+        });
+      }
+    }, OPCOES_TRANSACAO_CADENCIA);
+  } catch (err) {
+    if (err instanceof ErroCadencia) return respostaCadencia(err, usuario.papel, "Não é possível empurrar (nada foi movido)");
+    if (err instanceof ErroEmpurrar) return NextResponse.json({ erro: err.message }, { status: err.status });
+    throw err;
   }
-
-  if (movimentos.length === 0) {
-    return NextResponse.json({ erro: "nenhuma sessão futura para mover" }, { status: 400 });
-  }
-
-  // Regra de conflito: nenhuma sessão movida pode cair na mesma semana
-  // (segunda a domingo) de uma sessão do mesmo paciente que não será movida
-  // (sessões passadas). Se colidir, bloqueia a operação inteira — tudo ou nada.
-  const naoMovidas = sessoes.filter((s) => s.inicio < agora);
-  const semanasNaoMovidas = new Set(naoMovidas.map((s) => inicioDaSemana(s.inicio).getTime()));
-  const colisao = movimentos.some((mov) => semanasNaoMovidas.has(inicioDaSemana(mov.novaData).getTime()));
-  if (colisao) {
-    return NextResponse.json(
-      { erro: "Não é possível empurrar: já existe uma sessão nesta semana. Nada foi movido." },
-      { status: 400 }
-    );
-  }
-
-  await prisma.$transaction([
-    ...movimentos.map((mov) =>
-      prisma.agendamento.update({
-        where: { id: mov.id },
-        data: { inicio: mov.novaData, status: "AGENDADA" },
-      })
-    ),
-    ...(body.novoDia && body.novoHorario
-      ? [
-          prisma.paciente.update({
-            where: { id: pacienteId },
-            data: { diaPreferido: body.novoDia, horarioFixo: body.novoHorario },
-          }),
-        ]
-      : []),
-  ]);
 
   // Reflete a nova data/hora no Google Calendar de cada sessão movida — via
   // outbox: CALENDAR_ATUALIZAR se a sessão já tinha evento, CALENDAR_CRIAR se

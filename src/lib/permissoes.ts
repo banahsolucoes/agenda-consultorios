@@ -17,7 +17,8 @@ export type Capacidade =
   | "verLog"
   | "gerirBilling"
   | "atenderWhatsapp"
-  | "conectarWhatsapp";
+  | "conectarWhatsapp"
+  | "furarTravaSemanal";
 
 /**
  * Papel do usuário no sistema.
@@ -33,6 +34,8 @@ export type Papel = "ADMIN" | "PROFISSIONAL" | "OPERADOR";
  * verLog, gerirBilling = false.
  * OPERADOR: gerirPacientes, operarAgenda, gerirTiposAtendimento = true; restante false.
  * conectarWhatsapp (Embedded Signup, 2026-11-06): só ADMIN.
+ * furarTravaSemanal (2026-11-16): só ADMIN — permite forçar, com motivo,
+ * uma operação que viola a cadência semanal do paciente (forcarCadencia).
  */
 export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
   ADMIN: {
@@ -50,6 +53,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     gerirBilling: true,
     atenderWhatsapp: true,
     conectarWhatsapp: true,
+    furarTravaSemanal: true,
   },
   PROFISSIONAL: {
     gerirPacientes: true,
@@ -66,6 +70,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     gerirBilling: false,
     atenderWhatsapp: true,
     conectarWhatsapp: false,
+    furarTravaSemanal: false,
   },
   OPERADOR: {
     gerirPacientes: true,
@@ -82,6 +87,7 @@ export const capacidadesPorPapel: Record<Papel, Record<Capacidade, boolean>> = {
     gerirBilling: false,
     atenderWhatsapp: true,
     conectarWhatsapp: false,
+    furarTravaSemanal: false,
   },
 };
 

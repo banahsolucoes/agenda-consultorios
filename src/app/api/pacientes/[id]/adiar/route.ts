@@ -2,19 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { pode } from "@/lib/permissoes";
-import { componentesSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { enfileirar } from "@/lib/sincronizacao";
+import { validarCadenciaLote } from "@/lib/conflitoSemana";
+import {
+  ErroCadencia,
+  lerForcarCadencia,
+  OPCOES_TRANSACAO_CADENCIA,
+  registrarExcecaoCadencia,
+  respostaCadencia,
+  travarPaciente,
+} from "@/lib/excecaoCadencia";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
-// Marcador (meia-noite UTC do dia de calendário) da segunda-feira da semana
-// que contém `data`, calculado no calendário de São Paulo — usado só para
-// comparação de igualdade entre semanas, nunca exposto como instante real.
-function inicioDaSemana(data: Date): Date {
-  const c = componentesSP(data);
-  const distSeg = c.diaSemana === 0 ? 6 : c.diaSemana - 1;
-  return new Date(Date.UTC(c.ano, c.mes - 1, c.dia) - distSeg * DIA_MS);
+class ErroAdiar extends Error {
+  constructor(public status: number, mensagem: string) {
+    super(mensagem);
+  }
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -36,44 +41,82 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ erro: "sessaoCorteId é obrigatório" }, { status: 400 });
   }
 
-  const sessoes = await prisma.agendamento.findMany({
-    where: { pacienteId, status: { notIn: ["CANCELADA"] } },
-    orderBy: { numeroSessao: "asc" },
-    include: { tipoSessao: true },
-  });
+  const leituraForcar = lerForcarCadencia(body, usuario.papel);
+  if (!leituraForcar.ok) return NextResponse.json({ erro: leituraForcar.erro }, { status: 400 });
+  const forcar = leituraForcar.forcar;
 
-  const corte = sessoes.find((s) => s.id === sessaoCorteId);
-  if (!corte) {
-    return NextResponse.json({ erro: "sessão de corte não encontrada" }, { status: 404 });
+  // Leitura, validação e escrita na mesma transação, sob o lock do paciente
+  // (D9) — tudo ou nada.
+  let corteNumero: number | null = null;
+  const movimentos: { sessao: { id: string; googleEventId: string | null }; novaData: Date }[] = [];
+  try {
+    await prisma.$transaction(async (tx) => {
+      await travarPaciente(tx, pacienteId);
+
+      // Todas as sessões do paciente (inclusive canceladas e de outros
+      // pacotes) — as que não forem movidas são a base da cadência.
+      const sessoes = await tx.agendamento.findMany({
+        where: { pacienteId },
+        orderBy: { numeroSessao: "asc" },
+        include: { pacote: { select: { frequenciaSemanal: true } } },
+      });
+
+      const corte = sessoes.find((s) => s.id === sessaoCorteId && s.status !== "CANCELADA");
+      if (!corte) throw new ErroAdiar(404, "sessão de corte não encontrada");
+      corteNumero = corte.numeroSessao;
+
+      // D5: só o pacote da sessão de corte — numeroSessao de pacotes
+      // diferentes (ex.: renovação) se intercalam e não podem ser misturados.
+      // pacienteId sempre não-nulo nesta query — toda sessão aqui é numerada
+      // (vem de um pacote), nunca uma reunião avulsa de mentorado.
+      const aMover = sessoes.filter(
+        (s) =>
+          s.status !== "CANCELADA" &&
+          s.pacoteId === corte.pacoteId &&
+          (s.numeroSessao ?? 0) >= (corte.numeroSessao ?? 0)
+      );
+      movimentos.push(...aMover.map((s) => ({ sessao: s, novaData: new Date(s.inicio.getTime() - 7 * DIA_MS) })));
+
+      // Cadência: TODAS as sessões movidas (não só a de corte) contra as que
+      // ficam e entre si, com o limite do pacote da sessão de corte (D1).
+      // Recuar 7 dias preserva o padrão 2x.
+      const limite = corte.pacote?.frequenciaSemanal ?? 1;
+      const conflitos = validarCadenciaLote(
+        aMover.map((s, i) => ({
+          id: s.id,
+          novaData: movimentos[i].novaData,
+          limite,
+          rotulo: `sessão ${s.numeroSessao}`,
+        })),
+        sessoes
+      );
+      if (conflitos.length > 0 && !forcar) throw new ErroCadencia(conflitos);
+
+      for (const mov of movimentos) {
+        await tx.agendamento.update({
+          where: { id: mov.sessao.id },
+          data: { inicio: mov.novaData, status: "AGENDADA" },
+        });
+      }
+      if (conflitos.length > 0 && forcar) {
+        await registrarExcecaoCadencia(tx, {
+          clinicaId: usuario.clinicaId,
+          usuarioId: usuario.id,
+          pacienteId,
+          operacao: `o trazer a partir da sessão ${corte.numeroSessao}`,
+          motivo: forcar.motivo,
+          conflitos,
+        });
+      }
+    }, OPCOES_TRANSACAO_CADENCIA);
+  } catch (err) {
+    if (err instanceof ErroCadencia) return respostaCadencia(err, usuario.papel, "Não é possível trazer (nada foi movido)");
+    if (err instanceof ErroAdiar) return NextResponse.json({ erro: err.message }, { status: err.status });
+    throw err;
   }
-
-  // pacienteId sempre não-nulo nesta query — toda sessão aqui é numerada
-  // (vem de um pacote), nunca uma reunião avulsa de mentorado.
-  const anteriores = sessoes.filter((s) => (s.numeroSessao ?? 0) < (corte.numeroSessao ?? 0));
-  const aMover = sessoes.filter((s) => (s.numeroSessao ?? 0) >= (corte.numeroSessao ?? 0));
-
-  // Regra de conflito: a sessão de corte recuada 7 dias não pode cair na mesma
-  // semana (segunda a domingo) de uma sessão anterior que não será movida.
-  // Se colidir, bloqueia a operação inteira — nada é movido.
-  const novaSemanaCorte = inicioDaSemana(new Date(corte.inicio.getTime() - 7 * DIA_MS)).getTime();
-  const colide = anteriores.some((s) => inicioDaSemana(s.inicio).getTime() === novaSemanaCorte);
-  if (colide) {
-    return NextResponse.json(
-      { erro: "Não é possível trazer: já existe uma sessão nesta semana." },
-      { status: 400 }
-    );
-  }
-
-  const movimentos = aMover.map((s) => ({ sessao: s, novaData: new Date(s.inicio.getTime() - 7 * DIA_MS) }));
-
-  await prisma.$transaction(
-    movimentos.map((mov) =>
-      prisma.agendamento.update({
-        where: { id: mov.sessao.id },
-        data: { inicio: mov.novaData, status: "AGENDADA" },
-      })
-    )
-  );
+  const aMover = movimentos.map((mov) => mov.sessao);
+  // Atribuído dentro do callback da transação — o TS não acompanha isso.
+  const numeroCorte = corteNumero as number | null;
 
   // Reflete a nova data/hora no Google Calendar de cada sessão movida — via
   // outbox: um item CALENDAR_ATUALIZAR se a sessão já tinha evento, ou
@@ -109,8 +152,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     usuario.clinicaId,
     usuario.id,
     "ADIAR",
-    `Trouxe ${aMover.length} ${sessaoOuSessoes} de ${paciente.nome} a partir da sessão ${corte.numeroSessao}`
+    `Trouxe ${aMover.length} ${sessaoOuSessoes} de ${paciente.nome} a partir da sessão ${numeroCorte}`
   );
 
-  return NextResponse.json({ adiadas: aMover.length, aPartirDe: corte.numeroSessao });
+  return NextResponse.json({ adiadas: aMover.length, aPartirDe: numeroCorte });
 }

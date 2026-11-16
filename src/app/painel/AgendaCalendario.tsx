@@ -25,6 +25,8 @@ import {
 import DatePickerSP from "./DatePickerSP";
 import AnamneseModal from "./AnamneseModal";
 import EmpurrarModal from "@/components/EmpurrarModal";
+import { useForcarCadencia } from "@/components/ForcarCadenciaModal";
+import FrequenciaPacoteCampos, { validarSlot2Pacote } from "@/components/FrequenciaPacoteCampos";
 
 // Granularidade da grade: cada linha representa 30 minutos. A altura em
 // pixels de cada linha (rowPx) é calculada em runtime a partir do espaço
@@ -68,6 +70,13 @@ interface SessaoAgenda {
   linkMeet: string | null;
   motivoCancelamento: string | null;
   confirmada: boolean;
+  // Frequência do pacote (GET /api/agenda) — null em reunião de mentorado.
+  pacote?: { frequenciaSemanal: number } | null;
+}
+
+// Sufixo "· 2x/semana" no rótulo da sessão quando o pacote é 2x.
+function sufixoFrequencia(sessao: SessaoAgenda) {
+  return sessao.pacote?.frequenciaSemanal === 2 ? " · 2x/semana" : "";
 }
 
 // Nome de exibição de uma sessão — de paciente ou de mentorado (reunião
@@ -292,6 +301,12 @@ export default function AgendaCalendario({
   // compartilhado com painel/page.tsx) é quem controla o formulário; aqui só
   // guarda pra quem a próxima chamada de /empurrar é.
   const [empurrarPacienteId, setEmpurrarPacienteId] = useState<string | null>(null);
+  // Sessão de onde o Empurrar foi aberto é de pacote 2x — esconde a troca de
+  // dia/horário no EmpurrarModal (D4; a API também recusa).
+  const [empurrar2x, setEmpurrar2x] = useState(false);
+  // Diálogo "Forçar mesmo assim" (ADMIN) nas respostas 409 de cadência do
+  // arrastar/soltar.
+  const { enviarComCadencia, modalForcarCadencia } = useForcarCadencia();
   const [modalNovo, setModalNovo] = useState(false);
   // Alvo de um drag que tem irmã futura elegível — aguarda a escolha do
   // usuário no EscopoMoveModal antes de mover qualquer coisa (nem local, nem
@@ -535,10 +550,10 @@ export default function AgendaCalendario({
       );
     }
     try {
-      const res = await fetch(`/api/sessoes/${sessao.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novaData: dataISODeData(novaData), novoHorario, escopo }),
+      const res = await enviarComCadencia(`/api/sessoes/${sessao.id}`, "PATCH", {
+        novaData: dataISODeData(novaData),
+        novoHorario,
+        escopo,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -812,6 +827,7 @@ export default function AgendaCalendario({
             setAnamnesePacienteId(pacienteId);
           }}
           onAbrirEmpurrar={(pacienteId) => {
+            setEmpurrar2x(sessaoDetalhe.pacote?.frequenciaSemanal === 2);
             setSessaoDetalhe(null);
             setEmpurrarPacienteId(pacienteId);
           }}
@@ -828,8 +844,12 @@ export default function AgendaCalendario({
           aberto={empurrarPacienteId !== null}
           onFechar={() => setEmpurrarPacienteId(null)}
           onSucesso={() => carregarSessoes()}
+          bloquearTrocaDiaHorario={empurrar2x}
         />
       )}
+
+      {/* Diálogo "Forçar mesmo assim" da cadência semanal (só ADMIN) */}
+      {modalForcarCadencia}
 
       {escopoPendente && (
         <EscopoMoveModal
@@ -1337,6 +1357,10 @@ function NovoAgendamentoModal({
   const [pacienteEscolhido, setPacienteEscolhido] = useState<PacienteOpcao | null>(null);
   const [tipoPacote, setTipoPacote] = useState<string>(TIPOS_PACOTE_OPCOES[0]);
   const [totalSessoes, setTotalSessoes] = useState("");
+  const [frequencia, setFrequencia] = useState<1 | 2>(1);
+  const [diaSemana2, setDiaSemana2] = useState("");
+  const [horario2, setHorario2] = useState("");
+  const { enviarComCadencia, modalForcarCadencia } = useForcarCadencia();
 
   // --- Mentorado ---
   const [opcoesAluno, setOpcoesAluno] = useState<AlunoOpcao[]>([]);
@@ -1387,6 +1411,15 @@ function NovoAgendamentoModal({
       setErro("informe o tipo de atendimento");
       return;
     }
+    // 2x não se aplica a Avulsa/atendimento único (mesma regra de painel/page.tsx).
+    const frequenciaEfetiva = tipoPacote === "AVULSA" || tipoSessaoEhUnico ? 1 : frequencia;
+    if (frequenciaEfetiva === 2) {
+      const erroSlot2 = validarSlot2Pacote(dataInicial, diaSemana2, horario2);
+      if (erroSlot2) {
+        setErro(erroSlot2);
+        return;
+      }
+    }
     setErro("");
     setSalvando(true);
     try {
@@ -1398,12 +1431,13 @@ function NovoAgendamentoModal({
         tipoSessaoId,
       };
       if (tipoPacote === "PERSONALIZADO") body.totalSessoes = Number(totalSessoes);
+      if (frequenciaEfetiva === 2) {
+        body.frequenciaSemanal = 2;
+        body.diaSemana2 = diaSemana2;
+        body.horario2 = horario2;
+      }
 
-      const res = await fetch("/api/pacotes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await enviarComCadencia("/api/pacotes", "POST", body);
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         setErro(data?.erro ?? "não foi possível criar o atendimento");
@@ -1602,6 +1636,16 @@ function NovoAgendamentoModal({
               </div>
             </div>
 
+            <FrequenciaPacoteCampos
+              frequencia={frequencia}
+              onFrequencia={setFrequencia}
+              diaSemana2={diaSemana2}
+              onDiaSemana2={setDiaSemana2}
+              horario2={horario2}
+              onHorario2={setHorario2}
+              desabilitado2x={tipoPacote === "AVULSA" || tipoSessaoEhUnico}
+            />
+
             {erro && <p className="rounded-lg bg-red/10 px-3 py-2 text-sm text-red">{erro}</p>}
 
             <div className="flex justify-end gap-3">
@@ -1718,6 +1762,7 @@ function NovoAgendamentoModal({
           </form>
         )}
       </div>
+      {modalForcarCadencia}
     </div>
   );
 }
@@ -1740,7 +1785,9 @@ function EscopoMoveModal({
         <p className="mb-4 text-sm text-muted">
           A sessão {sessao.numeroSessao}/{sessao.totalPacote} de {nomeDaSessao(sessao)} faz parte de um pacote com{" "}
           {qtdIrmas} sessão{qtdIrmas > 1 ? "ões" : ""} seguinte{qtdIrmas > 1 ? "s" : ""}. “Esta e as futuras”
-          realinha todas as seguintes para o novo dia e horário, mantendo a cadência semanal.
+          {sessao.pacote?.frequenciaSemanal === 2
+            ? "desloca todas as seguintes pelo mesmo intervalo, mantendo os dois dias da semana do atendimento 2x."
+            : "realinha todas as seguintes para o novo dia e horário, mantendo a cadência semanal."}
         </p>
         <div className="flex flex-col gap-2">
           <button
@@ -1788,6 +1835,7 @@ function SessaoDetalheModal({
   onAbrirAnamnese: (pacienteId: string) => void;
   onAbrirEmpurrar: (pacienteId: string) => void;
 }) {
+  const { enviarComCadencia, modalForcarCadencia } = useForcarCadencia();
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [editando, setEditando] = useState(false);
@@ -1852,10 +1900,8 @@ function SessaoDetalheModal({
     setErro("");
     setSalvando(true);
     try {
-      const res = await fetch(`/api/pacientes/${sessao.pacienteId}/adiar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessaoCorteId: sessao.id }),
+      const res = await enviarComCadencia(`/api/pacientes/${sessao.pacienteId}/adiar`, "POST", {
+        sessaoCorteId: sessao.id,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -1879,11 +1925,7 @@ function SessaoDetalheModal({
     setSalvando(true);
 	
     try {
-      const res = await fetch(`/api/sessoes/${sessao.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: novoStatus }),
-      });
+      const res = await enviarComCadencia(`/api/sessoes/${sessao.id}`, "PATCH", { status: novoStatus });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         setErro(data?.erro ?? "não foi possível atualizar a sessão");
@@ -1900,11 +1942,7 @@ function SessaoDetalheModal({
     setErro("");
     setSalvando(true);
     try {
-      const res = await fetch(`/api/sessoes/${sessao.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novaData, novoHorario }),
-      });
+      const res = await enviarComCadencia(`/api/sessoes/${sessao.id}`, "PATCH", { novaData, novoHorario });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         setErro(data?.erro ?? "não foi possível editar a sessão");
@@ -1994,7 +2032,7 @@ function SessaoDetalheModal({
             <p className="text-sm text-muted">
               {sessao.aluno
                 ? `Reunião de mentoria — ${sessao.tipoSessao?.nome ?? "Sem tipo"}`
-                : `Sessão ${sessao.numeroSessao}/${sessao.totalPacote} — ${sessao.tipoSessao?.nome ?? "Sem tipo"}`}
+                : `Sessão ${sessao.numeroSessao}/${sessao.totalPacote}${sufixoFrequencia(sessao)} — ${sessao.tipoSessao?.nome ?? "Sem tipo"}`}
             </p>
             <p className="text-sm text-muted">
               {inicio.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: TIMEZONE })} às{" "}
@@ -2172,7 +2210,9 @@ function SessaoDetalheModal({
               />
             </div>
             <p className="text-xs text-muted">
-              Qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente.
+              {sessao.pacote?.frequenciaSemanal === 2
+                ? "Qualquer data e horário (08:00–19:30). Atendimento 2x por semana: até 2 sessões do paciente na semana, com pelo menos 2 dias de intervalo (ex.: terça e quinta)."
+                : "Qualquer data e horário (08:00–19:30), desde que não caia na mesma semana de outra sessão deste paciente."}
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -2334,6 +2374,7 @@ function SessaoDetalheModal({
 
         
       </div>
+      {modalForcarCadencia}
     </div>
   );
 }

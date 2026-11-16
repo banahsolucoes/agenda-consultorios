@@ -2,10 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUsuarioLogado } from "@/lib/auth";
 import { enfileirar } from "@/lib/sincronizacao";
-import { criarDataSP } from "@/lib/timezone";
+import { componentesSP, criarDataSP } from "@/lib/timezone";
 import { registrarLog } from "@/lib/auditoria";
 import { tipoPacoteLabel } from "@/lib/labels";
 import { sincronizarTarefaRenovacao } from "@/lib/tarefas";
+import { pode } from "@/lib/permissoes";
+import { validarCadenciaLote, INTERVALO_MINIMO_DIAS } from "@/lib/conflitoSemana";
+import {
+  ErroCadencia,
+  lerForcarCadencia,
+  OPCOES_TRANSACAO_CADENCIA,
+  registrarExcecaoCadencia,
+  respostaCadencia,
+  travarPaciente,
+} from "@/lib/excecaoCadencia";
 
 const TOTAL_POR_TIPO: Record<string, number> = {
   AVULSA: 1, MENSAL: 4, BIMESTRAL: 8, TRIMESTRAL: 12,
@@ -13,6 +23,10 @@ const TOTAL_POR_TIPO: Record<string, number> = {
 const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATA_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DIA_MS = 24 * 60 * 60 * 1000;
+// Offset em dias a partir da segunda-feira (0) — mesmo mapa de empurrar/route.ts.
+const DIA_OFFSET: Record<string, number> = {
+  SEGUNDA: 0, TERCA: 1, QUARTA: 2, QUINTA: 3, SEXTA: 4, SABADO: 5, DOMINGO: 6,
+};
 
 // Componentes {ano, mes, dia} a partir de "YYYY-MM-DD", sem envolver Date
 // (que sofreria o deslocamento de fuso ao interpretar a string).
@@ -26,6 +40,9 @@ function parseDataLocal(dataStr: string): { ano: number; mes: number; dia: numbe
 export async function POST(req: NextRequest) {
   const usuario = await getUsuarioLogado();
   if (!usuario) return NextResponse.json({ erro: "não autenticado" }, { status: 401 });
+  if (!pode(usuario.papel, "operarAgenda")) {
+    return NextResponse.json({ erro: "sem permissão para esta ação" }, { status: 403 });
+  }
 
   const body = await req.json();
   const { pacienteId, tipo } = body;
@@ -91,35 +108,140 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const pacote = await prisma.pacote.create({
-    data: { pacienteId, tipo, totalSessoes: total, dataInicial: primeira },
-  });
+  // Frequência semanal (1 = padrão, comportamento histórico; 2 = dois slots
+  // por semana). Slot 1 = dia/hora da dataInicial; slot 2 = diaSemana2 +
+  // horario2, na MESMA semana do slot 1 e pelo menos INTERVALO_MINIMO_DIAS
+  // depois (D7). Com 1x, diaSemana2/horario2 são ignorados e gravados nulos.
+  const frequenciaSemanal = body.frequenciaSemanal === undefined ? 1 : Number(body.frequenciaSemanal);
+  if (frequenciaSemanal !== 1 && frequenciaSemanal !== 2) {
+    return NextResponse.json({ erro: "frequenciaSemanal deve ser 1 ou 2" }, { status: 400 });
+  }
+  let slot2: { offsetDias: number; h: number; m: number } | null = null;
+  if (frequenciaSemanal === 2) {
+    if (total < 2) {
+      return NextResponse.json({ erro: "frequência 2x por semana exige pelo menos 2 sessões" }, { status: 400 });
+    }
+    if (!body.diaSemana2 || !(body.diaSemana2 in DIA_OFFSET)) {
+      return NextResponse.json({ erro: "informe o dia da 2ª sessão da semana" }, { status: 400 });
+    }
+    if (!body.horario2 || !HORA_REGEX.test(body.horario2)) {
+      return NextResponse.json({ erro: "horário da 2ª sessão deve estar no formato HH:MM" }, { status: 400 });
+    }
+    const offsetSlot1 = (componentesSP(primeira).diaSemana + 6) % 7;
+    const offsetSlot2 = DIA_OFFSET[body.diaSemana2];
+    if (offsetSlot2 - offsetSlot1 < INTERVALO_MINIMO_DIAS) {
+      return NextResponse.json(
+        {
+          erro: `o 2º dia precisa estar na mesma semana (segunda a domingo) da 1ª sessão e pelo menos ${INTERVALO_MINIMO_DIAS} dias depois dela`,
+        },
+        { status: 400 }
+      );
+    }
+    const [h2, m2] = body.horario2.split(":").map(Number);
+    slot2 = { offsetDias: offsetSlot2 - offsetSlot1, h: h2, m: m2 };
+  }
+
+  const leituraForcar = lerForcarCadencia(body, usuario.papel);
+  if (!leituraForcar.ok) return NextResponse.json({ erro: leituraForcar.erro }, { status: 400 });
+  const forcar = leituraForcar.forcar;
+
+  // Datas das sessões. 1x: primeira + i semanas (inalterado). 2x: alterna
+  // slot 1 e slot 2 semana a semana; total ímpar deixa a última semana com
+  // só o slot 1.
+  const datas: Date[] = [];
+  for (let i = 0; i < total; i++) {
+    if (!slot2) {
+      datas.push(new Date(primeira.getTime() + i * 7 * DIA_MS));
+      continue;
+    }
+    const semana = Math.floor(i / 2);
+    const slot1DaSemana = new Date(primeira.getTime() + semana * 7 * DIA_MS);
+    if (i % 2 === 0) {
+      datas.push(slot1DaSemana);
+    } else {
+      const c = componentesSP(slot1DaSemana);
+      const dia = new Date(Date.UTC(c.ano, c.mes - 1, c.dia) + slot2.offsetDias * DIA_MS);
+      datas.push(criarDataSP(dia.getUTCFullYear(), dia.getUTCMonth() + 1, dia.getUTCDate(), slot2.h, slot2.m));
+    }
+  }
+
+  const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
+  const googleSyncStatus = clinica?.googleConectado ? "PENDENTE" : "NAO_APLICAVEL";
 
   // Renovação: um pacote novo reativa o paciente, saindo de Finalizado/Cancelado
   const foiRenovacao = paciente.statusGeral !== "ATIVO";
-  let tarefasConcluidas = 0;
-  if (foiRenovacao) {
-    tarefasConcluidas = await prisma.$transaction(async (tx) => {
-      await tx.paciente.update({
-        where: { id: pacienteId },
-        data: { statusGeral: "ATIVO", finalizadoEm: null },
-      });
-      const { tarefasConcluidas } = await sincronizarTarefaRenovacao(tx, paciente, "ATIVO", usuario.id);
-      return tarefasConcluidas;
-    });
-  }
 
-  const sessoes = [];
-  for (let i = 0; i < total; i++) {
-    const inicio = new Date(primeira.getTime() + i * 7 * DIA_MS);
-    sessoes.push({
-      clinicaId: usuario.clinicaId,
-      pacoteId: pacote.id, pacienteId,
-      numeroSessao: i + 1, totalPacote: total,
-      inicio, duracaoMin: tipoSessaoDuracaoMin,
-      tipoSessaoId,
-    });
+  // Validação de cadência + escrita na mesma transação, sob o lock do
+  // paciente (D9): cada data gerada é checada contra as sessões já
+  // existentes do paciente (todos os pacotes) e contra as anteriores do
+  // próprio lote, com o limite do pacote novo (D1).
+  let resultado: { pacote: { id: string }; agendamentoIds: string[]; tarefasConcluidas: number };
+  try {
+    resultado = await prisma.$transaction(async (tx) => {
+      await travarPaciente(tx, pacienteId);
+      const existentes = await tx.agendamento.findMany({
+        where: { pacienteId },
+        select: { id: true, inicio: true, status: true },
+      });
+      const conflitos = validarCadenciaLote(
+        datas.map((d, i) => ({ id: `nova-${i + 1}`, novaData: d, limite: frequenciaSemanal, rotulo: `sessão ${i + 1}` })),
+        existentes
+      );
+      if (conflitos.length > 0 && !forcar) throw new ErroCadencia(conflitos);
+
+      const pacote = await tx.pacote.create({
+        data: {
+          pacienteId, tipo, totalSessoes: total, dataInicial: primeira,
+          frequenciaSemanal,
+          diaSemana2: frequenciaSemanal === 2 ? body.diaSemana2 : null,
+          horario2: frequenciaSemanal === 2 ? body.horario2 : null,
+        },
+      });
+
+      let tarefasConcluidas = 0;
+      if (foiRenovacao) {
+        await tx.paciente.update({
+          where: { id: pacienteId },
+          data: { statusGeral: "ATIVO", finalizadoEm: null },
+        });
+        ({ tarefasConcluidas } = await sincronizarTarefaRenovacao(tx, paciente, "ATIVO", usuario.id));
+      }
+
+      const criadas = await tx.agendamento.createManyAndReturn({
+        data: datas.map((inicio, i) => ({
+          clinicaId: usuario.clinicaId,
+          pacoteId: pacote.id, pacienteId,
+          numeroSessao: i + 1, totalPacote: total,
+          inicio, duracaoMin: tipoSessaoDuracaoMin,
+          tipoSessaoId,
+          googleSyncStatus,
+        })),
+        select: { id: true, numeroSessao: true },
+      });
+      const idPorNumero = new Map(criadas.map((c) => [c.numeroSessao, c.id]));
+
+      if (conflitos.length > 0 && forcar) {
+        await registrarExcecaoCadencia(tx, {
+          clinicaId: usuario.clinicaId,
+          usuarioId: usuario.id,
+          pacienteId,
+          operacao: "a criação de atendimento",
+          motivo: forcar.motivo,
+          conflitos: conflitos.map((c) => ({ ...c, id: idPorNumero.get(Number(c.id.slice(5))) ?? c.id })),
+        });
+      }
+
+      return {
+        pacote,
+        agendamentoIds: datas.map((_, i) => idPorNumero.get(i + 1)!).filter(Boolean),
+        tarefasConcluidas,
+      };
+    }, OPCOES_TRANSACAO_CADENCIA);
+  } catch (err) {
+    if (err instanceof ErroCadencia) return respostaCadencia(err, usuario.papel, "Não é possível criar o atendimento");
+    throw err;
   }
+  const { pacote, tarefasConcluidas } = resultado;
 
   // Clínica com Google conectado: cada sessão criada aqui vira um item
   // CALENDAR_CRIAR no outbox (src/lib/sincronizacao.ts) — o evento em si
@@ -129,14 +251,12 @@ export async function POST(req: NextRequest) {
   // sessão (bug histórico corrigido em 2026-07-21). A gravação da sessão em
   // si nunca espera o Google: enfileirar() nunca lança, e o worker relê o
   // agendamento pelo id pra montar título/calendário/Meet na hora de
-  // processar (não precisa do estado local nesta requisição).
-  const clinica = await prisma.clinica.findUnique({ where: { id: usuario.clinicaId } });
-
-  for (const sessao of sessoes) {
-    const googleSyncStatus = clinica?.googleConectado ? "PENDENTE" : "NAO_APLICAVEL";
-    const agendamento = await prisma.agendamento.create({ data: { ...sessao, googleSyncStatus } });
-    if (clinica?.googleConectado) {
-      await enfileirar(clinica.id, "CALENDAR_CRIAR", { agendamentoId: agendamento.id });
+  // processar (não precisa do estado local nesta requisição). Enfileirado
+  // só depois do COMMIT acima, em ordem de numeroSessao, para o worker
+  // nunca enxergar um agendamento ainda não commitado.
+  if (clinica?.googleConectado) {
+    for (const agendamentoId of resultado.agendamentoIds) {
+      await enfileirar(clinica.id, "CALENDAR_CRIAR", { agendamentoId });
     }
   }
 
@@ -147,7 +267,7 @@ export async function POST(req: NextRequest) {
     usuario.clinicaId,
     usuario.id,
     acaoLog,
-    `${verboLog} atendimento ${tipoPacoteLabel(tipo)} (${total} ${sessaoOuSessoes}) para ${paciente.nome} — tipo de atendimento: ${tipoSessaoNome ?? "não definido"}`
+    `${verboLog} atendimento ${tipoPacoteLabel(tipo)} (${total} ${sessaoOuSessoes}${frequenciaSemanal === 2 ? " · 2x/semana" : ""}) para ${paciente.nome} — tipo de atendimento: ${tipoSessaoNome ?? "não definido"}`
   );
   if (tarefasConcluidas > 0) {
     await registrarLog(
